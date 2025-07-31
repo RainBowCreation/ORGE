@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "id": "orge",
+  "version": "${version}",
+
+  "name": "Orge",
+  "description": "Overhauled Realistic General Elements",
+  "authors": [
+    "RainBowCreation",
+    "NathanielSong",
+    "VocanicZ"
+  ],
+  "contact": {
+    "issues": "https://github.com/RainBowCreation/Orge/issues",
+    "sources": "https://github.com/RainBowCreation/Orge"
+  },
+
+  "license": "MIT",
+  "icon": "logo.png",
+
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "net.rainbowcreation.orge.Orge"
+    ],
+    "client": [
+      "net.rainbowcreation.orge.OrgeClient"
+    ],
+    "fabric-datagen": [
+      "net.rainbowcreation.orge.infrastructure.data.OrgeDatagen"
+    ],
+    "emi": [
+      "net.rainbowcreation.orge.compat.emi.OrgeEMI"
+    ],
+    "rei_client": [
+      "net.rainbowcreation.orge.compat.rei.OrgeREI"
+    ],
+    "jei_mod_plugin": [
+      "net.rainbowcreation.orge.compat.jei.OrgeJEI"
+    ],
+    "modmenu": [
+      "net.rainbowcreation.orge.compat.modmenu.OrgeModMenu"
+    ]
+  },
+
+  "mixins": [ "orge.mixins.json" ],
+  "accessWidener": "orge.accesswidener",
+
+  "depends": {
+    "minecraft": "${minecraft_version}",
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": ">=${fabric_version}",
+
+    "porting_lib_base": ">=${port_lib_base_version}",
+    "porting_lib_client_events": ">=${port_lib_client_events_version}",
+
+    "forgeconfigapiport": ">=${forge_config_version}",
+    "reach-entity-attributes": ">=${reach_entity_attributes_version}"
+  },
+
+  "breaks": {
+    "optifabric": "*",
+    "colormatic": "<=3.1.1",
+    "iris": "<=1.2.5",
+    "sodium": ["<0.5.0", "~0.6.0- <0.6.0-beta.3"]
+  },
+
+  "custom": {
+  }
+}

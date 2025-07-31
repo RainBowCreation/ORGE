@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "priority": 1100,
+  "package": "net.rainbowcreation.orge.foundation.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "plugin": "net.rainbowcreation.orge.foundation.mixin.OrgeMixinPlugin",
+  "mixins": [
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
