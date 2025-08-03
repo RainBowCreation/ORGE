@@ -1,0 +1,6 @@
+{
+  "name": "Water",
+  "IUPAC_S_ICK": "XLYOFNOQVPJJNP-UHFFFAOYSA-N",
+  "id": "water_liquid",
+  "override_id": "minecraft:water"
+}

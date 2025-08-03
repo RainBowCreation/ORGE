@@ -1,0 +1,6 @@
+{
+  "name": "Iron Block",
+  "IUPAC_S_ICK": "XEEYBQQBJWHFJM-UHFFFAOYSA-N",
+  "id": "iron_solid",
+  "override_id": "minecraft:iron_block"
+}
