@@ -8,6 +8,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.rainbowcreation.orge.Orge;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -23,16 +25,18 @@ public class SimConnectionManager {
 
     private static final String SERVER_IP = "127.0.0.1";
     private static final int SERVER_PORT = 6969;
+    private static final Logger log = LoggerFactory.getLogger(SimConnectionManager.class);
     private static int MAX_MESSAGES_PER_TICK = 10;
 
     private static Socket socket;
+    private static PrintWriter writer;
     private static BufferedReader reader;
     private static MinecraftServer mcServerInstance;
 
     public static final Queue<JsonObject> messageQueue = new ConcurrentLinkedQueue<>();
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private static Future<?> readerTask;
-    private static Gson gson = new Gson();
+    private static Gson gson = Orge.GSON;
     private static boolean isConnected = false;
 
     public static boolean isConnected() {
@@ -51,6 +55,7 @@ public class SimConnectionManager {
                 }
                 socket = new Socket(SERVER_IP, SERVER_PORT);
                 reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                writer = new PrintWriter(socket.getOutputStream(), true);
 
                 logMessage("§a[Sim] Connected to simulation server.");
                 isConnected = true;
@@ -58,7 +63,6 @@ public class SimConnectionManager {
                 readerTask = executor.submit(SimConnectionManager::listenForMessages);
             } catch (Exception e) {
                 logMessage("§c[Sim] Failed to connect: " + e.getMessage());
-                e.printStackTrace();
             }
         });
     }
@@ -108,6 +112,30 @@ public class SimConnectionManager {
             JsonObject finalJsonObject = jsonObject;
             mcServerInstance.execute(() -> processBlockChange(finalJsonObject));
             messagesProcessed++;
+        }
+    }
+
+    public static void sendMessage(String message) {
+        sendMessage(message, false);
+    }
+
+    public static void sendMessage(String message, boolean debug) {
+        if (isConnected && writer != null) {
+            try {
+                writer.println(message);
+                writer.flush();
+                if (debug) {
+                    logMessage("§d[Sim] Sent message: " + message);
+                }
+            } catch (Exception e) {
+                if (debug) {
+                    logMessage("§c[Sim] Failed to send message: " + e.getMessage());
+                }
+            }
+        } else {
+            if (debug) {
+                logMessage("§c[Sim] Not connected to server. Failed to send message.");
+            }
         }
     }
 

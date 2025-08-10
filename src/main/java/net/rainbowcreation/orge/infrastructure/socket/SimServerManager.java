@@ -1,6 +1,5 @@
 package net.rainbowcreation.orge.infrastructure.socket;
 
-import net.minecraft.server.MinecraftServer;
 import net.rainbowcreation.orge.Orge;
 
 import java.io.File;
@@ -14,18 +13,18 @@ public class SimServerManager {
     private static Process simulationProcess;
     private static Path extractedExePath;
 
-    public static void startServer(MinecraftServer server) {
-        String resourcePath = "data/orge/server/server.exe";
+    public static void startServer() {
+        String resourcePath = "data/orge/exe/EchoServer.exe";
 
         // Step 2: Extract the executable to a temporary location
         try (InputStream inputStream = Orge.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (inputStream == null) {
-                sendMessage("§c[Sim] Error: C++ server executable not found in resources at: " + resourcePath);
+                logMessage("§c[Sim] Error: C++ server executable not found in resources at: " + resourcePath);
                 return;
             }
 
             // Create a temporary file to store the executable
-            extractedExePath = Files.createTempFile("simserver", ".exe");
+            extractedExePath = Files.createTempFile("Orge Echo Server ", ".exe");
 
             // Copy the contents of the resource stream to the temporary file
             Files.copy(inputStream, extractedExePath, StandardCopyOption.REPLACE_EXISTING);
@@ -33,7 +32,7 @@ public class SimServerManager {
             // Step 3: Ensure the file has execute permissions
             File extractedFile = extractedExePath.toFile();
             if (!extractedFile.setExecutable(true)) {
-                sendMessage("§c[Sim] Error: Failed to set executable permissions on C++ server.");
+                logMessage("§c[Sim] Error: Failed to set executable permissions on C++ server.");
                 return;
             }
 
@@ -43,16 +42,16 @@ public class SimServerManager {
             pb.inheritIO();
 
             simulationProcess = pb.start();
-            sendMessage("§a[Sim] Started C++ simulation server. PID: " + simulationProcess.pid());
+            logMessage("§a[Sim] Started C++ simulation server. PID: " + simulationProcess.pid());
         } catch (IOException e) {
-            sendMessage("§c[Sim] Failed to start C++ server: " + e.getMessage());
+            logMessage("§c[Sim] Failed to start C++ server: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    public static void stopServer(MinecraftServer server) {
+    public static void stopServer() {
         if (simulationProcess != null && simulationProcess.isAlive()) {
-           sendMessage("§a[Sim] Shutting down C++ simulation server.");
+           logMessage("§a[Sim] Shutting down C++ simulation server.");
 
             // Attempt to gracefully terminate the process
             simulationProcess.destroy();
@@ -61,11 +60,11 @@ public class SimServerManager {
             try {
                 boolean exited = simulationProcess.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
                 if (exited) {
-                    sendMessage("§a[Sim] C++ server shut down successfully.");
+                    logMessage("§a[Sim] C++ server shut down successfully.");
                 } else {
                     // Forcefully terminate if it didn't exit gracefully
                     simulationProcess.destroyForcibly();
-                    sendMessage("§c[Sim] C++ server did not shut down gracefully. Forcibly terminated.");
+                    logMessage("§c[Sim] C++ server did not shut down gracefully. Forcibly terminated.");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // Restore the interrupted status
@@ -74,7 +73,7 @@ public class SimServerManager {
         }
     }
 
-    private static void sendMessage(String text) {
+    private static void logMessage(String text) {
         Orge.LOGGER.info(text);
     }
 }

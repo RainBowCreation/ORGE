@@ -1,9 +1,6 @@
 package net.rainbowcreation.orge;
 
 import com.tterrag.registrate.Registrate;
-import com.tterrag.registrate.util.entry.RegistryEntry;
-import net.minecraft.world.level.block.Blocks;
-import net.rainbowcreation.orge.content.element.solid.dirt.DirtBlock;
 
 public class AllBlocks {
     private static final Registrate REGISTRATE = Orge.registrate();
