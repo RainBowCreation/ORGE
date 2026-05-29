@@ -1,11 +1,20 @@
 package net.rainbowcreation.orge;
 
+import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.PackType;
+import net.minecraft.world.level.dimension.DimensionType;
+import net.minecraft.world.level.storage.LevelResource;
 import net.rainbowcreation.orge.material.MaterialJsonLoader;
+import net.rainbowcreation.orge.section.AmbientProvider;
+import net.rainbowcreation.orge.section.SectionStoreManager;
+import net.rainbowcreation.orge.section.SectionStorePlatform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
 
 /**
  * ORGE — Overhauled Realistic General Elements.
@@ -20,9 +29,30 @@ public final class Orge {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
 
+    /**
+     * Shared, server-thread-confined owner of the per-dimension section stores
+     * (DESIGN.md §5). The loader chunk/level hooks and any future subsystem
+     * (scheduler, engine) read and write through this single instance.
+     */
+    public static final SectionStoreManager SECTION_STORES = new SectionStoreManager();
+
     private static boolean initialized = false;
 
     private Orge() {
+    }
+
+    /**
+     * Per-dimension save directory under which the {@code orge/} region store is rooted.
+     *
+     * <p>Uses vanilla {@link DimensionType#getStorageFolder(net.minecraft.resources.ResourceKey, Path)}:
+     * the overworld resolves to the world root and other dimensions to their own
+     * {@code dimensions/<ns>/<path>/} folder — exactly where vanilla keeps each
+     * dimension's {@code region/} {@code .mca} files, so ORGE data lives beside (never
+     * inside) them. We only ever create/write the {@code orge/} subdirectory there.</p>
+     */
+    private static Path levelDirOf(ServerLevel level) {
+        Path worldRoot = level.getServer().getWorldPath(LevelResource.ROOT);
+        return DimensionType.getStorageFolder(level.dimension(), worldRoot);
     }
 
     /** Wire up the loader-agnostic subsystems. Idempotent. */
@@ -42,8 +72,31 @@ public final class Orge {
                 new MaterialJsonLoader(),
                 Identifier.fromNamespaceAndPath(MOD_ID, "materials"));
 
+        // DESIGN.md §5 — section store: wire chunk + level lifecycle to the per-dimension
+        // SectionStore so ORGE data persists under each level's orge/ dir (never .mca).
+        //
+        // Level load/save/unload use Architectury's common LifecycleEvent (one
+        // registration, both loaders). Chunk load/unload have no Architectury common
+        // event, so they go through the SectionStorePlatform @ExpectPlatform seam,
+        // implemented per loader with the loader-native chunk events.
+        //
+        // TODO(phase: section-store): use AmbientProvider.FALLBACK (~285 K, 0 mass) for
+        // now. The real biome-temperature + material-defaultMass provider is deferred
+        // until its consumers (engine/scheduler/phase-change) exist — mirrors §6
+        // deferring the live TagMembership bridge.
+        LifecycleEvent.SERVER_LEVEL_LOAD.register(level ->
+                SECTION_STORES.onLevelLoad(
+                        level.dimension().identifier(),
+                        levelDirOf(level),
+                        AmbientProvider.FALLBACK));
+        LifecycleEvent.SERVER_LEVEL_SAVE.register(level ->
+                SECTION_STORES.onLevelSave(level.dimension().identifier()));
+        LifecycleEvent.SERVER_LEVEL_UNLOAD.register(level ->
+                SECTION_STORES.onLevelUnload(level.dimension().identifier()));
+
+        SectionStorePlatform.registerChunkHooks(SECTION_STORES);
+
         // DESIGN.md §6  — material model: register the built-in materials + JSON loader.
-        // DESIGN.md §5  — section store: hook chunk load/unload to load/save world/orge/.
         // DESIGN.md §8  — scheduler: register the per-tick server scheduler.
         // DESIGN.md §2  — engine: bind liborge via Panama FFI (deferred; stub for now).
         // Each of the above is a stubbed subsystem under this package; later phases
