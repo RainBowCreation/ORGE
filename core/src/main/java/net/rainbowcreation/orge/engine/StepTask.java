@@ -13,7 +13,8 @@ import net.rainbowcreation.orge.section.SubchunkKey;
  * @param matIx       material LUT index per cell (length 4096)
  * @param mass        kg per cell (length 4096)
  * @param temperature K per cell at the start of the step (length 4096)
- * @param halo        one-cell neighbour temperatures around the section (6 faces)
+ * @param halo        one-cell neighbour temperatures + material indices around the
+ *                    section (6 faces; see {@link NeighborHalo})
  */
 public record StepTask(
         SubchunkKey key,
