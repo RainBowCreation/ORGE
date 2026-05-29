@@ -65,7 +65,7 @@ public final class SectionCodec {
                 while (!inf.finished() && total < expectedLen) {
                     int n = inf.inflate(out, total, expectedLen - total);
                     if (n == 0 && !inf.finished()) {
-                        break; // needs input or is done
+                        break; // no-dict deflate: inflate() returning 0 while not finished means corrupt input
                     }
                     total += n;
                 }
@@ -153,10 +153,12 @@ public final class SectionCodec {
             return SectionData.uniform(t, m);
         } else if (form == FORM_FULL) {
             int tLen = in.readInt();
+            if (tLen < 0) throw new IOException("corrupt section: negative compressed length " + tLen);
             byte[] tComp = in.readNBytes(tLen);
             float[] t = bytesToFloats(inflate(tComp, SectionData.CELLS * 4));
 
             int mLen = in.readInt();
+            if (mLen < 0) throw new IOException("corrupt section: negative compressed length " + mLen);
             byte[] mComp = in.readNBytes(mLen);
             float[] m = bytesToFloats(inflate(mComp, SectionData.CELLS * 4));
 
@@ -191,14 +193,10 @@ public final class SectionCodec {
         out.writeByte(FORMAT_VERSION);
         out.writeShort(column.size());
         // Sort by key for deterministic output
-        new TreeMap<>(column).forEach((sectionY, section) -> {
-            try {
-                out.writeInt(sectionY);
-                writeSection(out, section);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
+        for (Map.Entry<Integer, SectionData> e : new TreeMap<>(column).entrySet()) {
+            out.writeInt(e.getKey());
+            writeSection(out, e.getValue());
+        }
         out.flush();
         return bos.toByteArray();
     }
