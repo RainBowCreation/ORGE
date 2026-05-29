@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.TreeMap;
 
 /**
@@ -93,6 +94,7 @@ public final class RegionStore implements Closeable {
      * @throws UncheckedIOException if an I/O error occurs
      */
     public void saveColumn(int cx, int cz, Map<Integer, SectionData> sections) {
+        Objects.requireNonNull(sections, "sections");
         try {
             RegionFile rf = region(cx, cz);
             if (sections.isEmpty()) {
@@ -133,6 +135,8 @@ public final class RegionStore implements Closeable {
      * @throws UncheckedIOException if an I/O error occurs
      */
     public void save(SubchunkKey key, SectionData data) {
+        Objects.requireNonNull(key, "key");
+        Objects.requireNonNull(data, "data");
         NavigableMap<Integer, SectionData> col = loadColumn(key.cx(), key.cz());
         col.put(key.sectionY(), data);
         saveColumn(key.cx(), key.cz(), col);
@@ -154,7 +158,7 @@ public final class RegionStore implements Closeable {
             try {
                 rf.close();
             } catch (IOException e) {
-                if (first == null) first = e;
+                if (first == null) { first = e; } else { first.addSuppressed(e); }
             }
         }
         open.clear();
@@ -163,6 +167,7 @@ public final class RegionStore implements Closeable {
 
     /**
      * Implements {@link Closeable}; delegates to {@link #closeAll()}.
+     * Any failure closing a region file surfaces as {@link UncheckedIOException}.
      */
     @Override
     public void close() {
