@@ -26,7 +26,11 @@ import java.util.Objects;
 public final class SectionStoreManager {
 
     /** Pairs a dimension's live {@link SectionStore} with the {@link RegionStore} it owns. */
-    private record Holder(SectionStore store, RegionStore region) {
+    private record Holder(
+            /** Live in-memory authority for this dimension's sections. */
+            SectionStore store,
+            /** Owns the open region files; closed on dimension unload. */
+            RegionStore region) {
     }
 
     private final Map<Identifier, Holder> byDimension = new HashMap<>();
@@ -79,11 +83,16 @@ public final class SectionStoreManager {
     /**
      * Flushes all dirty columns, closes the dimension's region files, and removes the
      * dimension entry. No-op if the dimension is unknown.
+     *
+     * <p>{@code closeAll()} runs in a {@code finally} block so region file handles are
+     * always released even if {@code flushAll()} throws an {@link java.io.UncheckedIOException}.</p>
      */
     public void onLevelUnload(Identifier dim) {
         Holder h = byDimension.remove(dim);
-        if (h != null) {
+        if (h == null) return;
+        try {
             h.store.flushAll();
+        } finally {
             h.region.closeAll();
         }
     }

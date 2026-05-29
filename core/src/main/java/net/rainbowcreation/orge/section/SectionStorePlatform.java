@@ -5,11 +5,8 @@ import dev.architectury.injectables.annotations.ExpectPlatform;
 /**
  * Loader-specific chunk load/unload hooks for the section store (DESIGN.md §5).
  *
- * <p>Architectury's common {@code LifecycleEvent} covers level load/save/unload on
- * both loaders, and {@code ChunkEvent.LOAD_DATA} covers chunk load — but Architectury
- * exposes <em>no</em> chunk-unload event. To keep both chunk edges consistent we route
- * chunk load <em>and</em> unload through this {@link ExpectPlatform} seam, implemented
- * with the loader-native events:
+ * <p>Architectury exposes no common chunk load/unload (activation) events, so each
+ * loader's native chunk events are bridged here via {@link ExpectPlatform}:
  * <ul>
  *   <li>Fabric: {@code ServerChunkEvents.CHUNK_LOAD} / {@code CHUNK_UNLOAD}
  *       ({@code (ServerLevel, LevelChunk)}).</li>

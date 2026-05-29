@@ -42,7 +42,12 @@ class SectionStoreManagerTest {
         second.onLevelLoad(OVERWORLD, dir, AMBIENT_300);
         second.onChunkLoad(OVERWORLD, 0, 0);
 
-        SectionData reloaded = second.store(OVERWORLD).get(key);
+        SectionData reloaded;
+        try {
+            reloaded = second.store(OVERWORLD).get(key);
+        } finally {
+            second.onLevelUnload(OVERWORLD); // release region file handles
+        }
         assertEquals(500.0f, reloaded.temperatureAt(0), 0.0f, "temperature persisted");
         assertEquals(1000.0f, reloaded.massAt(0), 0.0f, "mass persisted");
     }
