@@ -31,5 +31,5 @@ public record Material(
         Identifier freezingTarget,
         Identifier representativeBlock
 ) {
-    // TODO(phase: materials): builder + JSON codec; validate non-negative constants.
+    // TODO(phase: materials): builder + validate non-negative constants.
 }

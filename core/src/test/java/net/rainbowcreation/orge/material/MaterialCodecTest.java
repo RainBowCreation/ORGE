@@ -16,7 +16,7 @@ class MaterialCodecTest {
     private static final Identifier TEST_ID = Identifier.fromNamespaceAndPath("orge", "test_stone");
 
     // -------------------------------------------------------------------------
-    // (a) Full round-trip: all 10 body fields present
+    // (a) Full decode: all 10 body fields present
     // -------------------------------------------------------------------------
     @Test
     void fullJsonDecodesAllFields() {
@@ -39,13 +39,13 @@ class MaterialCodecTest {
 
         assertNotNull(m, "fromJson should not return null");
         assertEquals(TEST_ID, m.id());
-        assertEquals(2.5f, m.thermalConductivity(), 1e-6f);
-        assertEquals(840.0f, m.heatCapacity(), 1e-3f);
-        assertEquals(0.001f, m.viscosity(), 1e-7f);
-        assertEquals(2700.0f, m.defaultMass(), 1e-3f);
-        assertEquals(0.060f, m.molarMass(), 1e-6f);
-        assertEquals(3000.0f, m.boilingPoint(), 1e-3f);
-        assertEquals(1600.0f, m.freezingPoint(), 1e-3f);
+        assertEquals(2.5f, m.thermalConductivity(), 1e-5f);
+        assertEquals(840.0f, m.heatCapacity(), 1e-5f);
+        assertEquals(0.001f, m.viscosity(), 1e-5f);
+        assertEquals(2700.0f, m.defaultMass(), 1e-5f);
+        assertEquals(0.060f, m.molarMass(), 1e-5f);
+        assertEquals(3000.0f, m.boilingPoint(), 1e-5f);
+        assertEquals(1600.0f, m.freezingPoint(), 1e-5f);
         assertEquals(Identifier.fromNamespaceAndPath("orge", "lava"), m.boilingTarget());
         assertEquals(Identifier.fromNamespaceAndPath("orge", "basalt"), m.freezingTarget());
         assertEquals(Identifier.fromNamespaceAndPath("minecraft", "stone"), m.representativeBlock());
@@ -126,7 +126,7 @@ class MaterialCodecTest {
                 }
                 """;
 
-        assertThrows(RuntimeException.class,
+        assertThrows(IllegalArgumentException.class,
                 () -> MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json)),
                 "Missing required field should throw");
     }

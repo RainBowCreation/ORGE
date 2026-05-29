@@ -19,9 +19,7 @@ import java.util.Optional;
  * to somehow inject the id, which is awkward with DFU's immutable codec pipeline.
  * Instead we expose:</p>
  * <ol>
- *   <li>{@link #BODY_CODEC} — a {@code Codec<BodyData>} for the 10 body fields; useful
- *       if callers need the raw DFU codec (e.g. to encode back to JSON).</li>
- *   <li>{@link #fromJson(Identifier, JsonElement)} — the primary public entry point;
+ *   <li>{@link #fromJson(Identifier, JsonElement)} — the sole public entry point;
  *       decodes the body and attaches the caller-supplied id, throwing a clean
  *       {@link IllegalArgumentException} on failure.</li>
  * </ol>
@@ -58,14 +56,14 @@ public final class MaterialCodec {
     ) {}
 
     // -------------------------------------------------------------------------
-    // Public codec for the body (10 fields, no id)
+    // Internal codec for the body (10 fields, no id)
     // -------------------------------------------------------------------------
 
     /**
      * DFU codec for the 10 JSON body fields. The material id is NOT part of
      * this codec — it must be supplied externally via {@link #fromJson}.
      */
-    public static final Codec<BodyData> BODY_CODEC = RecordCodecBuilder.create(instance ->
+    private static final Codec<BodyData> BODY_CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
                     Codec.FLOAT.fieldOf("thermal_conductivity")
                             .forGetter(BodyData::thermalConductivity),
