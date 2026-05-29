@@ -1,6 +1,5 @@
 package net.rainbowcreation.orge.section;
 
-import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -67,25 +66,14 @@ public final class SectionStore {
      * call is a no-op. The live in-memory state is never clobbered by a stale disk read.
      * Called by the chunk-load event handler.</p>
      *
-     * <p>If the backing region file does not exist yet, the column is initialized as an
-     * empty in-memory map without touching disk, so absent regions never create spurious
+     * <p>If the backing region file does not exist yet, {@link RegionStore#loadColumn}
+     * returns an empty map without touching disk, so absent regions never create spurious
      * region files.</p>
      */
     public void loadColumn(int cx, int cz) {
         long key = colKey(cx, cz);
-        if (loaded.containsKey(key)) {
-            return; // already loaded — do not overwrite live state
-        }
-        // Only read disk if the region file actually exists.
-        // This prevents creating empty region files for never-written regions.
-        int rx = cx >> 5, rz = cz >> 5;
-        java.nio.file.Path regionFile = region.directory()
-                .resolve("r." + rx + "." + rz + ".orge");
-        if (Files.exists(regionFile)) {
-            loaded.put(key, region.loadColumn(cx, cz));
-        } else {
-            loaded.put(key, new TreeMap<>());
-        }
+        if (loaded.containsKey(key)) return;          // idempotent — don't clobber live state
+        loaded.put(key, region.loadColumn(cx, cz));   // RegionStore avoids creating files for absent regions
     }
 
     /**

@@ -48,17 +48,28 @@ public final class RegionStore implements Closeable {
     // Private helpers
     // -------------------------------------------------------------------------
 
+    /** Returns the packed cache key for the region that contains chunk (cx, cz). */
+    private static long regionKey(int cx, int cz) {
+        int rx = cx >> 5, rz = cz >> 5;
+        return ((long) rx << 32) | (rz & 0xFFFFFFFFL);
+    }
+
+    /** Returns the on-disk path for the region file that contains chunk (cx, cz). */
+    private Path regionFilePath(int cx, int cz) {
+        int rx = cx >> 5, rz = cz >> 5;
+        return orgeDir.resolve("r." + rx + "." + rz + ".orge");
+    }
+
     /**
      * Returns (opening lazily) the {@link RegionFile} that covers chunk column (cx, cz).
      * Throws {@link UncheckedIOException} if the file cannot be opened.
      */
     private RegionFile region(int cx, int cz) {
-        int rx = cx >> 5, rz = cz >> 5;
-        long key = ((long) rx << 32) | (rz & 0xFFFFFFFFL);
+        long key = regionKey(cx, cz);
         return open.computeIfAbsent(key, k -> {
             try {
                 Files.createDirectories(orgeDir);
-                return new RegionFile(orgeDir.resolve("r." + rx + "." + rz + ".orge"));
+                return new RegionFile(regionFilePath(cx, cz));
             } catch (IOException e) {
                 throw new UncheckedIOException(
                         "failed to open region file for chunk (" + cx + "," + cz + ")", e);
@@ -78,6 +89,12 @@ public final class RegionStore implements Closeable {
      * @throws UncheckedIOException if an I/O error occurs
      */
     public NavigableMap<Integer, SectionData> loadColumn(int cx, int cz) {
+        // If the region file is not already open in the cache AND does not exist on disk,
+        // return an empty map immediately — do not open/create the file.
+        long key = regionKey(cx, cz);
+        if (!open.containsKey(key) && !Files.exists(regionFilePath(cx, cz))) {
+            return new TreeMap<>();
+        }
         try {
             byte[] blob = region(cx, cz).read(cx & 31, cz & 31);
             return blob == null ? new TreeMap<>() : SectionCodec.readColumn(blob);

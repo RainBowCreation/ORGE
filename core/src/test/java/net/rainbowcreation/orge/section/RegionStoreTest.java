@@ -88,7 +88,28 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 3: Negative coords + correct file naming
+    // Test 3: loadColumn for a never-written region returns empty and creates no file
+    // -------------------------------------------------------------------------
+
+    @Test
+    void loadColumnNeverWrittenRegionCreatesNoFile() {
+        RegionStore store = new RegionStore(world);
+
+        // Chunk (5, 5) lives in region (0, 0); no data has ever been written
+        NavigableMap<Integer, SectionData> result = store.loadColumn(5, 5);
+
+        assertNotNull(result, "loadColumn must never return null");
+        assertTrue(result.isEmpty(), "absent column must return empty map");
+
+        Path regionFile = world.resolve("orge").resolve("r.0.0.orge");
+        assertFalse(Files.exists(regionFile),
+                "loadColumn for a never-written region must NOT create the region file");
+
+        store.closeAll();
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 4: Negative coords + correct file naming
     // -------------------------------------------------------------------------
 
     @Test
@@ -121,7 +142,7 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 4: Two columns share one region file
+    // Test 5: Two columns share one region file
     // -------------------------------------------------------------------------
 
     @Test
@@ -155,7 +176,7 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 5: Empty save deletes the slot
+    // Test 6: Empty save deletes the slot
     // -------------------------------------------------------------------------
 
     @Test
@@ -177,7 +198,7 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 6: Per-section convenience (load/save delegates to column)
+    // Test 7: Per-section convenience (load/save delegates to column)
     // -------------------------------------------------------------------------
 
     @Test
@@ -211,7 +232,7 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 7: close() implements Closeable
+    // Test 8: close() implements Closeable
     // -------------------------------------------------------------------------
 
     @Test
@@ -229,7 +250,7 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 8: directory() returns the correct subdirectory
+    // Test 9: directory() returns the correct subdirectory
     // -------------------------------------------------------------------------
 
     @Test
