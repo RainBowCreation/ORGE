@@ -1,5 +1,7 @@
 package net.rainbowcreation.orge.section;
 
+import java.util.Arrays;
+
 /**
  * Per-cell thermal metadata for one section (DESIGN.md §5).
  *
@@ -61,7 +63,177 @@ public final class SectionData {
         return form == Form.UNIFORM ? uniformMass : mass[i];
     }
 
-    // TODO(phase: section-store): promote UNIFORM -> FULL on first per-cell write,
-    //  demote FULL -> UNIFORM when all cells are equal again, and expose the raw
-    //  float[] views the engine FFI and scheduler need.
+    // -------------------------------------------------------------------------
+    // Factory: full
+    // -------------------------------------------------------------------------
+
+    /**
+     * Constructs a {@code FULL} section by adopting the two supplied arrays directly
+     * (no copy — the codec hands over freshly-read arrays).
+     *
+     * @param temperature length-{@value CELLS} temperature array (K)
+     * @param mass        length-{@value CELLS} mass array (kg)
+     * @throws IllegalArgumentException if either array has a length other than {@value CELLS}
+     */
+    public static SectionData full(float[] temperature, float[] mass) {
+        if (temperature.length != CELLS) {
+            throw new IllegalArgumentException(
+                    "temperature array length must be " + CELLS + ", got " + temperature.length);
+        }
+        if (mass.length != CELLS) {
+            throw new IllegalArgumentException(
+                    "mass array length must be " + CELLS + ", got " + mass.length);
+        }
+        return new SectionData(Form.FULL, 0f, 0f, temperature, mass);
+    }
+
+    // -------------------------------------------------------------------------
+    // Uniform accessors (for the codec)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns the uniform temperature value. Only meaningful when {@link #form()} is
+     * {@link Form#UNIFORM}.
+     */
+    public float uniformTemperature() {
+        return uniformTemperature;
+    }
+
+    /**
+     * Returns the uniform mass value. Only meaningful when {@link #form()} is
+     * {@link Form#UNIFORM}.
+     */
+    public float uniformMass() {
+        return uniformMass;
+    }
+
+    // -------------------------------------------------------------------------
+    // Promotion: UNIFORM -> FULL on first per-cell write
+    // -------------------------------------------------------------------------
+
+    /**
+     * Promotes this section from {@code UNIFORM} to {@code FULL}, back-filling every
+     * cell with the current uniform values. No-op if already {@code FULL}.
+     */
+    private void promote() {
+        if (form == Form.FULL) {
+            return;
+        }
+        temperature = new float[CELLS];
+        mass = new float[CELLS];
+        Arrays.fill(temperature, uniformTemperature);
+        Arrays.fill(mass, uniformMass);
+        form = Form.FULL;
+    }
+
+    /**
+     * Sets the temperature (K) of cell {@code i}, promoting to {@code FULL} if needed.
+     *
+     * @param i cell index (0..{@value CELLS}-1)
+     * @param v temperature in Kelvin
+     */
+    public void setTemperature(int i, float v) {
+        promote();
+        temperature[i] = v;
+    }
+
+    /**
+     * Sets the mass (kg) of cell {@code i}, promoting to {@code FULL} if needed.
+     *
+     * @param i cell index (0..{@value CELLS}-1)
+     * @param v mass in kg
+     */
+    public void setMass(int i, float v) {
+        promote();
+        mass[i] = v;
+    }
+
+    // -------------------------------------------------------------------------
+    // Raw array views (live — the engine writes directly into these)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns the <em>live</em> temperature array (length {@value CELLS}).
+     *
+     * <p><b>Contract:</b> the returned reference is the actual backing store —
+     * any writes by the caller are immediately visible via {@link #temperatureAt(int)}.
+     * If the section is currently {@code UNIFORM} it is force-promoted to {@code FULL}
+     * so that the caller always receives a real array.</p>
+     */
+    public float[] temperatureArray() {
+        promote();
+        return temperature;
+    }
+
+    /**
+     * Returns the <em>live</em> mass array (length {@value CELLS}).
+     *
+     * <p><b>Contract:</b> the returned reference is the actual backing store —
+     * any writes by the caller are immediately visible via {@link #massAt(int)}.
+     * If the section is currently {@code UNIFORM} it is force-promoted to {@code FULL}
+     * so that the caller always receives a real array.</p>
+     */
+    public float[] massArray() {
+        promote();
+        return mass;
+    }
+
+    // -------------------------------------------------------------------------
+    // Demotion: FULL -> UNIFORM when all cells are equal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Attempts to collapse a {@code FULL} section back to {@code UNIFORM} when every
+     * cell holds the same temperature and mass.
+     *
+     * <p>Uses exact {@code float ==} comparison — demotion only fires when the engine
+     * genuinely left all cells identical (e.g. after a full-section reset).</p>
+     *
+     * @return {@code true} if the section is (or becomes) {@code UNIFORM};
+     *         {@code false} if cells differ and the section stays {@code FULL}
+     */
+    public boolean demoteIfUniform() {
+        if (form == Form.UNIFORM) {
+            return true;
+        }
+        float t0 = temperature[0];
+        float m0 = mass[0];
+        for (int i = 1; i < CELLS; i++) {
+            if (temperature[i] != t0 || mass[i] != m0) {
+                return false;
+            }
+        }
+        uniformTemperature = t0;
+        uniformMass = m0;
+        temperature = null;
+        mass = null;
+        form = Form.UNIFORM;
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Value equality
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns {@code true} iff this section and {@code o} have the same temperature
+     * and mass in every cell (including the UNIFORM-vs-FULL cross-comparison).
+     *
+     * <p>Uses {@link Float#compare(float, float)} for exact equality (no epsilon).
+     * Does <em>not</em> override {@link Object#equals} — identity semantics are
+     * preserved; use this named helper when value equality is required.</p>
+     *
+     * @param o the other section to compare
+     */
+    public boolean equalsValue(SectionData o) {
+        for (int i = 0; i < CELLS; i++) {
+            if (Float.compare(this.temperatureAt(i), o.temperatureAt(i)) != 0) {
+                return false;
+            }
+            if (Float.compare(this.massAt(i), o.massAt(i)) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
