@@ -214,6 +214,7 @@ class MaterialDataTest {
                   "thermal_conductivity": 80.0,
                   "heat_capacity": 450.0,
                   "default_mass": 7874.0
+                  // molar_mass intentionally omitted — it is optional and defaults to 0
                 }
                 """;
         // Missing required field "heat_capacity" → MaterialCodec will throw
@@ -228,7 +229,7 @@ class MaterialDataTest {
         files.put(id("orge:good"), JsonParser.parseString(goodJson));
         files.put(id("orge:bad"),  JsonParser.parseString(badJson));
 
-        Exception ex = assertThrows(Exception.class,
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> MaterialData.loadMaterials(files, registry));
         assertTrue(ex.getMessage().contains("orge:bad"),
                 "exception message should contain the failing material id 'orge:bad', got: " + ex.getMessage());

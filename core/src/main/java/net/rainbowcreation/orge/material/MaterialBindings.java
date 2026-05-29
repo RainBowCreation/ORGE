@@ -27,6 +27,7 @@ public final class MaterialBindings {
      * whatever tag system is appropriate (datapack tags at runtime, an in-test map
      * during unit tests).
      */
+    @FunctionalInterface
     public interface TagMembership {
         /** Returns {@code true} if {@code blockId} is a member of {@code tagId}. */
         boolean contains(Identifier tagId, Identifier blockId);
@@ -54,7 +55,11 @@ public final class MaterialBindings {
     /**
      * Registers a tag binding.  First-registered tag wins when multiple tags match
      * the same block (insertion order is preserved by {@link LinkedHashMap}).
-     * Replaces the material of a previously registered binding for the same tag.
+     *
+     * <p>Re-registering an already-bound tag updates its material value but
+     * <em>keeps its original (first-seen) priority position</em> — consistent
+     * with {@link LinkedHashMap#put} semantics, which does not move an existing
+     * key.</p>
      */
     public void addTagBinding(Identifier tagId, Identifier materialId) {
         tagBindings.put(tagId, materialId);

@@ -33,19 +33,7 @@ class MaterialRegistryTest {
     }
 
     private static Material fallbackMaterial() {
-        return new Material(
-                MaterialRegistry.FALLBACK_ID,
-                2.0f,
-                840f,
-                0f,
-                2500f,
-                0.06f,
-                Float.POSITIVE_INFINITY,
-                Float.NEGATIVE_INFINITY,
-                null,
-                null,
-                null
-        );
+        return mat(MaterialRegistry.FALLBACK_ID.getNamespace(), MaterialRegistry.FALLBACK_ID.getPath());
     }
 
     @BeforeEach
