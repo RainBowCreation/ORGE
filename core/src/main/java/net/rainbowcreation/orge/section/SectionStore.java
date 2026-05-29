@@ -97,6 +97,10 @@ public final class SectionStore {
     public void unloadColumn(int cx, int cz) {
         long key = colKey(cx, cz);
         if (dirty.contains(key)) {
+            // TODO(phase: section-store): call SectionData.demoteIfUniform() on each section before
+            // serializing in the flush path, so sections the engine flattens back to uniform shrink
+            // to UNIFORM on disk (the common case per DESIGN §5). Deferred until the engine/scheduler
+            // is the producer of FULL sections, so it can be validated end-to-end.
             region.saveColumn(cx, cz, loaded.get(key));
         }
         loaded.remove(key);
@@ -111,6 +115,10 @@ public final class SectionStore {
      */
     public void flushAll() {
         // TODO(phase: section-store): if a saveColumn throws mid-iteration, dirty isn't cleared; already-saved columns re-save next call (safe/idempotent, but churns). Acceptable for single-threaded v1.
+        // TODO(phase: section-store): call SectionData.demoteIfUniform() on each section before
+        // serializing in the flush path, so sections the engine flattens back to uniform shrink
+        // to UNIFORM on disk (the common case per DESIGN §5). Deferred until the engine/scheduler
+        // is the producer of FULL sections, so it can be validated end-to-end.
         for (long key : dirty) {
             int cx = (int) (key >> 32);
             int cz = (int) key;
@@ -153,6 +161,11 @@ public final class SectionStore {
      * <p>If the column is not yet loaded, an empty in-memory column is created
      * without reading disk — the chunk-load path ({@link #loadColumn}) is the
      * only disk-read entry point.</p>
+     *
+     * <p><strong>Precondition:</strong> the column must already be loaded via
+     * {@link #loadColumn} (which the chunk-load hook guarantees). Calling {@code put}
+     * on an unloaded column that has on-disk data will, on the next flush, persist only
+     * the in-memory section and drop the rest of that column.</p>
      *
      * @param key  section address
      * @param data section payload; must not be {@code null}
