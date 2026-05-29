@@ -33,7 +33,7 @@ public final class RegionStore implements Closeable {
 
     private final Path orgeDir;
 
-    /** Open region files, keyed by {@code regionKey(rx, rz)}. */
+    /** Open region files, keyed by {@code regionKey(cx, cz)} — one entry per region (32×32 chunks). */
     private final Map<Long, RegionFile> open = new HashMap<>();
 
     public RegionStore(Path worldDir) {

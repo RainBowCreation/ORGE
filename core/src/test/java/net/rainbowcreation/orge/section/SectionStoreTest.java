@@ -213,4 +213,32 @@ class SectionStoreTest {
                 AmbientProvider.FALLBACK.ambientMassKg(key),
                 "FALLBACK mass must be 0");
     }
+
+    // -------------------------------------------------------------------------
+    // Test 8: flushAll correctly round-trips negative chunk coordinates
+    // -------------------------------------------------------------------------
+
+    @Test
+    void flushAll_negativeChunkCoords_roundTrips() {
+        RegionStore region = new RegionStore(world);
+        SectionStore store = new SectionStore(region, AMB);
+
+        SubchunkKey key = new SubchunkKey(-1, 3, -1);
+        SectionData expected = SectionData.uniform(412f, 900f);
+        store.put(key, expected);
+
+        store.flushAll();
+
+        region.closeAll();
+
+        // Reopen with fresh stores — proving the negative colKey packed and unpacked correctly
+        RegionStore region2 = new RegionStore(world);
+        SectionStore store2 = new SectionStore(region2, AMB);
+        store2.loadColumn(-1, -1);
+
+        assertTrue(store2.get(new SubchunkKey(-1, 3, -1)).equalsValue(SectionData.uniform(412f, 900f)),
+                "flushAll must correctly round-trip sections stored at negative chunk coordinates");
+
+        region2.closeAll();
+    }
 }

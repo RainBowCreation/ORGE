@@ -91,6 +91,8 @@ public final class SectionStore {
      * <p>Clean columns (never written via {@link #put}) are silently dropped without
      * any disk I/O, so ambient-only access never creates spurious region files.
      * Called by the chunk-unload event handler.</p>
+     *
+     * <p>If the column is not currently loaded, this method is a no-op.</p>
      */
     public void unloadColumn(int cx, int cz) {
         long key = colKey(cx, cz);
@@ -108,6 +110,7 @@ public final class SectionStore {
      * continue reading/writing them after the save.</p>
      */
     public void flushAll() {
+        // TODO(phase: section-store): if a saveColumn throws mid-iteration, dirty isn't cleared; already-saved columns re-save next call (safe/idempotent, but churns). Acceptable for single-threaded v1.
         for (long key : dirty) {
             int cx = (int) (key >> 32);
             int cz = (int) key;
