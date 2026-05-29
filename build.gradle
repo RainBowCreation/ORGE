@@ -1,5 +1,5 @@
 plugins {
-    id "architectury-plugin" version "3.4.159" apply false
+    id "architectury-plugin" version "3.4.164" apply false
     id "dev.architectury.loom" version "${loom_version}" apply false
     id "com.gradleup.shadow" version "8.3.5" apply false
 }
