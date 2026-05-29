@@ -1,0 +1,14 @@
+package net.rainbowcreation.orge;
+
+import net.minecraft.resources.Identifier;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class SmokeTest {
+
+    @Test
+    void identifierRoundTrip() {
+        assertEquals("orge:x", Identifier.fromNamespaceAndPath("orge", "x").toString());
+    }
+}

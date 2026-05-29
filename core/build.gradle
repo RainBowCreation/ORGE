@@ -15,4 +15,11 @@ dependencies {
     mappings loom.officialMojangMappings()
 
     modImplementation "dev.architectury:architectury:${rootProject.architectury_version}"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.3"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+test {
+    useJUnitPlatform()
 }
