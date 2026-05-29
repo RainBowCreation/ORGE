@@ -42,11 +42,18 @@ public final class MaterialData {
      *
      * @param files map of material id → JSON body element (snake_case keys)
      * @param into  the registry to populate; existing entries for the same id are replaced
+     * @throws IllegalArgumentException if any material entry fails to decode (message includes the
+     *                                   failing material id)
      */
     public static void loadMaterials(Map<Identifier, JsonElement> files, MaterialRegistry into) {
         for (Map.Entry<Identifier, JsonElement> entry : files.entrySet()) {
-            Material material = MaterialCodec.fromJson(entry.getKey(), entry.getValue());
-            into.put(material);
+            Identifier id = entry.getKey();
+            try {
+                Material material = MaterialCodec.fromJson(id, entry.getValue());
+                into.put(material);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("failed to load material " + id + ": " + e.getMessage(), e);
+            }
         }
     }
 
@@ -60,11 +67,14 @@ public final class MaterialData {
      * <p>Each file is processed in list order; within a file, {@code tags} array
      * entries are processed in array order (index 0 = highest priority).  Entries
      * from later files can override tag/override registrations from earlier files
-     * (last writer wins for overrides; for tag bindings, {@link MaterialBindings}
-     * replaces the material when the same tag id is registered again).</p>
+     * (last writer wins for overrides; for tag bindings, if the same tag id is bound
+     * more than once across files in one load, the latest material value wins but the
+     * tag keeps its first-seen priority position).</p>
      *
      * @param files list of JSON elements, each a bindings object
      * @param into  the bindings instance to populate
+     * @throws IllegalArgumentException if any tag-binding entry is missing the {@code "tag"} or
+     *                                   {@code "material"} key
      */
     public static void loadBindings(List<JsonElement> files, MaterialBindings into) {
         for (JsonElement fileElement : files) {
@@ -75,6 +85,14 @@ public final class MaterialData {
                 JsonArray tags = root.getAsJsonArray("tags");
                 for (JsonElement tagEntry : tags) {
                     JsonObject obj = tagEntry.getAsJsonObject();
+                    if (!obj.has("tag")) {
+                        throw new IllegalArgumentException(
+                                "material binding entry missing 'tag' key: " + obj);
+                    }
+                    if (!obj.has("material")) {
+                        throw new IllegalArgumentException(
+                                "material binding entry missing 'material' key: " + obj);
+                    }
                     Identifier tagId      = Identifier.parse(obj.get("tag").getAsString());
                     Identifier materialId = Identifier.parse(obj.get("material").getAsString());
                     into.addTagBinding(tagId, materialId);

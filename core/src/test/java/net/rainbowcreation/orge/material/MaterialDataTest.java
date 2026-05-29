@@ -169,6 +169,71 @@ class MaterialDataTest {
                 "tag binding should work even with no overrides key");
     }
 
+    // -------------------------------------------------------------------------
+    // Fix 1 — descriptive error on malformed tag-binding entry
+    // -------------------------------------------------------------------------
+
+    @Test
+    void loadBindings_missingMaterialKey_throwsIllegalArgumentException() {
+        String bindingsJson = """
+                {
+                  "tags": [ { "tag": "c:stones" } ]
+                }
+                """;
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> MaterialData.loadBindings(
+                        List.of(JsonParser.parseString(bindingsJson)), bindings));
+        assertTrue(ex.getMessage().contains("material"),
+                "exception message should name the missing key 'material', got: " + ex.getMessage());
+    }
+
+    @Test
+    void loadBindings_missingTagKey_throwsIllegalArgumentException() {
+        String bindingsJson = """
+                {
+                  "tags": [ { "material": "orge:generic_solid" } ]
+                }
+                """;
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> MaterialData.loadBindings(
+                        List.of(JsonParser.parseString(bindingsJson)), bindings));
+        assertTrue(ex.getMessage().contains("tag"),
+                "exception message should name the missing key 'tag', got: " + ex.getMessage());
+    }
+
+    // -------------------------------------------------------------------------
+    // Fix 2 — wrap per-material decode failure with the material id
+    // -------------------------------------------------------------------------
+
+    @Test
+    void loadMaterials_badEntry_exceptionMessageContainsMaterialId() {
+        String goodJson = """
+                {
+                  "thermal_conductivity": 80.0,
+                  "heat_capacity": 450.0,
+                  "default_mass": 7874.0
+                }
+                """;
+        // Missing required field "heat_capacity" → MaterialCodec will throw
+        String badJson = """
+                {
+                  "thermal_conductivity": 1.0,
+                  "default_mass": 100.0
+                }
+                """;
+
+        Map<Identifier, JsonElement> files = new HashMap<>();
+        files.put(id("orge:good"), JsonParser.parseString(goodJson));
+        files.put(id("orge:bad"),  JsonParser.parseString(badJson));
+
+        Exception ex = assertThrows(Exception.class,
+                () -> MaterialData.loadMaterials(files, registry));
+        assertTrue(ex.getMessage().contains("orge:bad"),
+                "exception message should contain the failing material id 'orge:bad', got: " + ex.getMessage());
+    }
+
     @Test
     void loadBindings_multipleFilesAreMerged() {
         // Two separate binding files — both contribute their entries
