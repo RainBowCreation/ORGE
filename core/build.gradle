@@ -1,0 +1,18 @@
+plugins {
+    id "dev.architectury.loom"
+}
+
+architectury {
+    common rootProject.enabled_platforms.split(",")
+}
+
+loom {
+    // The common (core) project is mappings-only; no platform run configs here.
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    mappings loom.officialMojangMappings()
+
+    modImplementation "dev.architectury:architectury:${rootProject.architectury_version}"
+}

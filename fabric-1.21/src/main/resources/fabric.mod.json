@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "orge",
+  "version": "${version}",
+  "name": "ORGE",
+  "description": "Overhauled Realistic General Elements — per-block temperature & mass with native heat-conduction simulation.",
+  "authors": ["RainBowCreation"],
+  "contact": {
+    "homepage": "https://github.com/RainBowCreation/ORGE",
+    "sources": "https://github.com/RainBowCreation/ORGE"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["net.rainbowcreation.orge.fabric.OrgeFabric"],
+    "client": ["net.rainbowcreation.orge.fabric.client.OrgeFabricClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "fabric-api": "*",
+    "architectury": ">=19.0.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}
