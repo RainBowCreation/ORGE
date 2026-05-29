@@ -1,0 +1,6 @@
+{
+  "thermal_conductivity": 2.0,
+  "heat_capacity": 840,
+  "default_mass": 2500,
+  "molar_mass": 0.060
+}

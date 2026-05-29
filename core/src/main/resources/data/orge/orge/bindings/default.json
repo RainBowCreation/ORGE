@@ -1,0 +1,10 @@
+{
+  "tags": [
+    { "tag": "c:stones", "material": "orge:generic_solid" }
+  ],
+  "overrides": {
+    "minecraft:air":   "orge:air",
+    "minecraft:water": "orge:water",
+    "minecraft:lava":  "orge:lava"
+  }
+}

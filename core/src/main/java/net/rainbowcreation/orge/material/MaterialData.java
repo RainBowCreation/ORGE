@@ -1,0 +1,95 @@
+package net.rainbowcreation.orge.material;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import net.minecraft.resources.Identifier;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Pure static helpers for parsing datapack JSON into a {@link MaterialRegistry}
+ * and {@link MaterialBindings}.  No Minecraft {@code ResourceManager} dependency —
+ * callers (the reload listener, tests) supply the pre-fetched JSON elements.
+ *
+ * <h2>Material files</h2>
+ * <p>Each entry in {@code files} maps a material id (e.g. {@code orge:water}) to its
+ * JSON body.  Body fields follow the snake_case convention documented in
+ * {@link MaterialCodec}.</p>
+ *
+ * <h2>Bindings files</h2>
+ * <pre>
+ * {
+ *   "tags":      [ { "tag": "c:stones", "material": "orge:generic_solid" }, … ],
+ *   "overrides": { "minecraft:iron_block": "orge:iron", … }
+ * }
+ * </pre>
+ * <p>Both {@code tags} and {@code overrides} keys are optional; their absence is
+ * treated as an empty collection.  Tag bindings are registered in array order so
+ * the first entry has the highest priority.</p>
+ */
+public final class MaterialData {
+
+    private MaterialData() {}
+
+    // -------------------------------------------------------------------------
+    // Material loading
+    // -------------------------------------------------------------------------
+
+    /**
+     * Decode each entry in {@code files} and register it into {@code into}.
+     *
+     * @param files map of material id → JSON body element (snake_case keys)
+     * @param into  the registry to populate; existing entries for the same id are replaced
+     */
+    public static void loadMaterials(Map<Identifier, JsonElement> files, MaterialRegistry into) {
+        for (Map.Entry<Identifier, JsonElement> entry : files.entrySet()) {
+            Material material = MaterialCodec.fromJson(entry.getKey(), entry.getValue());
+            into.put(material);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Bindings loading
+    // -------------------------------------------------------------------------
+
+    /**
+     * Parse each element in {@code files} as a bindings object and populate {@code into}.
+     *
+     * <p>Each file is processed in list order; within a file, {@code tags} array
+     * entries are processed in array order (index 0 = highest priority).  Entries
+     * from later files can override tag/override registrations from earlier files
+     * (last writer wins for overrides; for tag bindings, {@link MaterialBindings}
+     * replaces the material when the same tag id is registered again).</p>
+     *
+     * @param files list of JSON elements, each a bindings object
+     * @param into  the bindings instance to populate
+     */
+    public static void loadBindings(List<JsonElement> files, MaterialBindings into) {
+        for (JsonElement fileElement : files) {
+            JsonObject root = fileElement.getAsJsonObject();
+
+            // --- tags (ordered array, optional) ---
+            if (root.has("tags")) {
+                JsonArray tags = root.getAsJsonArray("tags");
+                for (JsonElement tagEntry : tags) {
+                    JsonObject obj = tagEntry.getAsJsonObject();
+                    Identifier tagId      = Identifier.parse(obj.get("tag").getAsString());
+                    Identifier materialId = Identifier.parse(obj.get("material").getAsString());
+                    into.addTagBinding(tagId, materialId);
+                }
+            }
+
+            // --- overrides (object, optional) ---
+            if (root.has("overrides")) {
+                JsonObject overrides = root.getAsJsonObject("overrides");
+                for (Map.Entry<String, JsonElement> entry : overrides.entrySet()) {
+                    Identifier blockId    = Identifier.parse(entry.getKey());
+                    Identifier materialId = Identifier.parse(entry.getValue().getAsString());
+                    into.addOverride(blockId, materialId);
+                }
+            }
+        }
+    }
+}
