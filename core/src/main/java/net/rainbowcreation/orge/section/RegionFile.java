@@ -88,13 +88,14 @@ public final class RegionFile implements Closeable {
             int offset = entry >>> 8;
             int count  = entry & 0xFF;
             if (offset != 0 && count != 0) {
+                // NOTE: overlapping/out-of-range runs in a corrupt header are not validated here (v1; matches vanilla .mca leniency).
                 usedSectors.set(offset, offset + count);
             }
         }
     }
 
     // -------------------------------------------------------------------------
-    // Slot index (package-accessible for tests if needed)
+    // Slot index
     // -------------------------------------------------------------------------
 
     /**
@@ -102,7 +103,7 @@ public final class RegionFile implements Closeable {
      *
      * @throws IllegalArgumentException if either coordinate is outside [0, 31]
      */
-    int slot(int lx, int lz) {
+    private int slot(int lx, int lz) {
         if (lx < 0 || lx > 31 || lz < 0 || lz > 31) {
             throw new IllegalArgumentException(
                     "local coord out of range: (" + lx + "," + lz + ")");
@@ -124,14 +125,17 @@ public final class RegionFile implements Closeable {
         int s     = slot(lx, lz);
         int entry  = locations[s];
         int offset = entry >>> 8;
+        int count  = entry & 0xFF;
         if (offset == 0) {
             return null;
         }
 
         raf.seek(offset * (long) SECTOR_BYTES);
         int len = raf.readInt();
-        if (len < 0) {
-            throw new IOException("corrupt region: negative blob length at slot (" + lx + "," + lz + ")");
+        int maxBlobBytes = count * SECTOR_BYTES - 4;
+        if (len < 0 || len > maxBlobBytes) {
+            throw new IOException("corrupt region: blob length " + len +
+                " out of range [0," + maxBlobBytes + "] at slot (" + lx + "," + lz + ")");
         }
         byte[] buf = new byte[len];
         raf.readFully(buf);
