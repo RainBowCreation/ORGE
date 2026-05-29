@@ -74,7 +74,9 @@ public final class MaterialData {
      * @param files list of JSON elements, each a bindings object
      * @param into  the bindings instance to populate
      * @throws IllegalArgumentException if any tag-binding entry is missing the {@code "tag"} or
-     *                                   {@code "material"} key
+     *                                   {@code "material"} key, if any id string is malformed
+     *                                   (contains illegal characters), or if a JSON value is
+     *                                   the wrong type (e.g. {@code "tags"} is not an array)
      */
     public static void loadBindings(List<JsonElement> files, MaterialBindings into) {
         for (JsonElement fileElement : files) {
@@ -93,9 +95,17 @@ public final class MaterialData {
                         throw new IllegalArgumentException(
                                 "material binding entry missing 'material' key: " + obj);
                     }
-                    Identifier tagId      = Identifier.parse(obj.get("tag").getAsString());
-                    Identifier materialId = Identifier.parse(obj.get("material").getAsString());
-                    into.addTagBinding(tagId, materialId);
+                    String tagStr      = obj.get("tag").getAsString();
+                    String materialStr = obj.get("material").getAsString();
+                    try {
+                        Identifier tagId      = Identifier.parse(tagStr);
+                        Identifier materialId = Identifier.parse(materialStr);
+                        into.addTagBinding(tagId, materialId);
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException(
+                                "invalid material binding: tag=\"" + tagStr
+                                + "\" material=\"" + materialStr + "\"", e);
+                    }
                 }
             }
 
@@ -103,9 +113,17 @@ public final class MaterialData {
             if (root.has("overrides")) {
                 JsonObject overrides = root.getAsJsonObject("overrides");
                 for (Map.Entry<String, JsonElement> entry : overrides.entrySet()) {
-                    Identifier blockId    = Identifier.parse(entry.getKey());
-                    Identifier materialId = Identifier.parse(entry.getValue().getAsString());
-                    into.addOverride(blockId, materialId);
+                    String blockStr    = entry.getKey();
+                    String materialStr = entry.getValue().getAsString();
+                    try {
+                        Identifier blockId    = Identifier.parse(blockStr);
+                        Identifier materialId = Identifier.parse(materialStr);
+                        into.addOverride(blockId, materialId);
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException(
+                                "invalid material binding: block=\"" + blockStr
+                                + "\" material=\"" + materialStr + "\"", e);
+                    }
                 }
             }
         }

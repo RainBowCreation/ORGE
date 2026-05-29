@@ -257,6 +257,44 @@ class MaterialDataTest {
     }
 
     // -------------------------------------------------------------------------
+    // Fix 3 — wrap malformed Identifier parse errors with context
+    // -------------------------------------------------------------------------
+
+    @Test
+    void loadBindings_malformedTagId_throwsIllegalArgumentExceptionWithContext() {
+        // "c:stones and gravel" — space is an illegal character for Identifier
+        String bindingsJson = """
+                {
+                  "tags": [
+                    { "tag": "c:stones and gravel", "material": "orge:generic_solid" }
+                  ]
+                }
+                """;
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> MaterialData.loadBindings(
+                        List.of(JsonParser.parseString(bindingsJson)), bindings));
+        assertTrue(ex.getMessage().contains("c:stones and gravel"),
+                "exception message should contain the offending tag id, got: " + ex.getMessage());
+    }
+
+    @Test
+    void loadBindings_malformedOverrideValueId_throwsIllegalArgumentExceptionWithContext() {
+        // "orge:not a material" — space is an illegal character for Identifier
+        String bindingsJson = """
+                {
+                  "overrides": { "minecraft:water": "orge:not a material" }
+                }
+                """;
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> MaterialData.loadBindings(
+                        List.of(JsonParser.parseString(bindingsJson)), bindings));
+        assertTrue(ex.getMessage().contains("orge:not a material"),
+                "exception message should contain the offending material id, got: " + ex.getMessage());
+    }
+
+    // -------------------------------------------------------------------------
     // (c) Real-resource test: default JSON files from the classpath
     // -------------------------------------------------------------------------
 
