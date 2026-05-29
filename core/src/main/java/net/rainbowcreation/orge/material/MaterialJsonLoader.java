@@ -105,7 +105,7 @@ public final class MaterialJsonLoader extends SimplePreparableReloadListener<Act
         try (BufferedReader reader = resource.openAsReader()) {
             return JsonParser.parseReader(reader);
         } catch (IOException | RuntimeException e) {
-            throw new IllegalStateException("failed to read ORGE resource " + file + ": " + e.getMessage(), e);
+            throw new IllegalStateException("failed to read ORGE resource " + file + ": " + e.toString(), e);
         }
     }
 

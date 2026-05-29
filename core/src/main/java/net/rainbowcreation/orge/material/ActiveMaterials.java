@@ -24,7 +24,14 @@ import java.util.Map;
  */
 public final class ActiveMaterials {
 
-    /** An immutable snapshot of the two reloadable registries. */
+    /**
+     * A published materials state. The reload listener builds a State from FRESH
+     * {@link MaterialRegistry}/{@link MaterialBindings} instances and swaps it in
+     * atomically; a published State must be treated as read-only — callers must never
+     * mutate the contained registry/bindings after {@link #swap}. (The contained types
+     * are not deeply immutable; enforcing that is a future hardening — see TODO.)
+     */
+    // TODO(phase: hardening): consider deeply-immutable snapshot views
     public static final class State {
         private final MaterialRegistry registry;
         private final MaterialBindings bindings;
@@ -59,7 +66,15 @@ public final class ActiveMaterials {
         return active.bindings();
     }
 
-    /** The current state snapshot (registry + bindings). Never {@code null}. */
+    /**
+     * The current state snapshot (registry + bindings). Never {@code null}.
+     *
+     * <p>Before the first {@code SERVER_DATA} reload the registry is empty: {@code get}
+     * returns {@link java.util.Optional#empty()}, and {@code getOrFallback} throws
+     * {@link IllegalStateException} because {@code orge:generic_solid} has not yet been
+     * loaded. The state is fully usable only after the first successful reload populates
+     * the fallback material.</p>
+     */
     public static State current() {
         return active;
     }

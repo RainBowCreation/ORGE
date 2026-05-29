@@ -3,6 +3,7 @@ package net.rainbowcreation.orge.material;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import net.minecraft.resources.Identifier;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -16,6 +17,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * half of the reload listener (no {@link net.minecraft.server.packs.resources.ResourceManager}).
  */
 class ActiveMaterialsTest {
+
+    @BeforeEach
+    void reset() {
+        ActiveMaterials.swap(new ActiveMaterials.State(new MaterialRegistry(), new MaterialBindings()));
+    }
 
     private static Identifier id(String full) {
         return Identifier.parse(full);
@@ -97,5 +103,28 @@ class ActiveMaterialsTest {
     @Test
     void swap_rejectsNull() {
         assertThrows(NullPointerException.class, () -> ActiveMaterials.swap(null));
+    }
+
+    /**
+     * Documents the initial-state contract: {@link ActiveMaterials#current()} is never
+     * null, {@code registry().get(id)} returns empty, but {@code registry().getOrFallback(id)}
+     * throws until the first SERVER_DATA reload populates {@code orge:generic_solid}.
+     */
+    @Test
+    void initialState_registryEmptyAndGetOrFallbackThrows() {
+        // After @BeforeEach reset the state is a fresh empty registry + bindings.
+        ActiveMaterials.State state = ActiveMaterials.current();
+        assertNotNull(state, "current() must never return null");
+        assertNotNull(state.registry(), "registry() must never return null");
+        assertNotNull(state.bindings(), "bindings() must never return null");
+
+        // get() on an empty registry returns empty — no exception.
+        assertTrue(ActiveMaterials.registry().get(id("orge:water")).isEmpty(),
+                "get() must return empty on an unpopulated registry");
+
+        // getOrFallback() throws because orge:generic_solid has not been loaded yet.
+        assertThrows(IllegalStateException.class,
+                () -> ActiveMaterials.registry().getOrFallback(id("orge:water")),
+                "getOrFallback() must throw before the fallback material is registered");
     }
 }
