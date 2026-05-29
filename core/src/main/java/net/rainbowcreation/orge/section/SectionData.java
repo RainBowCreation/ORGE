@@ -93,7 +93,8 @@ public final class SectionData {
 
     /**
      * Returns the uniform temperature value. Only meaningful when {@link #form()} is
-     * {@link Form#UNIFORM}.
+     * {@link Form#UNIFORM}; a section constructed as {@code FULL} (via {@link #full})
+     * returns {@code 0}.
      */
     public float uniformTemperature() {
         return uniformTemperature;
@@ -101,7 +102,8 @@ public final class SectionData {
 
     /**
      * Returns the uniform mass value. Only meaningful when {@link #form()} is
-     * {@link Form#UNIFORM}.
+     * {@link Form#UNIFORM}; a section constructed as {@code FULL} (via {@link #full})
+     * returns {@code 0}.
      */
     public float uniformMass() {
         return uniformMass;

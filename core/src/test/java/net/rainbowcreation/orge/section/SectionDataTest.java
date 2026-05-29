@@ -127,6 +127,17 @@ class SectionDataTest {
     }
 
     @Test
+    void demoteIfUniform_whenLastCellDiffers_returnsFalseAndStaysFull() {
+        SectionData s = fullUniform(300f, 1000f);
+        s.setTemperature(SectionData.CELLS - 1, 301f); // only index 4095 differs
+
+        boolean result = s.demoteIfUniform();
+
+        assertFalse(result,                                      "should not demote when last cell differs");
+        assertEquals(SectionData.Form.FULL, s.form(),            "should remain FULL");
+    }
+
+    @Test
     void demoteIfUniform_whenAlreadyUniform_returnsTrue() {
         SectionData s = SectionData.uniform(290f, 1000f);
         assertEquals(SectionData.Form.UNIFORM, s.form());
