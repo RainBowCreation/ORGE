@@ -21,6 +21,6 @@ public final class OrgePlatformImpl {
     }
 
     public static boolean isPhysicalClient() {
-        return FMLEnvironment.dist.isClient();
+        return FMLEnvironment.getDist().isClient();
     }
 }

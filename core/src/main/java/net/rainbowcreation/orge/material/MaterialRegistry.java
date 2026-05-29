@@ -1,6 +1,6 @@
 package net.rainbowcreation.orge.material;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.Collection;
 import java.util.Map;
@@ -18,22 +18,22 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class MaterialRegistry {
 
     /** The id of the global fallback material (DESIGN.md §6). */
-    public static final ResourceLocation FALLBACK_ID =
-            ResourceLocation.fromNamespaceAndPath(net.rainbowcreation.orge.Orge.MOD_ID, "generic_solid");
+    public static final Identifier FALLBACK_ID =
+            Identifier.fromNamespaceAndPath(net.rainbowcreation.orge.Orge.MOD_ID, "generic_solid");
 
-    private final Map<ResourceLocation, Material> byId = new ConcurrentHashMap<>();
+    private final Map<Identifier, Material> byId = new ConcurrentHashMap<>();
 
     /** Register or replace a material. Used by the JSON loader and the Java API. */
     public void put(Material material) {
         byId.put(material.id(), material);
     }
 
-    public Optional<Material> get(ResourceLocation id) {
+    public Optional<Material> get(Identifier id) {
         return Optional.ofNullable(byId.get(id));
     }
 
     /** The material for {@code id}, or the global fallback if absent. */
-    public Material getOrFallback(ResourceLocation id) {
+    public Material getOrFallback(Identifier id) {
         Material m = byId.get(id);
         if (m != null) {
             return m;

@@ -1,6 +1,6 @@
 package net.rainbowcreation.orge.material;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /**
  * Flat, constant per-material properties (DESIGN.md §6). No temperature-dependent
@@ -19,7 +19,7 @@ import net.minecraft.resources.ResourceLocation;
  * @param representativeBlock  block placed when something <i>becomes</i> this material
  */
 public record Material(
-        ResourceLocation id,
+        Identifier id,
         float thermalConductivity,
         float heatCapacity,
         float viscosity,
@@ -27,9 +27,9 @@ public record Material(
         float molarMass,
         float boilingPoint,
         float freezingPoint,
-        ResourceLocation boilingTarget,
-        ResourceLocation freezingTarget,
-        ResourceLocation representativeBlock
+        Identifier boilingTarget,
+        Identifier freezingTarget,
+        Identifier representativeBlock
 ) {
     // TODO(phase: materials): builder + JSON codec; validate non-negative constants.
 }

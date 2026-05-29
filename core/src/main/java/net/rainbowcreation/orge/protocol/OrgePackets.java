@@ -1,6 +1,6 @@
 package net.rainbowcreation.orge.protocol;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.Orge;
 
 /**
@@ -21,17 +21,17 @@ import net.rainbowcreation.orge.Orge;
  */
 public final class OrgePackets {
 
-    public static final ResourceLocation ASSIGN = id("assign");
-    public static final ResourceLocation GEOMETRY = id("geometry");
-    public static final ResourceLocation STEP_INPUT = id("step_input");
-    public static final ResourceLocation STEP_RESULT = id("step_result");
-    public static final ResourceLocation HEALTH = id("health");
+    public static final Identifier ASSIGN = id("assign");
+    public static final Identifier GEOMETRY = id("geometry");
+    public static final Identifier STEP_INPUT = id("step_input");
+    public static final Identifier STEP_RESULT = id("step_result");
+    public static final Identifier HEALTH = id("health");
 
     private OrgePackets() {
     }
 
-    private static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(Orge.MOD_ID, path);
+    private static Identifier id(String path) {
+        return Identifier.fromNamespaceAndPath(Orge.MOD_ID, path);
     }
 
     // TODO(phase: networking): payload records (AssignPayload, GeometryPayload,

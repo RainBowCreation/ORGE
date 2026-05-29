@@ -4,6 +4,9 @@ build/
 */build/
 !gradle/wrapper/gradle-wrapper.jar
 
+# Architectury transformer scratch output
+.architectury-transformer/
+
 # IDEs
 .idea/
 *.iml

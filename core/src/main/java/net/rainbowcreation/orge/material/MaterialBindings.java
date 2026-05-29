@@ -1,6 +1,6 @@
 package net.rainbowcreation.orge.material;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /**
  * Resolves a block to its {@link Material} id (DESIGN.md §6).
@@ -12,14 +12,14 @@ import net.minecraft.resources.ResourceLocation;
 public final class MaterialBindings {
 
     // TODO(phase: materials): back these with loaded datapack bindings.
-    //  - Map<ResourceLocation /*block id*/, ResourceLocation /*material id*/> overrides
-    //  - List<TagBinding(TagKey<Block>, ResourceLocation materialId)> in priority order
+    //  - Map<Identifier /*block id*/, Identifier /*material id*/> overrides
+    //  - List<TagBinding(TagKey<Block>, Identifier materialId)> in priority order
 
     /**
      * The material id bound to the given block id, falling back to
      * {@link MaterialRegistry#FALLBACK_ID} when nothing matches.
      */
-    public ResourceLocation materialFor(ResourceLocation blockId) {
+    public Identifier materialFor(Identifier blockId) {
         // TODO(phase: materials): consult overrides, then tags, then fallback.
         return MaterialRegistry.FALLBACK_ID;
     }
