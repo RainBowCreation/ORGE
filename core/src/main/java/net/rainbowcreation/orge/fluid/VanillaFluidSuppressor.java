@@ -1,25 +1,52 @@
 package net.rainbowcreation.orge.fluid;
 
-import dev.architectury.injectables.annotations.ExpectPlatform;
+import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.section.SectionStore;
+import net.rainbowcreation.orge.section.SectionStoreManager;
+import net.rainbowcreation.orge.section.SubchunkKey;
+
+import java.util.Objects;
 
 /**
- * Suppresses vanilla liquid physics for ORGE-managed fluid blocks so ORGE is the sole
- * authority (DESIGN §10 Decision 8). Architectury exposes no common fluid-tick cancellation,
- * so each loader bridges its own hook here via {@link ExpectPlatform}.
+ * Wires ORGE's vanilla-fluid suppression so ORGE is the sole authority over the water/lava it
+ * simulates (DESIGN &sect;10 Decision 8).
  *
- * <p><b>Known risk / follow-up:</b> full suppression (cancelling {@code FlowingFluid#tick} /
- * {@code LiquidBlock#tick} scheduled+random ticks and neighbour-update spread) is NOT expressible
- * through the loaders' common event APIs and likely requires a per-loader <b>mixin</b> into
- * {@code net.minecraft.world.level.material.FlowingFluid#tick}. No mixin toolchain exists in this
- * repo yet. Each impl does the best event-based suppression available and leaves a
- * {@code TODO(mixin)} where an event hook is insufficient.</p>
+ * <p><b>The mixin now exists.</b> Each loader ships a thin mixin into
+ * {@code net.minecraft.world.level.material.FlowingFluid#tick(ServerLevel, BlockPos, BlockState,
+ * FluidState)} that, at {@code HEAD}, delegates to {@link OrgeFluidSuppressionBridge} &rarr;
+ * {@link OrgeFluidPolicy} and {@code ci.cancel()}s the vanilla flow/spread tick for ORGE-managed
+ * water/lava in ORGE-managed loaded sections. The mixin auto-applies at class-load, so there are no
+ * events to register here; this class's job is to inject the <b>managed-section hook</b> the policy
+ * needs.</p>
+ *
+ * <p>{@link #install(SectionStoreManager)} sets {@link OrgeFluidPolicy}'s managed-section predicate to
+ * query the real {@link SectionStoreManager}: a subchunk is "managed" iff its dimension has a live
+ * {@link SectionStore} that {@link SectionStore#hasSection holds} that section. Until this is called
+ * the policy's predicate is unset and suppresses nothing, so the mixin is inert (the safe default).</p>
+ *
+ * <p>The previous {@code @ExpectPlatform} per-loader split (and its two no-op {@code *Impl} classes)
+ * was removed: the only loader-specific part is now the mixin (applied by each loader's mixin config),
+ * and the predicate wiring is pure common code over {@link SectionStoreManager}. The obsidian /
+ * cobblestone / basalt path is preserved by the policy (it never suppresses when an interacting fluid
+ * is adjacent), and additionally that path is driven by {@code LiquidBlock}, not
+ * {@code FlowingFluid#tick}, so it is untouched by the cancellation.</p>
  */
 public final class VanillaFluidSuppressor {
     private VanillaFluidSuppressor() {}
 
-    /** Install the per-loader suppression hooks. Called once from {@code Orge.init()}. */
-    @ExpectPlatform
-    public static void install() {
-        throw new AssertionError("ExpectPlatform implementation not found");
+    /**
+     * Installs the managed-section predicate from the live {@link SectionStoreManager}. Called once
+     * from {@code Orge.init()}.
+     */
+    public static void install(SectionStoreManager stores) {
+        Objects.requireNonNull(stores, "stores");
+        OrgeFluidPolicy.setManagedSectionPredicate((dimensionKey, chunkX, sectionY, chunkZ) -> {
+            Identifier dim = Identifier.tryParse(dimensionKey);
+            if (dim == null) {
+                return false;
+            }
+            SectionStore store = stores.store(dim);
+            return store != null && store.hasSection(new SubchunkKey(chunkX, sectionY, chunkZ));
+        });
     }
 }

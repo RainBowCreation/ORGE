@@ -127,10 +127,12 @@ public final class Orge {
         SectionStorePlatform.registerChunkHooks(SECTION_STORES);
 
         // DESIGN §10 Decision 8 — make ORGE the sole authority over its managed water/lava by
-        // suppressing vanilla liquid physics for them. Best-effort per-loader event suppression
-        // today; full FlowingFluid#tick spread cancellation requires a mixin (see the seam's
-        // TODO(mixin)). The lava↔water → obsidian/cobblestone/basalt path is deliberately left live.
-        VanillaFluidSuppressor.install();
+        // suppressing vanilla liquid physics for them. Each loader's FlowingFluid#tick mixin cancels
+        // the vanilla flow/spread tick for ORGE-managed cells; this wires the managed-section hook the
+        // mixin's policy needs from SECTION_STORES. The lava↔water → obsidian/cobblestone/basalt path
+        // is preserved (policy never suppresses next to an interacting fluid, and that path lives in
+        // LiquidBlock, not FlowingFluid#tick).
+        VanillaFluidSuppressor.install(SECTION_STORES);
 
         // DESIGN.md §8 — scheduler: one fallback engine on a background thread, driven once per
         // real second from the common server-tick event. Single-node v1 (the server is the
