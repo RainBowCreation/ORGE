@@ -191,6 +191,32 @@ introducing a mixin dependency per loader. The plan should treat the suppression
 as a per-loader implementation detail behind the `ExpectPlatform` seam and call out the mixin
 follow-up explicitly rather than assuming an event-only solution exists.
 
+**Suppression must be surgical — do NOT break obsidian/cobblestone.** Suppression targets
+fluid **flow/spread** ticking only. It must **whitelist** vanilla's lava↔water contact
+solidification (lava source + water → obsidian; flowing lava + water → cobblestone; basalt
+generator), because that path rides the same fluid neighbour-update that suppression would
+otherwise cancel — silencing it would break Nether-portal obsidian, a severe regression. See
+"Vanilla thermal interactions" below.
+
+## Vanilla thermal interactions
+
+ORGE aspires to be *the* thermal authority, so every vanilla temperature/biome/light-driven
+block transform needs an explicit verdict: **SUPERSEDE** (suppress vanilla, ORGE drives),
+**PRESERVE** (keep vanilla, ORGE leaves alone), or **INTEGRATE** (vanilla's effect, triggered
+by ORGE temperature instead of biome/light).
+
+| Vanilla mechanic | Verdict (this slice) | Notes |
+|---|---|---|
+| Lava+water → obsidian / cobblestone / basalt | **PRESERVE (surgical)** → reproduce thermally later | `VanillaFluidSuppressor` whitelists the solidification contact so it still fires. A §7 follow-on reproduces it thermally — under finite water, high-mass quenched lava → obsidian, thin/low-mass → cobblestone (replaces vanilla's source-vs-flowing with mass fraction). |
+| Water↔ice / snow freeze+melt (biome temp, sky, light>11) | **SUPERSEDE** — but this is a **§7 concern**, not Phase-2a | §7 already freezes water by simulated temp; it must additionally suppress vanilla's biome/light freezing or the two authorities fight. Recorded in the §7 spec. Integration bonus: torches/lanterns are ORGE heat sources (B+C), so "ice melts near a torch" falls out of the sim, beating vanilla's `light>11`. |
+| Cauldron precipitation (biome temp) | **PRESERVE** | Negligible overlap; leave vanilla. |
+| Powder-snow entity freezing | **PRESERVE** → future INTEGRATE | ORGE doesn't sim entities yet; future Tier-4 entity-thermal could drive freeze/burn from cell temp. |
+| Fire spread / lava ignition | **PRESERVE** → future INTEGRATE | Fire is already an ORGE heat *source* (B+C); future ORGE-driven ignition (cell temp > ignition point) is more physical. Coexists today. |
+
+**Decision (2026-05-30):** for Phase-2a, obsidian/cobblestone = **PRESERVE via surgical
+suppression**; "reproduce lava-quench transforms thermally" is a **§7 follow-on**. The vanilla
+ice/snow SUPERSEDE is owned by the **§7 phase-change spec**, not this one.
+
 ## Testing
 
 - **C++ (`ORGE-ENGINE/tests/`, primary correctness):** conservation (random fields, `Σmass`

@@ -60,6 +60,18 @@ simulation data.
 **Out of scope for §7 (Phase 2 / DESIGN §10):** gas/liquid flow, viscosity, steam buoyancy,
 discrete fluid levels, mass conservation. §7 ships steam as a single **inert** block.
 
+**Known gap — vanilla ice/snow freezing is a competing authority (follow-on).** §7 freezes
+water → ice (and melts back) by the **simulated** cell temperature, but vanilla *also* freezes
+water → ice and forms/melts snow on its own model (biome temperature, sky exposure, block
+light > 11; packed/blue ice are light-immune). The two authorities will disagree in-game (e.g.
+vanilla freezes water ORGE considers warm, or ORGE freezes water in a "warm" biome). The
+intended verdict is **SUPERSEDE**: ORGE's simulated temperature wins, so a follow-on must
+**suppress vanilla ice/snow freeze+melt** (analogous to Phase-2a's `VanillaFluidSuppressor`,
+same mixin caveat) and let §7 drive these transitions. Integration bonus: torches/lanterns are
+already ORGE heat sources (engine-audit B+C), so "ice melts near a torch" emerges from the sim,
+strictly better than vanilla's `light > 11` rule. (Full registry of vanilla-thermal verdicts
+lives in the Phase-2a spec's "Vanilla thermal interactions" section.)
+
 ## Components
 
 All new files under `core/src/main/java/net/rainbowcreation/orge/phase/` unless noted.
