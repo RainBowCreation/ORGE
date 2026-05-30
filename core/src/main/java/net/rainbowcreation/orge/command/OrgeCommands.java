@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -134,15 +135,8 @@ public final class OrgeCommands {
             }
             ServerLevel level = (ServerLevel) player.level();
             BlockHitResult hit = crosshairHit(player, level);
-            Component line;
-            if (hit.getType() == HitResult.Type.MISS) {
-                line = Component.literal(String.format(Locale.ROOT,
-                        "ORGE: no block within %d blocks", (int) LIVE_REACH));
-            } else {
-                OrgeCommandLogic.Response resp = liveGetResponse(level, hit.getBlockPos(), player.position());
-                line = Component.literal(resp.lines().isEmpty() ? "" : resp.lines().get(0));
-            }
-            player.displayClientMessage(line, true); // true = action bar
+            String text = hit.getType() == HitResult.Type.MISS ? "—" : liveLine(level, hit.getBlockPos());
+            player.displayClientMessage(Component.literal(text), true); // true = action bar
         }
     }
 
@@ -159,14 +153,23 @@ public final class OrgeCommands {
                 eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, player));
     }
 
-    /** The GET response for one cell (operator read, so it works wherever the player looks). */
-    private OrgeCommandLogic.Response liveGetResponse(ServerLevel level, BlockPos p, Vec3 source) {
-        Identifier dim = level.dimension().identifier();
-        OrgeCommandLogic.Request req = new OrgeCommandLogic.Request(OrgeCommandLogic.Op.GET, dim,
-                p.getX(), p.getY(), p.getZ(), p.getX(), p.getY(), p.getZ(),
-                null, null, true, sectionOf(source), level.getMinY(), level.getMaxY() + 1);
-        OrgeCommandLogic.Response resp = logic.run(req);
-        return resp.ok() ? appendToFirstLine(resp, liveCellDescriptor(level, p)) : resp;
+    /**
+     * The short live-readout line for one cell: {@code "<block>, <material>, <temp_k>:<mass>, <form>"}
+     * (e.g. {@code "minecraft:water, orge:water, 288.00:1000.0, FULL"}). No coords/dimension/labels —
+     * it rides the action bar, so it stays terse.
+     */
+    private String liveLine(ServerLevel level, BlockPos p) {
+        BlockState state = level.getBlockState(p);
+        Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        Identifier matId = LiveMaterials.materialFor(state, ActiveMaterials.current()).id();
+        CellAddress addr = CellAddress.of(p.getX(), p.getY(), p.getZ());
+        Optional<SectionView> v = logic.view(level.dimension().identifier(), addr.key());
+        if (v.isEmpty()) {
+            return String.format(Locale.ROOT, "%s, %s, (no data)", blockId, matId);
+        }
+        SectionView view = v.get();
+        return String.format(Locale.ROOT, "%s, %s, %.2f:%.1f, %s",
+                blockId, matId, view.tempAt(addr.cell()), view.massAt(addr.cell()), view.form());
     }
 
     private static SubchunkKey sectionOf(Vec3 pos) {

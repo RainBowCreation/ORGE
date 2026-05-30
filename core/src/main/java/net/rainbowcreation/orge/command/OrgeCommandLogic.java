@@ -194,6 +194,14 @@ public final class OrgeCommandLogic {
 
     // ----- helpers -----
 
+    /**
+     * Raw read-chain access for callers that format their own per-cell output (e.g. the action-bar
+     * live readout): the resolved {@link SectionView}, or empty when no store serves {@code dimension}.
+     */
+    public Optional<SectionView> view(Identifier dimension, SubchunkKey key) {
+        return resolve(dimension, key);
+    }
+
     private Optional<SectionView> resolve(Identifier dim, SubchunkKey key) {
         for (ThermalReadSource s : readSources) {
             Optional<SectionView> v = s.section(dim, key);
