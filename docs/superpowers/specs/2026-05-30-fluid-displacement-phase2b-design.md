@@ -55,25 +55,36 @@ integration: snapshot/writeback, §9 validation, block-level reconciliation/supp
 
 ## Decisions (proposed — these are what I want your ruling on)
 
-0. **Two mass numbers per material — `default_mass` (resting density) vs `max_mass` (compression cap)
-   — replaces the incompressible/compressible binary** *(user model 2026-05-30).* The right distinction
-   is not "liquid vs gas" but **whether a material's resting density equals its per-cell capacity cap**:
-   - `default_mass` = **resting density** — the seed value, the density used for buoyancy comparison's
-     resting point, and the density a gas spreads/relaxes *toward*.
-   - `max_mass` = **per-cell capacity cap** — how much mass fits in one 1 m³ cell before it can't pack
-     denser; used as the fall/merge remaining-capacity and the §9 per-cell upper bound.
-   - **Liquid:** `max_mass == default_mass` (water 1000/1000). "Incompressible" is then *emergent*, not a
-     special case — there is no headroom above the resting density, so liquid pools and merges but never
-     packs denser. **Gas:** `max_mass > default_mass` (steam rests at 0.6, compresses toward a higher
-     cap) → genuinely compressible, and its low resting density makes the ordinary horizontal-spread rule
-     thin it out to **fill volume** (expansion = spread-to-resting-density, *no new code*).
+0. **THREE mass numbers per material — `min_flow_mass ≤ default_mass ≤ max_mass` — and the phase of
+   matter is just WHERE the resting density sits between the floor and the ceiling** *(user model
+   2026-05-30).* This replaces the incompressible/compressible binary entirely; you never declare
+   "liquid" or "gas", you set three numbers and the behaviour falls out.
+   - `min_flow_mass` = **flow floor** (cohesion / surface tension): a cell at/below this no longer donates
+     to neighbours. Sets spread **extent** — `coverage ≈ total_mass / min_flow_mass`, an *emergent*
+     finite spread distance with no hardcoded "7 blocks" — and the **fill-vs-pool** difference. It
+     **generalises** the kernel's global `ADV_EPS_MASS = 1e-4` "treat as empty" epsilon into a per-material
+     floor. **Active in Phase-2b** (it's what makes finite water spread *then stop* instead of creeping
+     infinitely thin).
+   - `default_mass` = **resting density + seed value** — what a cell is seeded with on section load, and
+     the buoyancy resting point.
+   - `max_mass` = **per-cell capacity cap** — how much packs into one 1 m³ cell before it can't compress
+     further; used as the fall/merge remaining-capacity and the §9 per-cell upper bound.
+   - **Liquid rests at its CEILING** (`default_mass == max_mass`, water 1000/1000; floor ~125): no
+     headroom up ⇒ incompressible, **pools/merges**, stops at the floor. **Gas rests at its FLOOR**
+     (`default_mass == min_flow_mass`, steam 0.6; cap above): no room down ⇒ **expands/fills** to uniform
+     resting density via the ordinary spread rule, and compresses up to `max_mass` under pressure.
    - **Buoyancy/swap compares the cell's CURRENT mass** (current density), not `default_mass`: a
      *compressed* gas cell is denser than air and correctly **sinks until it expands**, then rises.
-   - **This slice:** add the `max_mass` field; set `max_mass = default_mass` for **every current
-     material** (water/lava/ice/solid/steam) → **zero behavior change today**. The kernel's capacity cap
-     and §9 bound switch from `defaultMass` to `max_mass` (same value now). The compressible-gas track is
-     then a **data change** (`steam.max_mass = …` + enable gas spread-to-resting) — **not** a
-     rearchitecture. Satisfies the "compressible gas is a must" requirement with one field defined now.
+   - **Robustness — never seed a tracked gas at 0 (user crash-guard):** the seed value is always
+     `default_mass`, and **`min_flow_mass > 0` is a hard invariant for gas types**, so a freshly-loaded
+     gas cell always has a valid non-zero density. A 0-mass tracked-gas cell = 0 density = undefined
+     buoyancy + NaN risk in the enthalpy mix `(m·T+Δm·Tₛ)/(m+Δm)`. **Air is the ambient exception:**
+     untracked, density-by-label (1.2) only, never seeded.
+   - **This slice:** add `min_flow_mass` + `max_mass`. `min_flow_mass` is live (water/lava floors →
+     finite, stopping spread). Set `max_mass = default_mass` for **every current material** (inert until
+     the compressible-gas track); the kernel capacity cap + §9 bound switch `defaultMass → max_mass` (same
+     value now). Compressible gas then = a **data change** (`steam.max_mass = …` + gas spread-to-resting),
+     **not** a rearchitecture — satisfying the "compressible gas is a must" requirement up front.
 
 1. **Air/gas are the lightest fluids, not inert.** Every cell has a (current) density = its mass in the
    cell; a material's *resting* density is `default_mass` (air 1.2, steam 0.6). The "same-material-only"
