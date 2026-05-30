@@ -13,14 +13,25 @@ import java.util.concurrent.Future;
  */
 public final class ExecutorStepRunner implements StepRunner {
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "orge-conduction");
-        t.setDaemon(true);
-        return t;
-    });
+    private ExecutorService executor = newExecutor();
+
+    private static ExecutorService newExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "orge-conduction");
+            t.setDaemon(true);
+            return t;
+        });
+    }
 
     @Override
     public Handle submit(Callable<List<float[]>> task) {
+        // The runner outlives a single integrated-server lifecycle: shutdown() runs on
+        // SERVER_STOPPING, but in singleplayer the player can start another world in the
+        // same JVM. Re-create the terminated executor so the next server's steps run
+        // instead of hitting RejectedExecutionException. Server-thread-confined, so no lock.
+        if (executor.isShutdown()) {
+            executor = newExecutor();
+        }
         Future<List<float[]>> future = executor.submit(task);
         return new Handle() {
             @Override
