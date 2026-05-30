@@ -206,9 +206,21 @@ integration: snapshot/writeback, §9 validation, block-level reconciliation/supp
     - **Scheduler shape change.** `world.snapshot(range)` becomes *"snapshot the **active set** within
       range"*, not the whole sphere — the sim becomes **event-driven**: edits/new-sections inject into the
       active set, settled sections fall out. This is the change that makes large worlds cheap.
-    - **Cell-level decay is a noted SECONDARY optimization** — skipping settled cells inside an *active*
-      section's kernel inner loop. Lower value here (the inner loop is already cheap); add only if
-      profiling shows mostly-still active sections cost. Section-level captures ~95%.
+    - **Cell-level decay / void active-mask is a noted SECONDARY optimization** — skipping settled cells
+      inside an *active* section's kernel inner loop (a per-section active mask: skip `void` cells, and for
+      active cells don't visit void-facing neighbours). Lower value here (the inner loop is already cheap);
+      add only if profiling shows mostly-still active sections cost (e.g. sparse fluid in a mostly-air
+      section). Section-level captures ~95%.
+    - **`void` vs `dormant-conductive` — DO NOT conflate (correctness landmine).** The engine already
+      treats `void` (`matIx 0`, `cond ≤ 0`, `fluid = 0`) as a **per-face no-flux boundary** (`keff`
+      returns 0 if either side is non-conductive — this is how unloaded-chunk halos and the region walls
+      work). So marking a cell `void` is safe **only** for genuinely-inert / out-of-sim space (air gaps,
+      unloaded, hard boundaries). A **settled-but-conductive** cell (cold stone, a calm pool) must NOT be
+      voided: a voided face is a perfect insulator, so if an active neighbour later heats up its heat
+      would flow into a never-updated cell and **vanish** (energy not conserved). Settled-but-conductive
+      cells use the dormancy countdown + **wake shell**, not voiding. Likewise never `void` a cell that
+      still holds mass/heat (a settled water cell *is* 1000 kg — voiding deletes it). Rule:
+      **`void` = hard boundary you may hard-skip; `dormant` = quiet-but-connected, keep a wake shell.**
 
 12. **Phase-change mass↔volume accounting (the boil-volume landmine).** Boiling a full water cell
     conserves mass (1000 kg water → 1000 kg steam) but **not volume**: 1000 kg of steam at steam's
