@@ -1,8 +1,14 @@
 package net.rainbowcreation.orge;
 
+import dev.architectury.event.events.common.CommandRegistrationEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
+import net.rainbowcreation.orge.command.OrgeCommandLogic;
+import net.rainbowcreation.orge.command.OrgeCommands;
+import net.rainbowcreation.orge.command.ReadRangeProvider;
+import net.rainbowcreation.orge.command.ServerStoreReadSource;
+import net.rainbowcreation.orge.command.ServerStoreWriteSink;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.PackType;
@@ -24,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -140,5 +147,16 @@ public final class Orge {
             stepRunner.shutdown();
         });
         TickEvent.SERVER_POST.register(server -> scheduler.onServerTick());
+
+        // DESIGN observability track (Topic A): /orge get|section|set|fill. Reads walk a
+        // source chain (client cache -> server fallback; v1 = server only); writes are
+        // server-authoritative and op-gated. One common Architectury event covers both loaders.
+        OrgeCommandLogic commandLogic = new OrgeCommandLogic(
+                List.of(new ServerStoreReadSource(SECTION_STORES)),
+                new ServerStoreWriteSink(SECTION_STORES),
+                (ReadRangeProvider) () -> Scheduler.MAX_RANGE);
+        OrgeCommands orgeCommands = new OrgeCommands(commandLogic);
+        CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) ->
+                orgeCommands.register(dispatcher));
     }
 }
