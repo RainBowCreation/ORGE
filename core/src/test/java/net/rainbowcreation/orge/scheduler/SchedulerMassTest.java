@@ -32,7 +32,8 @@ class SchedulerMassTest {
             Identifier.fromNamespaceAndPath("minecraft", "water"),
             0.6f, 4186f, 1f, 1000f, 18f,
             373.15f, 273.15f, null, null,
-            Identifier.fromNamespaceAndPath("minecraft", "water"));
+            Identifier.fromNamespaceAndPath("minecraft", "water"),
+            Float.NaN, false, true); // fluid=true: the §9 mass gate only validates fluid cells
 
     /**
      * Synchronous runner mirroring the production background runner: the job is executed

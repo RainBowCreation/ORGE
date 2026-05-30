@@ -93,6 +93,8 @@ public final class Scheduler {
     private boolean pendingAdvection;
     /** Largest legal per-cell mass for this batch (max material defaultMass), for the §9 check. */
     private float pendingFullMassBound;
+    /** Batch material table (captured at submit), so the §9 gate can exempt non-fluid cells. */
+    private List<Material> pendingMaterials;
 
     /** Server-thread nanos spent in {@code world.snapshot(...)} for the in-flight cycle; summed
      *  with the {@code complete()} body and fed to the health throttle (NOT the native step). */
@@ -189,6 +191,7 @@ public final class Scheduler {
             if (m.defaultMass() > fullMassBound) fullMassBound = m.defaultMass();
         }
         pendingFullMassBound = fullMassBound;
+        pendingMaterials = lut;
         pendingConduction = conduction;
         pendingAdvection = advection;
         pending = runner.submit(() -> {
@@ -274,7 +277,8 @@ public final class Scheduler {
                 // Advection cycle (and the advection half of a coincident tick): mass moved, so
                 // validate Σmass and write T + mass; a non-conserving result holds previous mass.
                 float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);
-                if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound)) {
+                if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound,
+                        entry.task().matIx(), pendingMaterials)) {
                     LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
                             entry.key());
                     // Hold previous: skip write-back (and reconcile) for this entry. On a

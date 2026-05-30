@@ -1,5 +1,9 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.rainbowcreation.orge.material.Material;
+
+import java.util.List;
+
 /**
  * Validates an engine result array before it is written to the {@link
  * net.rainbowcreation.orge.section.SectionStore} (DESIGN §9 trust model). Per cell:
@@ -59,9 +63,29 @@ public final class StepValidator {
      * @param fullMassBound the largest legal per-cell mass for this section (max material defaultMass)
      */
     public static boolean massConserved(float[] after, float[] before, float fullMassBound) {
+        return massConserved(after, before, fullMassBound, null, null);
+    }
+
+    /**
+     * Fluid-aware §9 mass gate: identical to {@link #massConserved(float[], float[], float)} but
+     * <b>only fluid cells</b> participate. Conservation and the full-mass bound are
+     * advection invariants — solids don't advect and their stored mass is just thermal mass, so a
+     * solid carrying a stale value (e.g. a {@code lava→obsidian} cell that kept lava's 3100 kg while
+     * the batch bound dropped to {@code generic_solid}'s 2500) must NOT fail the gate. {@link #cleanMass}
+     * still clamps that solid to the bound on write-back. When {@code matIx}/{@code lut} are {@code null}
+     * every cell counts (used by the pure conservation tests).
+     *
+     * @param matIx per-cell material indices into {@code lut}, or {@code null} to count every cell
+     * @param lut   the batch material table (index 0 = {@link MaterialLut#VOID}), or {@code null}
+     */
+    public static boolean massConserved(float[] after, float[] before, float fullMassBound,
+                                        char[] matIx, List<Material> lut) {
         double sumA = 0, sumB = 0;
         float cellEps = MASS_EPSILON_PER_CELL;
         for (int i = 0; i < after.length; i++) {
+            if (lut != null && !lut.get(matIx[i]).fluid()) {
+                continue; // solids/air: not an advection mass, exempt from conservation + bound
+            }
             if (!Float.isFinite(after[i])) return false;
             if (after[i] < -cellEps || after[i] > fullMassBound + cellEps) return false;
             sumA += after[i]; sumB += before[i];
