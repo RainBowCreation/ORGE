@@ -14,6 +14,10 @@ public final class NativeEngine implements OrgeEngine {
 
     private double lastStepMillis = 0.0;
 
+    static {
+        NativeLoader.load();
+    }
+
     /**
      * One conduction step over a flattened batch. All arrays are flat (see
      * {@link BatchMarshaller}); {@code tOut} (length n·4096) receives the new
