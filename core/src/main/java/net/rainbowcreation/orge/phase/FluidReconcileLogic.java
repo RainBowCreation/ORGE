@@ -1,0 +1,36 @@
+package net.rainbowcreation.orge.phase;
+
+/**
+ * Pure mass → vanilla fluid render-level mapping (DESIGN §10 Decision 9). LEVEL is a visual
+ * depth readout of mass fraction {@code f = m / fullMass}: {@code f >= 0.95} renders a full
+ * block (level 0); {@code 0 < f < 0.95} renders {@code round((1-f)*7)} clamped 1..7; {@code f<=0}
+ * means the cell is empty and the fluid block should be removed ({@link #REMOVE}). No Minecraft
+ * types — the MC adapter ({@code MinecraftFluidReconciler}) turns the level into a block state.
+ */
+public final class FluidReconcileLogic {
+
+    /** Sentinel: the cell holds no fluid; remove any managed fluid block. */
+    public static final int REMOVE = -1;
+
+    /** Fraction above which the cell renders as a full (level-0) block. */
+    public static final float FULL_FRACTION = 0.95f;
+
+    private FluidReconcileLogic() {}
+
+    /** {@code m / fullMass}, guarded for a zero/negative full mass (→ 0). */
+    public static float fraction(float massKg, float fullMassKg) {
+        if (fullMassKg <= 0f) return 0f;
+        float f = massKg / fullMassKg;
+        return f < 0f ? 0f : f;
+    }
+
+    /** Maps a mass fraction to a vanilla fluid LEVEL, or {@link #REMOVE} when empty. */
+    public static int levelForFraction(float f) {
+        if (f <= 0f) return REMOVE;
+        if (f >= FULL_FRACTION) return 0;
+        int level = Math.round((1f - f) * 7f);
+        if (level < 1) return 1;
+        if (level > 7) return 7;
+        return level;
+    }
+}
