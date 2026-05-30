@@ -6,6 +6,8 @@
 
 **Architecture:** Advection is implemented in C++ first in the full-world reference sim (`sim_engine.hpp`, SDL-checkable), then ported bit-identical into the stateless per-section kernel (`orge_kernel.hpp`) with mass-carrying halos + antisymmetric face-flux, then exposed via the JNI ABI (`orge_jni.cpp`). The native artifact is rebuilt + recommitted; the Java side grows the `orgeStep` ABI, returns mass alongside temperature, persists `massOut` to `SectionData`, adds a §9 mass-conservation invariant, plumbs a `fluid` flag through the material LUT, and adds a pure `FluidReconcileLogic` + `FluidReconciler`/`VanillaFluidSuppressor` MC seams.
 
+**Decoupled two-cadence model (spec Decision 2):** conduction and advection run on **independent cadences**, not a single fused step. **Conduction** stays at `TICKS_PER_STEP = 20` ticks (`dt = 1.0 s`, the existing constant in `scheduler/Scheduler.java`) — heat diffuses slowly and 1 Hz was a deliberate perf choice. **Advection** runs on its own faster, tunable cadence — `ADVECTION_TICKS = 5` (4 Hz, `ADVECTION_DT_SECONDS = 0.25`) to match vanilla water's spread rate and stay numerically stable under the CFL transfer cap. The single native step (`step_section_with_halo` / `orgeStep`) therefore takes a **`passes` bitmask selector** (`PASS_CONDUCTION = 1`, `PASS_ADVECTION = 2`) — NOT two separate entry points — so the scheduler can run conduction-only, advection-only, or both: the kernel guards its conduction block with `if (passes & PASS_CONDUCTION)` and its advection block with `if (passes & PASS_ADVECTION)`. On a tick where both cadences coincide (every 20 ticks), conduction runs first then advection (within-cell/contact heat exchange before bulk mass movement): a deliberate, documented order, achieved by passing both bits (or sequencing two calls). The conservation algorithm is identical regardless of cadence; only `dt`, the `passes` bits, and call-frequency change.
+
 **Tech Stack:** C++20 header-only engine (g++, dependency-free test harness `tests/test_harness.hpp`); Java 21, Architectury multiloader (MC 1.21.11, Mojang mappings; `Identifier` = `ResourceLocation`); JNI; Mojang DFU codecs; JUnit 5. Build env: `JAVA_HOME=/home/claude/jdk21`.
 
 **Spec:** `docs/superpowers/specs/2026-05-30-fluid-flow-liquid-phase2a-design.md`
@@ -44,10 +46,16 @@ This plan spans **two separate git repos**. Each task is tagged with the repo it
 These live in `orge_kernel.hpp` so both surfaces share one definition (the existing `keff`/`finalize_temp` discipline):
 
 ```cpp
-// Advection tunables (Phase-2a). dx = 1 m, dt = 1 s in the kernel's unit system.
+// Advection tunables (Phase-2a). dx = 1 m; dt is supplied per call (decoupled cadence,
+// spec Decision 2): conduction passes dt = 1.0 s, advection passes dt = 0.25 s.
 constexpr float ADV_EPS_MASS   = 1e-4f;   // kg; below this a cell is treated as empty/air
 constexpr float ADV_SPREAD_K   = 1000.0f; // numerator of transfer_fraction = k/viscosity
 constexpr float ADV_CFL_CAP    = 0.25f;   // max fraction of a cell's excess moved per neighbour per step
+
+// Pass selector (spec Decision 2): one step entry point, chosen passes via a bitmask.
+constexpr int PASS_CONDUCTION = 1; // run the conduction block
+constexpr int PASS_ADVECTION  = 2; // run the advection block
+// passes = PASS_CONDUCTION | PASS_ADVECTION runs both (conduction first, then advection).
 ```
 
 `transfer_fraction = clamp(ADV_SPREAD_K / viscosity, 0, ADV_CFL_CAP)` — water (viscosity ~1e-3 Pa·s) saturates to the cap (fast); lava (viscosity ~100+ Pa·s) gets a small fraction (slow). A fluid material with `viscosity <= 0` is treated as `ADV_CFL_CAP` (degenerate-safe).
@@ -138,10 +146,15 @@ Expected: FAIL — compile error (`MatLUT` has no `visc`/`fullMass`/`fluid` memb
 In `ORGE-ENGINE/orge_kernel.hpp`, after the `FACES` constant block add the advection constants:
 
 ```cpp
-// Advection tunables (Phase-2a). dx = 1 m, dt = 1 s in the kernel's unit system.
+// Advection tunables (Phase-2a). dx = 1 m; dt is supplied per call (decoupled cadence).
 constexpr float ADV_EPS_MASS = 1e-4f;   // kg; below this a cell is empty/air
 constexpr float ADV_SPREAD_K = 1000.0f; // numerator of transfer_fraction = k/viscosity
 constexpr float ADV_CFL_CAP  = 0.25f;   // max fraction of a cell's excess moved per neighbour/step
+
+// Pass selector (spec Decision 2): conduction and advection run on decoupled cadences,
+// so one step entry point chooses which physics to run via a bitmask.
+constexpr int PASS_CONDUCTION = 1;
+constexpr int PASS_ADVECTION  = 2;
 ```
 
 Replace the `MatLUT` struct with:
@@ -639,9 +652,11 @@ static void test_kernel_advects_fall() {
     float Tout[SEC_N], Mout[SEC_N];
     orge::MatLUT lv = l.view();
     // all-void mass halo (closed) — declared in the Lut/Section helpers (Step 3).
+    // run BOTH passes (conduction first, then advection) for the fused fall check.
     orge::step_section_with_halo(s.matIx.data(), s.mass.data(), s.Tin.data(),
                                  s.haloT.data(), s.haloMat.data(), s.haloMass.data(),
-                                 lv, 1.0f, Tout, Mout);
+                                 lv, 1.0f, orge::PASS_CONDUCTION | orge::PASS_ADVECTION,
+                                 Tout, Mout);
     TH_CHECK_MSG(Mout[bot] > 900.0f, "kernel fall: mass moved down");
     TH_CHECK_MSG(Mout[top] < 100.0f, "kernel fall: top drained");
     double m0 = 1000.0, m1 = (double)Mout[top] + (double)Mout[bot];
@@ -658,16 +673,20 @@ Expected: FAIL to compile — `step_section_with_halo` has no mass-halo/massOut 
 
 - [ ] **Step 3: Implement**
 
-(a) In `ORGE-ENGINE/orge_kernel.hpp`, replace `step_section_with_halo` with the conduction-then-advection version (signature grows `haloMass` in + `massOut` out). The conduction body is **unchanged** (keep it bit-identical); advection is appended, mirroring `sim_engine.hpp::advect_chunk` but using the halo for the six boundary faces and an antisymmetric face-flux so cross-section exchange nets to zero:
+(a) In `ORGE-ENGINE/orge_kernel.hpp`, replace `step_section_with_halo` with the pass-selectable version (signature grows `haloMass` in, `int passes` selector, + `massOut` out). One entry point, NOT two: the conduction block is guarded by `if (passes & PASS_CONDUCTION)` and the advection block by `if (passes & PASS_ADVECTION)`. The conduction body is **unchanged** (keep it bit-identical) when its bit is set; advection is appended, mirroring `sim_engine.hpp::advect_chunk` but using the halo for the six boundary faces and an antisymmetric face-flux so cross-section exchange nets to zero. When both bits are set, conduction runs first then advection (documented order); when a bit is clear, that block is skipped but its outputs are still initialised (Tout from Tin, massOut from mass) so a single-pass call returns a coherent field:
 
 ```cpp
 inline void step_section_with_halo(
     const uint16_t* matIx, const float* mass, const float* Tin,
     const float* haloT, const uint16_t* haloMat, const float* haloMass,
-    const MatLUT& lut, float dt, float* Tout, float* massOut)
+    const MatLUT& lut, float dt, int passes, float* Tout, float* massOut)
 {
     constexpr float inv_dx2 = 1.0f;
+    // Initialise outputs so a skipped pass still yields a coherent field (identity).
+    for (int i = 0; i < SEC_N; ++i) { Tout[i] = Tin[i]; massOut[i] = mass[i]; }
+
     // ---- (1) CONDUCTION (unchanged; bit-identical to sim_engine) ----
+    if (passes & PASS_CONDUCTION) {
     for (int z = 0; z < SEC; ++z) for (int y = 0; y < SEC; ++y) for (int x = 0; x < SEC; ++x) {
         const int i = sidx(x, y, z);
         const uint16_t mix = matIx[i];
@@ -686,11 +705,11 @@ inline void step_section_with_halo(
         flux(x,y,z+1,POSZ,x+SEC*y); flux(x,y,z-1,NEGZ,x+SEC*y);
         Tout[i] = finalize_temp(Tc, Cth, dt, dT);
     }
+    } // end PASS_CONDUCTION
 
-    // ---- (2) ADVECTION over the post-conduction temperature field ----
-    // Working copies: massOut starts from mass, Tout already holds post-conduction T.
-    for (int i = 0; i < SEC_N; ++i) massOut[i] = mass[i];
-
+    // ---- (2) ADVECTION over the (possibly post-conduction) temperature field ----
+    if (!(passes & PASS_ADVECTION)) return; // advection-skipped: outputs already set above
+    // Working copies: massOut already holds mass; Tout already holds Tin (or post-conduction T).
     auto isFluid = [&](uint16_t m) { return m != 0 && lut.fluid[m] != 0; };
     auto deposit = [&](int dst, float dm, float Ts) {
         float md = massOut[dst], mn = md + dm;
@@ -786,9 +805,11 @@ std::vector<float> run(const Section& s, const Lut& l, float dt, int steps) {
     std::vector<float> outT(SEC_N, 0.0f), outM(SEC_N, 0.0f);
     orge::MatLUT lv = lut.view();
     for (int n = 0; n < steps; ++n) {
+        // existing conduction tests run both passes (fluid={0,0} makes advection a no-op).
         orge::step_section_with_halo(s.matIx.data(), m.data(), cur.data(),
                                      s.haloT.data(), s.haloMat.data(), s.haloMass.data(),
-                                     lv, dt, outT.data(), outM.data());
+                                     lv, dt, orge::PASS_CONDUCTION | orge::PASS_ADVECTION,
+                                     outT.data(), outM.data());
         cur = outT; m = outM;
     }
     return cur;
@@ -797,7 +818,7 @@ std::vector<float> run(const Section& s, const Lut& l, float dt, int steps) {
 
 (The conduction tests use `fluid={0,0}`, so advection is a no-op for them and they stay bit-identical.) In `test_kernel_advects_fall` set `l.fluid = {0, 1};` at the top.
 
-(c) In `ORGE-ENGINE/tests/parity_test.cpp`: update `lut_arrays` to also fill viscosity/fullMass/fluid, build the 5-array `MatLUT`, add all-zero `haloMass` buffers + `massOut` buffers to both `step_section_with_halo` calls. Keep the solid material non-fluid (`fluid=0`) so the existing T-only parity check is unaffected.
+(c) In `ORGE-ENGINE/tests/parity_test.cpp`: update `lut_arrays` to also fill viscosity/fullMass/fluid, build the 5-array `MatLUT`, add all-zero `haloMass` buffers + `massOut` buffers and the `passes` argument (`orge::PASS_CONDUCTION | orge::PASS_ADVECTION`) to both `step_section_with_halo` calls. Keep the solid material non-fluid (`fluid=0`) so the existing T-only parity check is unaffected (advection is a no-op on non-fluid cells, so the conduction parity stays bit-identical regardless of the advection bit).
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -890,8 +911,9 @@ static void test_two_section_mass_parity() {
     }
 
     std::vector<float> oT0(SEC_N),oT1(SEC_N),oM0(SEC_N),oM1(SEC_N);
-    orge::step_section_with_halo(mat0.data(),mass0.data(),Tin0.data(),hT0.data(),hMat0.data(),hM0.data(),lv,1.0f,oT0.data(),oM0.data());
-    orge::step_section_with_halo(mat1.data(),mass1.data(),Tin1.data(),hT1.data(),hMat1.data(),hM1.data(),lv,1.0f,oT1.data(),oM1.data());
+    const int both = orge::PASS_CONDUCTION | orge::PASS_ADVECTION; // fused parity: run both passes
+    orge::step_section_with_halo(mat0.data(),mass0.data(),Tin0.data(),hT0.data(),hMat0.data(),hM0.data(),lv,1.0f,both,oT0.data(),oM0.data());
+    orge::step_section_with_halo(mat1.data(),mass1.data(),Tin1.data(),hT1.data(),hMat1.data(),hM1.data(),lv,1.0f,both,oT1.data(),oM1.data());
 
     // total mass conserved across the seam (kernel side).
     double mIn=0, mK=0;
@@ -964,7 +986,7 @@ This is a native-bridge edit with no headless C++ unit test (it needs a JVM). It
 
 - [ ] **Step 1: State the verification (no separate failing test)**
 
-The bridge must: accept `jfloatArray jHaloMass`, `jcharArray`→`uint8_t*` is **not** used (fluid LUT is `jbyteArray`); accept `jfloatArray jVisc, jFullMass` and `jbyteArray jFluid`; write `jfloatArray jMassOut`; pin all in acquisition order, release `jMassOut` + `jTout` with mode 0 (copy back), the rest with `JNI_ABORT`, in reverse order. Compilation of the `.so` is the gate.
+The bridge must: accept `jfloatArray jHaloMass`, `jcharArray`→`uint8_t*` is **not** used (fluid LUT is `jbyteArray`); accept `jfloatArray jVisc, jFullMass` and `jbyteArray jFluid`; accept a `jint passes` selector (forwarded as `int` to the kernel — not pinned, it is a scalar); write `jfloatArray jMassOut`; pin all arrays in acquisition order, release `jMassOut` + `jTout` with mode 0 (copy back), the rest with `JNI_ABORT`, in reverse order. The `passes` scalar sits immediately before `dt` in the parameter list, matching the Java native declaration in Task 14 exactly. Compilation of the `.so` is the gate.
 
 - [ ] **Step 2: Verify the current `.so` builds (baseline)**
 
@@ -973,7 +995,7 @@ Expected: `built .../liborge.so` (baseline, pre-change).
 
 - [ ] **Step 3: Implement**
 
-Replace `ORGE-ENGINE/orge_jni.cpp` with the new ABI (note the param order matches the Java native declaration in Task 12 exactly):
+Replace `ORGE-ENGINE/orge_jni.cpp` with the new ABI (note the param order matches the Java native declaration in Task 14 exactly — including the `jint passes` selector immediately before `dt`):
 
 ```cpp
 #include <jni.h>
@@ -989,7 +1011,7 @@ Java_net_rainbowcreation_orge_engine_NativeEngine_orgeStep(
         jfloatArray jHaloT, jcharArray jHaloMat, jfloatArray jHaloMass,
         jfloatArray jCond, jfloatArray jHeatCap, jfloatArray jVisc,
         jfloatArray jFullMass, jbyteArray jFluid,
-        jdouble dt, jfloatArray jTout, jfloatArray jMassOut)
+        jint passes, jdouble dt, jfloatArray jTout, jfloatArray jMassOut)
 {
     const jint matCount = env->GetArrayLength(jCond);
 
@@ -1017,7 +1039,7 @@ Java_net_rainbowcreation_orge_engine_NativeEngine_orgeStep(
             const size_t ho = static_cast<size_t>(s) * orge::FACES * orge::FACE;
             orge::step_section_with_halo(matIx + so, mass + so, tin + so,
                                          haloT + ho, haloMat + ho, haloMass + ho,
-                                         lut, static_cast<float>(dt),
+                                         lut, static_cast<float>(dt), static_cast<int>(passes),
                                          tout + so, massOut + so);
         }
         const auto t1 = std::chrono::steady_clock::now();
@@ -1084,7 +1106,9 @@ class StubEngineMassTest {
     @Test
     void stubReturnsTemperatureAndUnchangedMass() {
         StepTask a = solidSection(new SubchunkKey(0, 0, 0), 300f);
-        List<StepResult> out = new StubEngine().step(List.of(a), stdLut(), 1.0);
+        // pass both bits; StubEngine is identity for both passes anyway.
+        int both = OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION;
+        List<StepResult> out = new StubEngine().step(List.of(a), stdLut(), 1.0, both);
         assertEquals(1, out.size());
         assertEquals(SectionConstants(), out.get(0).temperature().length);
         // StubEngine does not advect: mass comes back identical to the task's mass.
@@ -1117,15 +1141,19 @@ package net.rainbowcreation.orge.engine;
 public record StepResult(float[] temperature, float[] mass) {}
 ```
 
-In `OrgeEngine.java` change the method to:
+In `OrgeEngine.java` add the pass-selector constants and change the method to take a `passes` bitmask (so callers pick conduction-only, advection-only, or both — spec Decision 2):
 
 ```java
-    List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds);
+    /** Pass selector bits (mirror the kernel's PASS_CONDUCTION/PASS_ADVECTION). */
+    int PASS_CONDUCTION = 1;
+    int PASS_ADVECTION  = 2;
+
+    List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds, int passes);
 ```
 
-(and update the import to add `StepResult` if needed; it's the same package). Update the javadoc `@return` to "new temperature + mass per section".
+(and update the import to add `StepResult` if needed; it's the same package). Update the javadoc `@return` to "new temperature + mass per section" and document `@param passes` as the conduction/advection pass bitmask.
 
-In `StubEngine.java`, change `step` to return `List<StepResult>` echoing each task's temperature and mass unchanged (identity — the stub does no advection). For each task build `new StepResult(task.temperature().clone(), task.mass().clone())`.
+In `StubEngine.java`, change `step` to the new `(tasks, lut, dtSeconds, passes)` signature returning `List<StepResult>`, echoing each task's temperature and mass unchanged (identity — the stub does no physics, so `passes` is accepted and ignored). For each task build `new StepResult(task.temperature().clone(), task.mass().clone())`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1463,7 +1491,8 @@ Update `NativeEngineTest.java` so each `e.step(...)` returns `List<StepResult>` 
         // a fluid section: build via BatchTestSupport.fluidSection (added below) with the top
         // plane full and the cell below empty; after one step the lower cell gains mass.
         StepTask a = fluidSection(new SubchunkKey(0, 0, 0));
-        List<StepResult> out = e.step(List.of(a), fluidLut(), 1.0);
+        int both = OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION;
+        List<StepResult> out = e.step(List.of(a), fluidLut(), 0.25, both); // advection dt
         int top = 0 + 16 * 1 + 256 * 0; // sidx(0,1,0)
         int bot = 0 + 16 * 0 + 256 * 0; // sidx(0,0,0)
         assertTrue(out.get(0).mass()[bot] > out.get(0).mass()[top], "mass fell downward");
@@ -1488,7 +1517,7 @@ Expected: FAIL — `NativeEngine.step` still returns `List<float[]>`; the hand-d
 
 - [ ] **Step 3: Implement**
 
-In `NativeEngine.java`: change the native declaration to the new ABI (order MUST match `orge_jni.cpp` Task 9 exactly), make `step` return `List<StepResult>`, allocate a `massOut` buffer, and zip temperature + mass per section:
+In `NativeEngine.java`: change the native declaration to the new ABI (order MUST match `orge_jni.cpp` Task 9 exactly — including the `int passes` selector immediately before `dtSeconds`), make `step` take the new `passes` argument and return `List<StepResult>`, allocate a `massOut` buffer, and zip temperature + mass per section:
 
 ```java
     private static native double orgeStep(
@@ -1497,11 +1526,11 @@ In `NativeEngine.java`: change the native declaration to the new ABI (order MUST
             float[] haloT, char[] haloMat, float[] haloMass,
             float[] lutCond, float[] lutHeatCap, float[] lutVisc,
             float[] lutFullMass, byte[] lutFluid,
-            double dtSeconds,
+            int passes, double dtSeconds,
             float[] tOut, float[] massOut);
 
     @Override
-    public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds) {
+    public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds, int passes) {
         if (tasks.isEmpty()) { lastStepMillis = 0.0; return new ArrayList<>(); }
         BatchMarshaller.Flat f = BatchMarshaller.flatten(tasks, lut);
         float[] tOut = new float[f.n() * BatchMarshaller.SEC_N];
@@ -1510,7 +1539,7 @@ In `NativeEngine.java`: change the native declaration to the new ABI (order MUST
                 f.n(), f.matIx(), f.mass(), f.tIn(),
                 f.haloT(), f.haloMat(), f.haloMass(),
                 f.lutCond(), f.lutHeatCap(), f.lutVisc(), f.lutFullMass(), f.lutFluid(),
-                dtSeconds, tOut, massOut);
+                passes, dtSeconds, tOut, massOut);
         List<float[]> t = BatchMarshaller.slice(tOut, f.n());
         List<float[]> m = BatchMarshaller.sliceMass(massOut, f.n());
         List<StepResult> out = new ArrayList<>(f.n());
@@ -1712,15 +1741,25 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## Task 17 [MAIN]: `Scheduler` wires `StepResult` → validate mass → writeBack → reconcile
+## Task 17 [MAIN]: `Scheduler` — DECOUPLED conduction (20-tick) + advection (5-tick) cadences; validate → writeBack → reconcile
 
 **Files:**
 - Modify: `core/src/main/java/net/rainbowcreation/orge/scheduler/Scheduler.java`
 - Test: `core/src/test/java/net/rainbowcreation/orge/scheduler/SchedulerMassTest.java`
 
+This is the biggest change in the plan: the scheduler runs **two independent cadences** (spec Decision 2). Conduction stays on the existing 20-tick grid (`TICKS_PER_STEP = 20`, `STEP_DT_SECONDS = 1.0`, unchanged). Advection runs on a new 5-tick grid (`ADVECTION_TICKS = 5`, `ADVECTION_DT_SECONDS = 0.25`). Each cadence submits the engine with the matching `passes` bit; on the tick where both grids coincide (every 20 ticks), conduction runs first then advection (documented coincident-tick order):
+
+```
+every 20 ticks (dt=1.0s):  snapshot(T)        → engine.step(PASS_CONDUCTION) → §9 validate(T)
+                             → writeBack(T)     → PhaseChanger (§7, unchanged)
+every  5 ticks (dt=0.25s): snapshot(T + mass) → engine.step(PASS_ADVECTION)  → §9 validate(+Σmass)
+                             → writeBack(T + mass) → FluidReconciler (mass → render level)
+coincident (every 20):     conduction first, then advection (PASS_CONDUCTION then PASS_ADVECTION)
+```
+
 - [ ] **Step 1: Write the failing test**
 
-A deterministic scheduler test (fake `StepRunner`/`ThermalWorld`/engine) asserting: a step returning a `StepResult` with valid conserved mass is written back via `writeBack(entry, StepResult)`, and a step returning mass that violates conservation holds previous values (rejected). Mirror the existing scheduler test setup. Assert the `FluidReconciler` (a counting fake) is invoked once per written section.
+A deterministic scheduler test (fake `StepRunner`/`ThermalWorld`/engine) asserting BOTH cadences fire at the right tick counts: over 20 ticks the advection cadence fires 4 times (ticks 5,10,15,20) and the conduction cadence fires once (tick 20); an advection-only step (PASS_ADVECTION) conserves mass and does NOT perturb the temperatures the conduction-only path produced; and a step returning mass that violates conservation holds previous values (rejected). The `FluidReconciler` (a counting fake) fires once per written section on each advection cadence. Mirror the existing `SchedulerTest` fake shapes.
 
 ```java
 package net.rainbowcreation.orge.scheduler;
@@ -1735,48 +1774,68 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SchedulerMassTest {
     // ... build a fake ThermalWorld whose snapshot returns ONE fluid section (full mass at top
-    // cell, empty below), a synchronous StepRunner, and a real StubEngine (identity mass).
-    // After 20+1 ticks the writeBack must have received a StepResult whose mass equals the
-    // task mass (conserved), and the counting FluidReconciler fired exactly once.
+    // cell, empty below) and a recording engine that captures the `passes` of each step, a
+    // synchronous StepRunner, and a real StubEngine (identity T+mass) where a value check is
+    // wanted. Wire Scheduler(engine, world, runner, worker, PhaseChanger.NOOP, counting).
 
     @Test
-    void conservedMassStepWritesBackAndReconciles() {
-        int[] reconcileCount = {0};
-        FluidReconciler counting = entry -> reconcileCount[0]++;
-        // ... wire Scheduler(engine, world, runner, worker, PhaseChanger.NOOP, counting); tick 21x.
-        // assertEquals(1, reconcileCount[0]);
-        // assertNotNull(world.lastWriteback);  // a StepResult was written
+    void advectionCadenceFiresEvery5TicksConductionEvery20() {
+        // tick the scheduler 20 times; assert the recording engine saw PASS_ADVECTION on
+        // ticks {5,10,15,20} (4 advection steps) and PASS_CONDUCTION on tick {20} (1 conduction
+        // step); on tick 20 conduction was submitted before advection (coincident order).
+        // assertEquals(4, advectionSteps);
+        // assertEquals(1, conductionSteps);
         assertTrue(true); // replace with concrete fake wiring mirroring existing SchedulerTest
+    }
+
+    @Test
+    void advectionConservesMassWithoutPerturbingConductionPath() {
+        // run a conduction-only step (PASS_CONDUCTION) and capture the written temperatures.
+        // then run an advection-only step (PASS_ADVECTION, StubEngine identity): mass is
+        // written back conserved (Σmass unchanged) and the temperature field equals the
+        // conduction-only result (advection alone did not change T on the identity engine).
+        // a non-conserving advection result is rejected (previous mass held).
+        assertTrue(true); // replace with concrete fake wiring
     }
 }
 ```
 
-(The executor MUST replace the placeholder with concrete fakes mirroring the existing `SchedulerTest` in the same package — read it first for the established fake shapes.)
+(The executor MUST replace the placeholders with concrete fakes mirroring the existing `SchedulerTest` in the same package — read it first for the established fake shapes.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `JAVA_HOME=/home/claude/jdk21 ./gradlew :core:test --tests "net.rainbowcreation.orge.scheduler.SchedulerMassTest" --rerun-tasks`
-Expected: FAIL — `Scheduler` has no constructor taking a `FluidReconciler`; `complete` still consumes `List<float[]>`.
+Expected: FAIL — `Scheduler` has no `ADVECTION_TICKS`/`ADVECTION_DT_SECONDS`, no second cadence, no constructor taking a `FluidReconciler`; `engine.step(...)` is called without a `passes` argument and `complete` still consumes `List<float[]>`.
 
 - [ ] **Step 3: Implement**
 
 In `Scheduler.java`:
+- Add the advection cadence constants beside the existing conduction ones:
+  ```java
+  /** Advection cadence (DESIGN §10 Decision 2): every 5 ticks = 4 Hz, dt = 0.25 s. Decoupled
+   *  from the 20-tick conduction cadence; tunable in the in-game audit. */
+  public static final int ADVECTION_TICKS = 5;
+  public static final double ADVECTION_DT_SECONDS = 0.25;
+  ```
+  Keep `TICKS_PER_STEP = 20` / `STEP_DT_SECONDS = 1.0` unchanged.
 - Add a `FluidReconciler fluidReconciler` field (import from `net.rainbowcreation.orge.phase`), a constructor overload adding it (default `FluidReconciler.NOOP` in the existing constructors), keeping backward-compatible constructors.
-- `submit()` already captures `pendingEntries`; capture each entry's snapshot mass + the section's `fullMassBound` (max `defaultMass` over the batch LUT — a constant per step) for the §9 check.
-- In `complete()`, change `results` to `List<StepResult>`. Per entry: `float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature()); float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);` then `if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound)) { LOGGER.warn(...); hold previous (skip writeBack for this entry); continue; }` else `world.writeBack(entry, new StepResult(cleanT, cleanM));`.
-- After `phaseChanger.applyPhaseChanges(entry);` add `fluidReconciler.reconcile(entry);`.
+- Drive **two cadences off the free-running `tickCounter`** on the global 20-tick grid: a conduction step when `tickCounter` hits the 20-tick boundary (passes = `OrgeEngine.PASS_CONDUCTION`, `dt = STEP_DT_SECONDS`), and an advection step every 5 ticks (`tickCounter % ADVECTION_TICKS == 0`, passes = `OrgeEngine.PASS_ADVECTION`, `dt = ADVECTION_DT_SECONDS`). On the coincident 20-tick boundary submit conduction first, then advection (documented order). Each submit carries its own `passes`/`dt` and a flag marking whether it is the advection or conduction cycle so `complete()` validates/writes the right field set.
+- `submit(...)` gains a `passes`/`dt` argument and forwards them to the engine: `runner.submit(() -> engine.step(tasks, batch.lut(), dt, passes))`. It already captures `pendingEntries`; also capture each entry's snapshot mass + the section's `fullMassBound` (max `defaultMass` over the batch LUT — a constant per step) for the §9 mass check on advection cycles.
+- In `complete()`, change `results` to `List<StepResult>`. Per entry: always `float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature());`. On a **conduction** cycle write back T (mass carried through unchanged) then run `phaseChanger.applyPhaseChanges(entry)`. On an **advection** cycle: `float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);` then `if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound)) { LOGGER.warn(...); hold previous (skip writeBack for this entry); continue; }` else `world.writeBack(entry, new StepResult(cleanT, cleanM)); fluidReconciler.reconcile(entry);`.
+
+(Snapshot/halo assembly is shared machinery; the plan may run one assembled snapshot every 5 ticks and sub-sample conduction on every 4th — an optimization left to the executor. The observable contract is the two cadences above.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `JAVA_HOME=/home/claude/jdk21 ./gradlew :core:test --tests "net.rainbowcreation.orge.scheduler.SchedulerMassTest" --rerun-tasks`
-Expected: PASS. Run existing `SchedulerTest` → PASS (NOOP reconciler; backward-compatible constructors).
+Expected: PASS. Run existing `SchedulerTest` → PASS (NOOP reconciler; backward-compatible constructors; conduction cadence/dt unchanged so its assertions still hold).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd /home/claude/ORGE
 git add core/src/main/java/net/rainbowcreation/orge/scheduler/Scheduler.java core/src/test/java/net/rainbowcreation/orge/scheduler/SchedulerMassTest.java
-git commit -m "feat(scheduler): StepResult cycle — clean/conserve mass, writeBack, reconcile
+git commit -m "feat(scheduler): decoupled conduction (20t) + advection (5t) cadences; passes selector; reconcile
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -2098,7 +2157,7 @@ Expected: FAIL — the placeholder native loop is not yet written / references h
 
 - [ ] **Step 3: Implement**
 
-Replace the `assertTrue(true)` placeholder in `waterFallsSpreadsAndReconciles` with the concrete native loop: build a fluid `StepTask` (matIx all water index 1, water `Material` with `fluid=true`, mass = 1000 at one upper cell and 0 in the fluid cells below/beside, all-zero halo incl. mass faces), a LUT `[void, water]`, run `e.step(...)` ~30 times feeding `StepResult.mass()` back as the next task's mass and `StepResult.temperature()` as the next temperature, then assert: total mass ≈ 1000 each step (conservation), a lower cell ended with mass > 0, a horizontal neighbour gained mass, and the reconcile mapping turns a near-full settled cell into level 0 and an emptied cell into `REMOVE`. Make `water()` carry `fluid=true` (use the 14-arg constructor) so it participates.
+Replace the `assertTrue(true)` placeholder in `waterFallsSpreadsAndReconciles` with the concrete native loop: build a fluid `StepTask` (matIx all water index 1, water `Material` with `fluid=true`, mass = 1000 at one upper cell and 0 in the fluid cells below/beside, all-zero halo incl. mass faces), a LUT `[void, water]`, run `e.step(List.of(task), lut, Scheduler.ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION)` ~30 times (advection-only, the cadence that moves mass; `ADVECTION_DT_SECONDS = 0.25`) feeding `StepResult.mass()` back as the next task's mass and `StepResult.temperature()` as the next temperature, then assert: total mass ≈ 1000 each step (conservation), a lower cell ended with mass > 0, a horizontal neighbour gained mass, and the reconcile mapping turns a near-full settled cell into level 0 and an emptied cell into `REMOVE`. Make `water()` carry `fluid=true` (use the 14-arg constructor) so it participates.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2142,3 +2201,4 @@ These are explicitly **out of scope** per the spec's "Out of scope (deferred)" l
 - **Region-boundary water streaming** — unloaded/unsimulated neighbours are **no-flow walls**; water piling at the loaded edge is an accepted known limitation, revisited when seeding/region-streaming is designed.
 - **Temperature-dependent material curves** — materials stay flat constants.
 - **windows/macos native builds** — only `linux-x64` `liborge.so` is rebuilt/bundled for this slice (matches the existing bundle + the audit/CI platform).
+- **Smooth/interpolated client-side fluid rendering** — reconcile maps mass to vanilla's discrete 8 levels at the advection cadence, so flow renders steppy, not animated. Vanilla renderer only.
