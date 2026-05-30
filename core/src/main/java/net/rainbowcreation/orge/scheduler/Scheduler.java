@@ -1,35 +1,122 @@
 package net.rainbowcreation.orge.scheduler;
 
-import net.rainbowcreation.orge.section.SubchunkKey;
+import net.rainbowcreation.orge.engine.OrgeEngine;
+import net.rainbowcreation.orge.engine.StepTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.Map;
+import java.util.List;
 
 /**
- * The per-tick server scheduler (DESIGN.md §8). Runs on the logical server each tick:
+ * The per-second server conduction scheduler (DESIGN §8), single-node v1: the server is the
+ * sole worker. Driven by {@link #onServerTick()} once per server tick, it runs a small
+ * IDLE→AWAITING state machine over a single in-flight {@link StepRunner} step.
  *
- * <ol>
- *   <li>Build the union of all players' section-spheres (+ force-loaded regions).</li>
- *   <li>Assign each <i>unique</i> subchunk to the nearest healthy worker whose range
- *       covers it (best locality, single owner ⇒ natural dedup).</li>
- *   <li>Overflow an overloaded/throttled owner's subchunk to the next-nearest covering
- *       worker, else to the server fallback engine.</li>
- *   <li>Send each worker its assignments; geometry once per section version, mutable
- *       temperatures + halo every tick.</li>
- *   <li>A subchunk that misses the 1 s deadline holds its previous temperatures for a
- *       tick (no recompute storm).</li>
- * </ol>
+ * <ul>
+ *   <li><b>IDLE</b>: count ticks; at {@link #TICKS_PER_STEP} ask the {@link ThermalWorld} for a
+ *       batch and, if non-empty, submit {@code engine.step(...)} to the runner.</li>
+ *   <li><b>AWAITING</b>: when the step finishes, validate (§9) and write each result back; a
+ *       result missing the 1 s deadline <i>holds previous temps</i>, and after a grace window
+ *       the step is cancelled. {@code engine.lastStepMillis()} drives the {@link Worker}
+ *       health throttle.</li>
+ * </ul>
+ *
+ * <p>This class is loader- and Minecraft-free: all world access is behind {@link ThermalWorld}.
+ * Confined to the server thread (no internal locking), exactly like the §5 store.</p>
  */
 public final class Scheduler {
 
-    /** dt and cadence (DESIGN.md §4): step once per real second = every 20 ticks. */
+    /** dt and cadence (DESIGN §4): one step per real second = every 20 ticks. */
     public static final int TICKS_PER_STEP = 20;
     public static final double STEP_DT_SECONDS = 1.0;
 
-    // TODO(phase: scheduler): worker registry, per-player sphere union, nearest-owner
-    //  assignment with overflow, and the deadline/hold-previous bookkeeping.
+    /** Range bounds + health-throttle tunables (DESIGN §8; v1 constants). */
+    public static final int DEFAULT_RANGE = 2;
+    public static final int MAX_RANGE = 4;
+    public static final double COMPUTE_BUDGET_MILLIS = 250.0;
+    public static final int ON_TIME_TICKS_TO_CLIMB = 5;
 
-    /** Compute this tick's subchunk → owning worker assignment. */
-    public Map<SubchunkKey, Worker> assign() {
-        throw new UnsupportedOperationException("Phase 1 skeleton: scheduler not yet implemented");
+    private static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
+
+    private enum State { IDLE, AWAITING }
+
+    private final OrgeEngine engine;
+    private final ThermalWorld world;
+    private final StepRunner runner;
+    private final Worker worker;
+
+    private State state = State.IDLE;
+    private int tickCounter;
+    private int ticksSinceSubmit;
+    private StepRunner.Handle pending;
+    private List<ThermalWorld.BatchEntry> pendingEntries;
+
+    public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker) {
+        this.engine = engine;
+        this.world = world;
+        this.runner = runner;
+        this.worker = worker;
+    }
+
+    /** Advance the scheduler by one server tick (call from the server-tick hook). */
+    public void onServerTick() {
+        if (state == State.IDLE) {
+            if (++tickCounter >= TICKS_PER_STEP) {
+                tickCounter = 0;
+                submit();
+            }
+            return;
+        }
+        // AWAITING
+        ticksSinceSubmit++;
+        if (pending.isDone()) {
+            complete(ticksSinceSubmit <= TICKS_PER_STEP);
+        } else if (ticksSinceSubmit >= TICKS_PER_STEP * 2) {
+            pending.cancel();
+            worker.reportLate();
+            reset();
+        }
+        // else: past the deadline but within grace — hold previous temps (do nothing).
+    }
+
+    private void submit() {
+        ThermalWorld.Batch batch = world.snapshot(worker.range());
+        if (batch.entries().isEmpty()) {
+            return; // stay IDLE; nothing to simulate this step
+        }
+        List<StepTask> tasks = batch.entries().stream().map(ThermalWorld.BatchEntry::task).toList();
+        pending = runner.submit(() -> engine.step(tasks, batch.lut(), STEP_DT_SECONDS));
+        pendingEntries = batch.entries();
+        ticksSinceSubmit = 0;
+        state = State.AWAITING;
+    }
+
+    private void complete(boolean metDeadline) {
+        List<float[]> results;
+        try {
+            results = pending.result();
+        } catch (RuntimeException e) {
+            // A failed step never corrupts the store: hold previous temps, treat as late.
+            LOGGER.warn("[ORGE] conduction step failed; holding previous temps", e);
+            worker.reportLate();
+            reset();
+            return;
+        }
+        int n = Math.min(results.size(), pendingEntries.size());
+        for (int i = 0; i < n; i++) {
+            ThermalWorld.BatchEntry entry = pendingEntries.get(i);
+            float[] cleaned = StepValidator.clean(results.get(i), entry.task().temperature());
+            world.writeBack(entry, cleaned);
+        }
+        worker.noteStep(engine.lastStepMillis(), metDeadline);
+        reset();
+    }
+
+    private void reset() {
+        pending = null;
+        pendingEntries = null;
+        ticksSinceSubmit = 0;
+        tickCounter = 0;
+        state = State.IDLE;
     }
 }
