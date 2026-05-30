@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.rainbowcreation.orge.fabric.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "FlowingFluidMixin"
+  ],
+  "server": [
+  ],
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

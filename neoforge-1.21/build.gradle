@@ -10,6 +10,12 @@ architectury {
 
 loom {
     accessWidenerPath = project(":core").loom.accessWidenerPath
+    // Enable the legacy Mixin annotation processor so loom generates the refmap for our
+    // FlowingFluid#tick suppression mixin (orge.mixins.json) at build time.
+    mixin {
+        useLegacyMixinAp = true
+        defaultRefmapName = "orge.refmap.json"
+    }
 }
 
 configurations {

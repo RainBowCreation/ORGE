@@ -3,6 +3,9 @@ loaderVersion = "[1,)"
 license = "MIT"
 issueTrackerURL = "https://github.com/RainBowCreation/ORGE/issues"
 
+[[mixins]]
+config = "orge.mixins.json"
+
 [[mods]]
 modId = "orge"
 version = "${version}"

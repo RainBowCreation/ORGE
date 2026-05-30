@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.rainbowcreation.orge.neoforge.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "orge.refmap.json",
+  "mixins": [
+    "FlowingFluidMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
