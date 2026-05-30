@@ -47,8 +47,8 @@ For v2 it is repurposed:
 - **Distribution:** ORGE-ENGINE's CI builds `liborge` for
   `{windows, linux, macos} × {x64, arm64}` and publishes them as release artifacts.
   The mod's Gradle pulls the pinned version and packs all platform libraries into the
-  jar; at runtime the matching library is extracted and loaded. jextract-generated
-  bindings are committed into `:core`.
+  jar; at runtime `NativeLoader` extracts + `System.load`s the matching library
+  (no jextract / generated bindings; see Build & native integration notes below).
 - The engine keeps its per-section / per-chunk timing (`section_ms_last`,
   `chunk_ms_last`); that is the signal the scheduler uses for health throttling.
 
