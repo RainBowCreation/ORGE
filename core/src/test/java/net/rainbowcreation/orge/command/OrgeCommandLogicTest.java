@@ -199,4 +199,80 @@ class OrgeCommandLogicTest {
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("out of range"));
     }
+
+    // ---- set ----
+
+    /** Records writes; isLoaded controlled by a set of loaded columns (cx,cz packed as "cx,cz"). */
+    static final class FakeSink implements ThermalWriteSink {
+        final java.util.Set<String> loaded = new java.util.HashSet<>();
+        final List<String> temps = new ArrayList<>();
+        final List<String> masses = new ArrayList<>();
+        FakeSink load(int cx, int cz) { loaded.add(cx + "," + cz); return this; }
+        public boolean isLoaded(Identifier dim, SubchunkKey key) {
+            return loaded.contains(key.cx() + "," + key.cz());
+        }
+        public void writeTemp(Identifier dim, SubchunkKey key, int cell, float k) {
+            temps.add(key.cx() + "," + key.sectionY() + "," + key.cz() + ":" + cell + "=" + k);
+        }
+        public void writeMass(Identifier dim, SubchunkKey key, int cell, float kg) {
+            masses.add(key.cx() + "," + key.sectionY() + "," + key.cz() + ":" + cell + "=" + kg);
+        }
+    }
+
+    static OrgeCommandLogic.Request set(int x, int y, int z, Float k, Float mass, boolean op) {
+        return new OrgeCommandLogic.Request(OrgeCommandLogic.Op.SET, DIM,
+                x, y, z, x, y, z, k, mass, op, null, MIN_Y, MAX_Y);
+    }
+
+    @Test
+    void setRequiresOperator() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 400f, null, false));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("operator"), r.lines().get(0));
+        assertTrue(sink.temps.isEmpty(), "no write when denied");
+    }
+
+    @Test
+    void setWritesTempLeavesMassUnchangedWhenOmitted() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(set(1, 2, 3, 400f, null, true));
+        assertTrue(r.ok(), r.lines().toString());
+        assertEquals(1, sink.temps.size());
+        assertTrue(sink.temps.get(0).endsWith("=400.0"), sink.temps.get(0));
+        assertTrue(sink.masses.isEmpty(), "mass omitted -> not written");
+        assertTrue(r.lines().get(0).contains("mass unchanged"), r.lines().get(0));
+    }
+
+    @Test
+    void setWritesTempAndMassWhenProvided() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 400f, 1000f, true));
+        assertTrue(r.ok());
+        assertEquals(1, sink.temps.size());
+        assertEquals(1, sink.masses.size());
+        assertTrue(sink.masses.get(0).endsWith("=1000.0"));
+    }
+
+    @Test
+    void setNotLoadedFails() {
+        FakeSink sink = new FakeSink(); // nothing loaded
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 400f, null, true));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("not loaded"), r.lines().get(0));
+        assertTrue(sink.temps.isEmpty());
+    }
+
+    @Test
+    void setYOutOfRangeFails() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(set(0, 999, 0, 400f, null, true));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("build height"));
+    }
 }

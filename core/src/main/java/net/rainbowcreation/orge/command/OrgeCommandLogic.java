@@ -126,7 +126,29 @@ public final class OrgeCommandLogic {
                         mMin, mSum / cells, mMax),
                 String.format("  non-uniform cells (T!=cell0): %d / %d", nonUniform, cells)));
     }
-    private Response set(Request r) { throw new UnsupportedOperationException("Task 7"); }
+    private Response set(Request r) {
+        if (!r.operator()) {
+            return Response.fail(opError());
+        }
+        if (!inBuildRange(r.y1(), r)) {
+            return Response.fail(yError(r));
+        }
+        CellAddress addr = CellAddress.of(r.x1(), r.y1(), r.z1());
+        if (!writeSink.isLoaded(r.dimension(), addr.key())) {
+            return Response.fail(notLoaded());
+        }
+        writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
+        String massPart;
+        if (r.massKg() != null) {
+            writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
+            massPart = String.format(", %.1f kg", r.massKg());
+        } else {
+            massPart = " (mass unchanged)";
+        }
+        return Response.ok(String.format("set (%d,%d,%d) -> %.2f K%s",
+                r.x1(), r.y1(), r.z1(), r.temperatureK(), massPart));
+    }
+
     private Response fill(Request r) { throw new UnsupportedOperationException("Task 8"); }
 
     // ----- helpers -----
@@ -166,5 +188,13 @@ public final class OrgeCommandLogic {
 
     private static String noStore(Identifier dim) {
         return "no ORGE data for dimension " + dim;
+    }
+
+    private static String opError() {
+        return "requires operator (permission level 2)";
+    }
+
+    private static String notLoaded() {
+        return "target section not loaded; move closer";
     }
 }
