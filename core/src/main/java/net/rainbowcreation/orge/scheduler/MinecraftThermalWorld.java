@@ -88,9 +88,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
                 SectionStore store = stores.store(dim);
                 float[] temps = sectionTemps(level, store, key, cellMat);
+                float[] mass = sectionMass(store, key, geo, lut);
                 NeighborHalo halo = buildHalo(level, dim, key, lut, mats);
                 entries.add(new BatchEntry(dim, key,
-                        new StepTask(key, geo.matIx(), geo.mass(), temps, halo)));
+                        new StepTask(key, geo.matIx(), mass, temps, halo)));
             }
         }
         return new Batch(entries, lut.materials());
@@ -128,6 +129,20 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return store.get(key).temperatureArray().clone();
         }
         return AmbientSeeder.seed(cellMat::at, biomeAmbientK(level, key));
+    }
+
+    /**
+     * Input mass for one section (§10 advection): the stored/advected mass when the section has
+     * been simulated, otherwise the block-derived geometry seed. When the store exists, fluid
+     * cells the store reports empty are seeded once to full (the freshly-placed-fluid entry
+     * point) via {@link MassSnapshot} — the SAME rule the halo {@link #neighbor} mass uses, so
+     * the two sides of a section face always agree on a cell's mass.
+     */
+    private float[] sectionMass(SectionStore store, SubchunkKey key,
+                                GeometryAssembler.Geometry geo, MaterialLut lut) {
+        boolean has = store != null && store.hasSection(key);
+        float[] stored = has ? store.get(key).massArray().clone() : null;
+        return MassSnapshot.selectAll(stored, geo.matIx(), lut.materials(), has, geo.mass());
     }
 
     /** Biome base temperature sampled once at the section centre, mapped to Kelvin. */
@@ -181,10 +196,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         float[] temps = sectionTemps(level, store, key, cellMat);
         // TODO(perf, §8 follow-on): assembles a full 4096-cell geometry per neighbour but only one 256-cell face is used by the halo. A GeometryAssembler.assembleFace(cells, lut, face) variant would cut this 16x.
         GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
-        // Neighbour mass: stored masses when the section exists, else the geometry default mass per cell.
-        float[] mass = (store != null && store.hasSection(key))
-                ? store.get(key).massArray().clone()
-                : geo.mass();
+        // Neighbour mass: the SAME §10 rule as the section's own mass (sectionMass) so the two
+        // sides of a shared face agree — stored/advected mass when the section exists (fluid
+        // entry point seeds empty fluid cells once), else the block-derived geometry seed.
+        float[] mass = sectionMass(store, key, geo, lut);
         return new HaloAssembler.Neighbor(temps, geo.matIx(), mass);
     }
 }
