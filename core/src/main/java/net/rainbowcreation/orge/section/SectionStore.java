@@ -132,6 +132,16 @@ public final class SectionStore {
     // -------------------------------------------------------------------------
 
     /**
+     * Whether a section is currently stored (column loaded AND this sectionY present).
+     * Distinguishes an evolved/stored section from the synthesized ambient baseline that
+     * {@link #get} returns for never-simulated sections.
+     */
+    public boolean hasSection(SubchunkKey key) {
+        NavigableMap<Integer, SectionData> col = loaded.get(colKey(key.cx(), key.cz()));
+        return col != null && col.get(key.sectionY()) != null;
+    }
+
+    /**
      * Returns the {@link SectionData} for the given key.
      *
      * <p>If the column is loaded AND contains the requested sectionY, that live

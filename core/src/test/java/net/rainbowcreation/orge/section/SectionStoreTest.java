@@ -215,6 +215,23 @@ class SectionStoreTest {
     }
 
     // -------------------------------------------------------------------------
+    // Test 9: hasSection — stored-vs-ambient probe
+    // -------------------------------------------------------------------------
+
+    @Test
+    void hasSectionFalseUntilPut() {
+        RegionStore region = new RegionStore(world);
+        SectionStore store = new SectionStore(region, AMB);
+        store.loadColumn(0, 0);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        assertFalse(store.hasSection(key), "never-written section is not stored");
+        store.put(key, SectionData.uniform(400f, 0f));
+        assertTrue(store.hasSection(key), "after put it is stored");
+        assertFalse(store.hasSection(new SubchunkKey(0, 5, 0)), "sibling section still absent");
+        region.closeAll();
+    }
+
+    // -------------------------------------------------------------------------
     // Test 8: flushAll correctly round-trips negative chunk coordinates
     // -------------------------------------------------------------------------
 
