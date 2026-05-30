@@ -29,6 +29,8 @@ class SchedulerTest {
             this.task = t;
             this.done = false;
             this.cancelled = false;
+            this.canned = null;
+            this.failure = null;
             return new Handle() {
                 @Override public boolean isDone() { return done; }
                 @Override public List<float[]> result() {

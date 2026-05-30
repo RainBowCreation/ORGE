@@ -60,23 +60,26 @@ public final class Scheduler {
 
     /** Advance the scheduler by one server tick (call from the server-tick hook). */
     public void onServerTick() {
-        if (state == State.IDLE) {
-            if (++tickCounter >= TICKS_PER_STEP) {
-                tickCounter = 0;
-                submit();
+        boolean boundary = (++tickCounter >= TICKS_PER_STEP);
+        if (boundary) {
+            tickCounter = 0;
+        }
+        if (state == State.AWAITING) {
+            ticksSinceSubmit++;
+            if (pending.isDone()) {
+                // A step finishing exactly at the grace boundary still writes back (counted
+                // late); the cancel below only fires for a step that is STILL not done.
+                complete(ticksSinceSubmit <= TICKS_PER_STEP);
+            } else if (ticksSinceSubmit >= TICKS_PER_STEP * 2) {
+                pending.cancel();
+                worker.reportLate();
+                toIdle();
             }
-            return;
+            return; // never submit in the same tick we serviced an in-flight step
         }
-        // AWAITING
-        ticksSinceSubmit++;
-        if (pending.isDone()) {
-            complete(ticksSinceSubmit <= TICKS_PER_STEP);
-        } else if (ticksSinceSubmit >= TICKS_PER_STEP * 2) {
-            pending.cancel();
-            worker.reportLate();
-            reset();
+        if (boundary) {
+            submit();
         }
-        // else: past the deadline but within grace — hold previous temps (do nothing).
     }
 
     private void submit() {
@@ -99,8 +102,15 @@ public final class Scheduler {
             // A failed step never corrupts the store: hold previous temps, treat as late.
             LOGGER.warn("[ORGE] conduction step failed; holding previous temps", e);
             worker.reportLate();
-            reset();
+            toIdle();
             return;
+        }
+        // Update health from this step BEFORE writing back, so a write-back exception can't
+        // leave the worker's range/streak stale.
+        worker.noteStep(engine.lastStepMillis(), metDeadline);
+        if (results.size() < pendingEntries.size()) {
+            LOGGER.warn("[ORGE] engine returned {} results for {} sections; trailing sections hold previous temps",
+                    results.size(), pendingEntries.size());
         }
         int n = Math.min(results.size(), pendingEntries.size());
         for (int i = 0; i < n; i++) {
@@ -108,15 +118,15 @@ public final class Scheduler {
             float[] cleaned = StepValidator.clean(results.get(i), entry.task().temperature());
             world.writeBack(entry, cleaned);
         }
-        worker.noteStep(engine.lastStepMillis(), metDeadline);
-        reset();
+        toIdle();
     }
 
-    private void reset() {
+    private void toIdle() {
         pending = null;
         pendingEntries = null;
         ticksSinceSubmit = 0;
-        tickCounter = 0;
         state = State.IDLE;
+        // tickCounter is NOT reset here: it free-runs on the global 20-tick grid so the step
+        // cadence stays ~1 Hz regardless of how long the previous step took.
     }
 }
