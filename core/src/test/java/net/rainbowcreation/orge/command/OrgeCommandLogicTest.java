@@ -275,4 +275,81 @@ class OrgeCommandLogicTest {
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("build height"));
     }
+
+    static OrgeCommandLogic.Request fill(int x1, int y1, int z1, int x2, int y2, int z2,
+                                         Float k, Float mass, boolean op) {
+        return new OrgeCommandLogic.Request(OrgeCommandLogic.Op.FILL, DIM,
+                x1, y1, z1, x2, y2, z2, k, mass, op, null, MIN_Y, MAX_Y);
+    }
+
+    @Test
+    void fillRequiresOperator() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 1, 1, 1, 400f, null, false));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("operator"));
+    }
+
+    @Test
+    void fillWritesEveryCellInBoxAndReportsCount() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        // 3x3x3 box at origin = 27 cells, all in column (0,0)
+        OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 2, 2, 2, 400f, null, true));
+        assertTrue(r.ok(), r.lines().toString());
+        assertEquals(27, sink.temps.size());
+        assertTrue(r.lines().get(0).contains("filled 27 cells"), r.lines().get(0));
+    }
+
+    @Test
+    void fillWritesMassWhenProvided() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 1, 0, 0, 400f, 500f, true));
+        assertTrue(r.ok());
+        assertEquals(2, sink.temps.size());
+        assertEquals(2, sink.masses.size());
+    }
+
+    @Test
+    void fillSkipsUnloadedColumnsAndReports() {
+        FakeSink sink = new FakeSink().load(0, 0); // only column (0,0) loaded
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        // span x 0..16 crosses into column (1,0) at x=16, which is not loaded
+        OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 16, 0, 0, 400f, null, true));
+        assertTrue(r.ok());
+        assertEquals(16, sink.temps.size(), "x=0..15 loaded, x=16 skipped");
+        assertTrue(r.lines().get(0).contains("1 skipped"), r.lines().get(0));
+    }
+
+    @Test
+    void fillAllUnloadedFails() {
+        FakeSink sink = new FakeSink(); // nothing loaded
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 1, 1, 1, 400f, null, true));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("0 cells"), r.lines().get(0));
+        assertTrue(sink.temps.isEmpty());
+    }
+
+    @Test
+    void fillOverCapRejected() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        // 33x33x33 = 35937 > 32768 cap
+        OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 32, 32, 32, 400f, null, true));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("too large"), r.lines().get(0));
+        assertTrue(sink.temps.isEmpty(), "rejected before any write");
+    }
+
+    @Test
+    void fillYOutOfRangeFails() {
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(fill(0, -100, 0, 0, 999, 0, 400f, null, true));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("build height"));
+    }
 }

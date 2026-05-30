@@ -149,7 +149,47 @@ public final class OrgeCommandLogic {
                 r.x1(), r.y1(), r.z1(), r.temperatureK(), massPart));
     }
 
-    private Response fill(Request r) { throw new UnsupportedOperationException("Task 8"); }
+    private Response fill(Request r) {
+        if (!r.operator()) {
+            return Response.fail(opError());
+        }
+        int xlo = Math.min(r.x1(), r.x2()), xhi = Math.max(r.x1(), r.x2());
+        int ylo = Math.min(r.y1(), r.y2()), yhi = Math.max(r.y1(), r.y2());
+        int zlo = Math.min(r.z1(), r.z2()), zhi = Math.max(r.z1(), r.z2());
+        long cells = (long) (xhi - xlo + 1) * (yhi - ylo + 1) * (zhi - zlo + 1);
+        if (cells > FILL_CELL_CAP) {
+            return Response.fail(String.format("fill too large: %d cells (max %d)", cells, FILL_CELL_CAP));
+        }
+        if (ylo < r.minBuildY() || yhi >= r.maxBuildY()) {
+            return Response.fail(yError(r));
+        }
+        int written = 0, skipped = 0;
+        for (int x = xlo; x <= xhi; x++) {
+            for (int y = ylo; y <= yhi; y++) {
+                for (int z = zlo; z <= zhi; z++) {
+                    CellAddress addr = CellAddress.of(x, y, z);
+                    if (!writeSink.isLoaded(r.dimension(), addr.key())) {
+                        skipped++;
+                        continue;
+                    }
+                    writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
+                    if (r.massKg() != null) {
+                        writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
+                    }
+                    written++;
+                }
+            }
+        }
+        if (written == 0) {
+            return Response.fail("fill wrote 0 cells (none loaded); move closer");
+        }
+        String msg = String.format("filled %d cells in [(%d,%d,%d)..(%d,%d,%d)] -> %.2f K",
+                written, xlo, ylo, zlo, xhi, yhi, zhi, r.temperatureK());
+        if (skipped > 0) {
+            msg += String.format(" (%d skipped: not loaded)", skipped);
+        }
+        return Response.ok(msg);
+    }
 
     // ----- helpers -----
 
