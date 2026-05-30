@@ -36,6 +36,23 @@ public final class SectionStoreManager {
     private final Map<Identifier, Holder> byDimension = new HashMap<>();
 
     /**
+     * Notified after a chunk column is evicted (so server-thread caches keyed by column — e.g. the
+     * scheduler's {@code CellMaterialTracker} — can drop their entries and stay bounded). Material-
+     * agnostic: the manager only forwards (dim, cx, cz), keeping §5 free of material knowledge.
+     */
+    @FunctionalInterface
+    public interface ColumnUnloadListener {
+        void onColumnUnload(Identifier dim, int cx, int cz);
+    }
+
+    private ColumnUnloadListener columnUnloadListener = (dim, cx, cz) -> { };
+
+    /** Registers the (single) column-unload listener; {@code null} restores the no-op default. */
+    public void setColumnUnloadListener(ColumnUnloadListener listener) {
+        this.columnUnloadListener = listener == null ? (dim, cx, cz) -> { } : listener;
+    }
+
+    /**
      * Registers a dimension's {@link SectionStore}, backed by a {@link RegionStore}
      * rooted at {@code levelDir}. <strong>Idempotent:</strong> if the dimension is
      * already registered, the existing live store is kept and this call is a no-op
@@ -70,6 +87,8 @@ public final class SectionStoreManager {
         if (h != null) {
             h.store.unloadColumn(cx, cz);
         }
+        // Always notify (even for an unknown dimension): the listener's own caches may hold entries.
+        columnUnloadListener.onColumnUnload(dim, cx, cz);
     }
 
     /** Flushes all dirty columns for a dimension (autosave). No-op if the dimension is unknown. */

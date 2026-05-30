@@ -13,6 +13,7 @@ import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -36,10 +37,17 @@ import java.util.Set;
 public final class MinecraftThermalWorld implements ThermalWorld {
 
     private final SectionStoreManager stores;
+    private final CellMaterialTracker cellMaterials;
     private volatile MinecraftServer server;
 
-    public MinecraftThermalWorld(SectionStoreManager stores) {
+    public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials) {
         this.stores = stores;
+        this.cellMaterials = cellMaterials;
+    }
+
+    /** Convenience for headless write-back tests that never call {@link #snapshot}. */
+    public MinecraftThermalWorld(SectionStoreManager stores) {
+        this(stores, new CellMaterialTracker());
     }
 
     /** Bind the running server (on SERVER_STARTED); unbind on stop. */
@@ -89,6 +97,15 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 SectionStore store = stores.store(dim);
                 float[] temps = sectionTemps(level, store, key, cellMat);
                 float[] mass = sectionMass(store, key, geo, lut);
+                // §10 follow-on: a cell whose block changed material since last cycle (bucket fluid,
+                // /setblock, piston) still carries the OLD block's persisted temp/mass (a formerly-air
+                // cell stored 1.2 kg + ambient). Refresh those stale cells from the new material's
+                // defaults, then record this cycle's live materials so the next snapshot can detect
+                // the next change. record reuses the prior array when nothing changed (no allocation).
+                Identifier[] priorMat = cellMaterials.prior(dim, key);
+                MaterialChangeReseed.apply(priorMat, geo.matIx(), lut.materials(), temps, mass,
+                        biomeAmbientK(level, key));
+                cellMaterials.record(dim, key, liveMaterialIds(geo.matIx(), lut.materials(), priorMat));
                 NeighborHalo halo = buildHalo(level, dim, key, lut, mats);
                 entries.add(new BatchEntry(dim, key,
                         new StepTask(key, geo.matIx(), mass, temps, halo)));
@@ -143,6 +160,31 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         boolean has = store != null && store.hasSection(key);
         float[] stored = has ? store.get(key).massArray().clone() : null;
         return MassSnapshot.selectAll(stored, geo.matIx(), lut.materials(), has, geo.mass());
+    }
+
+    /**
+     * The live per-cell material ids for this section, to record as the next cycle's signature. Reuses
+     * {@code prior} verbatim when the live materials are identical (the overwhelming common case) so a
+     * static section costs only a comparison pass, not a fresh 4096-ref allocation every snapshot.
+     */
+    private static Identifier[] liveMaterialIds(char[] matIx, List<Material> mats, Identifier[] prior) {
+        if (prior != null && idsUnchanged(matIx, mats, prior)) {
+            return prior;
+        }
+        Identifier[] ids = new Identifier[matIx.length];
+        for (int i = 0; i < matIx.length; i++) {
+            ids[i] = mats.get(matIx[i]).id();
+        }
+        return ids;
+    }
+
+    private static boolean idsUnchanged(char[] matIx, List<Material> mats, Identifier[] prior) {
+        for (int i = 0; i < matIx.length; i++) {
+            if (!mats.get(matIx[i]).id().equals(prior[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Biome base temperature sampled once at the section centre, mapped to Kelvin. */

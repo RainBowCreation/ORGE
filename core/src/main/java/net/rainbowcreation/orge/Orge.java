@@ -22,6 +22,7 @@ import net.rainbowcreation.orge.material.MaterialJsonLoader;
 import net.rainbowcreation.orge.phase.MinecraftFluidReconciler;
 import net.rainbowcreation.orge.phase.MinecraftPhaseChanger;
 import net.rainbowcreation.orge.scheduler.ExecutorStepRunner;
+import net.rainbowcreation.orge.scheduler.CellMaterialTracker;
 import net.rainbowcreation.orge.scheduler.MinecraftThermalWorld;
 import net.rainbowcreation.orge.scheduler.Scheduler;
 import net.rainbowcreation.orge.scheduler.Worker;
@@ -139,7 +140,12 @@ public final class Orge {
         // sole worker); client-distributed workers + the wire protocol are a follow-on track.
         OrgeEngine engine = EngineFactory.create();
         stepRunner = new ExecutorStepRunner();
-        thermalWorld = new MinecraftThermalWorld(SECTION_STORES);
+        // §10 follow-on: remembers each simulated cell's material so the snapshot can re-seed a cell
+        // whose block changed (bucket fluid, /setblock) — the §5 store keeps no material. Pruned per
+        // column on chunk unload so it tracks only loaded sections.
+        CellMaterialTracker cellMaterials = new CellMaterialTracker();
+        SECTION_STORES.setColumnUnloadListener(cellMaterials::forgetColumn);
+        thermalWorld = new MinecraftThermalWorld(SECTION_STORES, cellMaterials);
         phaseChanger = new MinecraftPhaseChanger(SECTION_STORES);
         fluidReconciler = new MinecraftFluidReconciler(SECTION_STORES);
         Worker serverWorker = new Worker(
@@ -158,6 +164,7 @@ public final class Orge {
             thermalWorld.unbindServer();
             phaseChanger.unbindServer();
             fluidReconciler.unbindServer();
+            cellMaterials.clear();
             stepRunner.shutdown();
         });
         // Bind the conduction clock to Minecraft's game-tick clock: skip stepping while the world
