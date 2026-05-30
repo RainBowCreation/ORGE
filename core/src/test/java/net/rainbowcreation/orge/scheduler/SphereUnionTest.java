@@ -60,4 +60,34 @@ class SphereUnionTest {
         assertTrue(out.contains(new SubchunkKey(-6, -2, -8)));
         assertEquals(7, out.size());
     }
+
+    @Test
+    void containsRangeOneIsAnchorOnly() {
+        SubchunkKey a = new SubchunkKey(0, 0, 0);
+        assertTrue(SphereUnion.contains(a, a, 1));
+        assertFalse(SphereUnion.contains(a, new SubchunkKey(1, 0, 0), 1));
+    }
+
+    @Test
+    void containsRangeTwoIncludesFaceNeighboursNotDiagonals() {
+        SubchunkKey a = new SubchunkKey(0, 0, 0);
+        assertTrue(SphereUnion.contains(a, new SubchunkKey(0, 1, 0), 2));
+        assertTrue(SphereUnion.contains(a, new SubchunkKey(-1, 0, 0), 2));
+        assertFalse(SphereUnion.contains(a, new SubchunkKey(1, 1, 0), 2), "d2=2 excluded at range 2");
+    }
+
+    @Test
+    void containsBoundaryAtRangeMinusOneSquared() {
+        SubchunkKey a = new SubchunkKey(0, 0, 0);
+        // range 3 -> r=2 -> r2=4; (2,0,0) d2=4 included, (2,1,0) d2=5 excluded
+        assertTrue(SphereUnion.contains(a, new SubchunkKey(2, 0, 0), 3));
+        assertFalse(SphereUnion.contains(a, new SubchunkKey(2, 1, 0), 3));
+    }
+
+    @Test
+    void containsHandlesNegativeAnchors() {
+        SubchunkKey a = new SubchunkKey(-5, -2, -8);
+        assertTrue(SphereUnion.contains(a, new SubchunkKey(-6, -2, -8), 2));
+        assertFalse(SphereUnion.contains(a, new SubchunkKey(-7, -2, -8), 2), "d2=4 at range 2 excluded");
+    }
 }

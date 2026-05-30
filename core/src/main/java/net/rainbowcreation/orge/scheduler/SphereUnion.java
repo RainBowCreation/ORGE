@@ -15,16 +15,30 @@ public final class SphereUnion {
 
     private SphereUnion() {}
 
+    /**
+     * Whether {@code target} lies within the range-N sphere centred on {@code anchor}
+     * (DESIGN §4): a section at offset {@code (dx,dy,dz)} is included iff
+     * {@code dx*dx + dy*dy + dz*dz <= (range-1)^2}. {@code range <= 0} is treated as 1.
+     */
+    public static boolean contains(SubchunkKey anchor, SubchunkKey target, int range) {
+        int r = Math.max(1, range) - 1;
+        int dx = target.cx() - anchor.cx();
+        int dy = target.sectionY() - anchor.sectionY();
+        int dz = target.cz() - anchor.cz();
+        return dx * dx + dy * dy + dz * dz <= r * r;
+    }
+
     public static Set<SubchunkKey> expand(Set<SubchunkKey> anchors, int range) {
         int r = Math.max(1, range) - 1;
-        int r2 = r * r;
         Set<SubchunkKey> out = new HashSet<>();
         for (SubchunkKey a : anchors) {
             for (int dx = -r; dx <= r; dx++) {
                 for (int dy = -r; dy <= r; dy++) {
                     for (int dz = -r; dz <= r; dz++) {
-                        if (dx * dx + dy * dy + dz * dz <= r2) {
-                            out.add(new SubchunkKey(a.cx() + dx, a.sectionY() + dy, a.cz() + dz));
+                        SubchunkKey candidate =
+                                new SubchunkKey(a.cx() + dx, a.sectionY() + dy, a.cz() + dz);
+                        if (contains(a, candidate, range)) {
+                            out.add(candidate);
                         }
                     }
                 }
