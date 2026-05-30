@@ -1,22 +1,16 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.core.SectionPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
-import net.rainbowcreation.orge.material.Material;
-import net.rainbowcreation.orge.material.MaterialBindings;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -50,21 +44,6 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     public void bindServer(MinecraftServer server) { this.server = server; }
     public void unbindServer() { this.server = null; }
 
-    /** Live tag-membership bridge — §6's deferred {@link MaterialBindings.TagMembership} consumer. */
-    private static final MaterialBindings.TagMembership LIVE_TAGS = (tagId, blockId) -> {
-        // NOTE: getValue returns the default (air) for an unregistered id rather than null.
-        // Safe here because every blockId originates from BuiltInRegistries.BLOCK.getKey(block)
-        // in materialFor; callers must only pass registered block ids.
-        TagKey<Block> tag = TagKey.create(Registries.BLOCK, tagId);
-        return BuiltInRegistries.BLOCK.wrapAsHolder(BuiltInRegistries.BLOCK.getValue(blockId)).is(tag);
-    };
-
-    private Material materialFor(Block block, ActiveMaterials.State mats) {
-        Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
-        Identifier matId = mats.bindings().materialFor(blockId, LIVE_TAGS);
-        return mats.registry().getOrFallback(matId);
-    }
-
     // Server thread only.
     @Override
     public Batch snapshot(int range) {
@@ -93,16 +72,16 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             addForcedSections(level, union);
 
             for (SubchunkKey key : union) {
-                LevelChunk chunk = loadedChunk(level, key.cx(), key.cz());
+                LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
                 if (chunk == null) {
                     continue;
                 }
-                LevelChunkSection section = sectionOrNull(chunk, key.sectionY());
+                LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, key.sectionY());
                 if (section == null) {
                     continue;
                 }
                 GeometryAssembler.Geometry geo = GeometryAssembler.assemble(
-                        i -> materialFor(blockAt(section, i), mats), lut);
+                        i -> LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats), lut);
                 SectionStore store = stores.store(dim);
                 float[] temps = (store != null)
                         ? store.get(key).temperatureArray().clone()
@@ -135,33 +114,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         return t;
     }
 
-    /** The block at section-local cell index i (x-fastest, x+16y+256z); 0..15 per axis. */
-    private static Block blockAt(LevelChunkSection section, int i) {
-        int x = i & 15;
-        int y = (i >> 4) & 15;
-        int z = (i >> 8) & 15;
-        return section.getBlockState(x, y, z).getBlock();
-    }
-
-    /** A loaded chunk, or null if not currently loaded (never forces generation). */
-    private static LevelChunk loadedChunk(ServerLevel level, int cx, int cz) {
-        return level.getChunkSource().getChunkNow(cx, cz);
-    }
-
-    /** The chunk's section at vanilla sectionY, or null if out of the chunk's Y range. */
-    private static LevelChunkSection sectionOrNull(LevelChunk chunk, int sectionY) {
-        int idx = chunk.getSectionIndexFromSectionY(sectionY);
-        if (idx < 0 || idx >= chunk.getSectionsCount()) {
-            return null;
-        }
-        return chunk.getSection(idx);
-    }
-
     private void addForcedSections(ServerLevel level, Set<SubchunkKey> union) {
         for (long packed : level.getForceLoadedChunks().toLongArray()) {
             int cx = ChunkPos.getX(packed);
             int cz = ChunkPos.getZ(packed);
-            LevelChunk chunk = loadedChunk(level, cx, cz);
+            LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
             if (chunk == null) continue;
             int min = chunk.getMinSectionY();
             int count = chunk.getSectionsCount();
@@ -187,16 +144,16 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private HaloAssembler.Neighbor neighbor(ServerLevel level, Identifier dim,
                                             int cx, int sectionY, int cz,
                                             MaterialLut lut, ActiveMaterials.State mats) {
-        LevelChunk chunk = loadedChunk(level, cx, cz);
+        LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
         if (chunk == null) return null;
-        LevelChunkSection section = sectionOrNull(chunk, sectionY);
+        LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, sectionY);
         if (section == null) return null;
         SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
         SectionStore store = stores.store(dim);
         float[] temps = (store != null) ? store.get(key).temperatureArray().clone() : ambientTemps();
         // TODO(perf, §8 follow-on): assembles a full 4096-cell geometry per neighbour but only one 256-cell face is used by the halo. A GeometryAssembler.assembleFace(cells, lut, face) variant would cut this 16x.
         GeometryAssembler.Geometry geo =
-                GeometryAssembler.assemble(i -> materialFor(blockAt(section, i), mats), lut);
+                GeometryAssembler.assemble(i -> LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats), lut);
         return new HaloAssembler.Neighbor(temps, geo.matIx());
     }
 }
