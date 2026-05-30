@@ -44,4 +44,30 @@ final class BatchTestSupport {
         return new StepTask(key,
                 fillChar(SEC_N, (char) 1), fillFloat(SEC_N, 1000f), fillFloat(SEC_N, T), voidHalo());
     }
+
+    /** void (k=0) at index 0, a fluid (matIx 1: fluid=true, viscosity=0.001, defaultMass=1000) at index 1. */
+    static List<Material> fluidLut() {
+        return List.of(
+                material("orge:void", 0f, 0f, 0f),
+                new Material(Identifier.parse("orge:fluid"),
+                        /*cond*/0f, /*heatCap*/1f, /*viscosity*/0.001f, /*defaultMass*/1000f,
+                        /*molarMass*/0.018f, /*boiling*/9999f, /*freezing*/0f,
+                        null, null, null, Float.NaN, /*pinned*/false, /*fluid*/true));
+    }
+
+    /**
+     * A fluid (matIx 1) section with the top plane cell full (mass 1000) and the cell directly
+     * below empty (mass 0), all other cells empty; uniform 300 K, all-void halo. After one
+     * advection step the lower cell should gain mass (fluid falls).
+     */
+    static StepTask fluidSection(SubchunkKey key) {
+        char[] mat = fillChar(SEC_N, (char) 1);
+        float[] mass = fillFloat(SEC_N, 0f);
+        int top = sidx(0, 1, 0);
+        mass[top] = 1000f;
+        // mass[sidx(0,0,0)] stays 0 — the empty cell below.
+        return new StepTask(key, mat, mass, fillFloat(SEC_N, 300f), voidHalo());
+    }
+
+    private static int sidx(int x, int y, int z) { return x + 16 * y + 256 * z; }
 }

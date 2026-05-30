@@ -24,9 +24,9 @@ class NativeEngineTest {
     void uniformFieldIsUnchanged() {
         NativeEngine e = engineOrSkip();
         StepTask a = solidSection(new SubchunkKey(0, 0, 0), 300f);
-        List<float[]> out = e.step(List.of(a), stdLut(), 1.0);
+        List<StepResult> out = e.step(List.of(a), stdLut(), 1.0, OrgeEngine.PASS_CONDUCTION);
         assertEquals(1, out.size());
-        for (float v : out.get(0)) assertEquals(300f, v, 1e-4f);
+        for (float v : out.get(0).temperature()) assertEquals(300f, v, 1e-4f);
     }
 
     @Test
@@ -36,9 +36,9 @@ class NativeEngineTest {
         int hot = 8 + 16 * 8 + 256 * 8;          // sidx(8,8,8)
         int nb = 9 + 16 * 8 + 256 * 8;           // sidx(9,8,8)
         a.temperature()[hot] = 1000f;
-        List<float[]> out = e.step(List.of(a), stdLut(), 1.0);
-        assertTrue(out.get(0)[hot] < 1000f, "hot cell cools");
-        assertTrue(out.get(0)[nb] > 300f, "neighbour warms");
+        List<StepResult> out = e.step(List.of(a), stdLut(), 1.0, OrgeEngine.PASS_CONDUCTION);
+        assertTrue(out.get(0).temperature()[hot] < 1000f, "hot cell cools");
+        assertTrue(out.get(0).temperature()[nb] > 300f, "neighbour warms");
         assertTrue(e.lastStepMillis() >= 0.0);
     }
 
@@ -47,24 +47,39 @@ class NativeEngineTest {
         NativeEngine e = engineOrSkip();
         StepTask a = solidSection(new SubchunkKey(0, 0, 0), 300f);
         StepTask b = solidSection(new SubchunkKey(1, 0, 0), 500f);
-        List<float[]> out = e.step(List.of(a, b), stdLut(), 1.0);
+        List<StepResult> out = e.step(List.of(a, b), stdLut(), 1.0, OrgeEngine.PASS_CONDUCTION);
         assertEquals(2, out.size());
-        assertEquals(300f, out.get(0)[0], 1e-4f);
-        assertEquals(500f, out.get(1)[0], 1e-4f);
+        assertEquals(300f, out.get(0).temperature()[0], 1e-4f);
+        assertEquals(500f, out.get(1).temperature()[0], 1e-4f);
     }
 
     @Test
     void matchesStubOnUniformField() {
         NativeEngine e = engineOrSkip();
         StepTask a = solidSection(new SubchunkKey(0, 0, 0), 285f);
-        List<float[]> nativeOut = e.step(List.of(a), stdLut(), 1.0);
-        List<float[]> stubOut = new StubEngine().step(List.of(a), stdLut(), 1.0);
-        assertArrayEquals(stubOut.get(0), nativeOut.get(0), 1e-4f);
+        List<StepResult> nativeOut = e.step(List.of(a), stdLut(), 1.0, OrgeEngine.PASS_CONDUCTION);
+        List<StepResult> stubOut = new StubEngine().step(List.of(a), stdLut(), 1.0, OrgeEngine.PASS_CONDUCTION);
+        assertArrayEquals(stubOut.get(0).temperature(), nativeOut.get(0).temperature(), 1e-4f);
     }
 
     @Test
     void emptyBatchReturnsEmpty() {
         NativeEngine e = engineOrSkip();
-        assertTrue(e.step(List.of(), stdLut(), 1.0).isEmpty());
+        assertTrue(e.step(List.of(), stdLut(), 1.0, OrgeEngine.PASS_CONDUCTION).isEmpty());
+    }
+
+    @Test
+    void nativeAdvectsMassDownward() {
+        NativeEngine e = engineOrSkip();
+        // a fluid section: build via BatchTestSupport.fluidSection with the top
+        // plane full and the cell below empty; after one step the lower cell gains mass.
+        StepTask a = fluidSection(new SubchunkKey(0, 0, 0));
+        int both = OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION;
+        List<StepResult> out = e.step(List.of(a), fluidLut(), 0.25, both); // advection dt
+        int top = 0 + 16 * 1 + 256 * 0; // sidx(0,1,0)
+        int bot = 0 + 16 * 0 + 256 * 0; // sidx(0,0,0)
+        assertTrue(out.get(0).mass()[bot] > out.get(0).mass()[top], "mass fell downward");
+        float total = out.get(0).mass()[top] + out.get(0).mass()[bot];
+        assertEquals(1000f, total, 1f, "mass conserved in the falling pair");
     }
 }
