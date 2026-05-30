@@ -106,6 +106,13 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         // TODO(perf, §8 follow-on): temperatureArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllTemperatures(float[]) that skips the fill would avoid the churn for first-touch sections.
         float[] dst = data.temperatureArray();
         System.arraycopy(newTemperatures, 0, dst, 0, SectionData.CELLS);
+        // Persist per-cell mass too: the engine returns only new temperatures, but the section's
+        // mass is the block-derived geometry mass (Material.defaultMass) assembled this snapshot.
+        // Without this, a simulated section keeps the synthesized uniform mass (0) and /orge get
+        // reports 0 kg for every cell except those explicitly set. Re-copied each step so a
+        // phase-change block swap (new geometry) keeps the stored mass in sync.
+        float[] massDst = data.massArray();
+        System.arraycopy(entry.task().mass(), 0, massDst, 0, SectionData.CELLS);
         store.put(entry.key(), data);
     }
 
