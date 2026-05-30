@@ -43,26 +43,42 @@ established for conduction.
    environment — `sim_engine.hpp` already carries `mass_kg` arrays, `sim_render.hpp` renders,
    `ORGE-ENGINE/tests/` exists — so there is no reason to prototype the physics in Java.)
 
-2. **Where it runs in the cycle.** The native `step()` now performs conduction **and**
-   advection in one call, updating both `T` and `mass`. The Java scheduler cycle is unchanged
-   in shape, only in payload:
+2. **Cadence — conduction and advection are DECOUPLED.** Conduction stays at the existing
+   `TICKS_PER_STEP = 20` (one step per real second, `dt = 1.0 s`) — heat diffuses slowly and
+   1 Hz was a deliberate perf choice. **Advection runs on its own faster, tunable cadence** —
+   default `ADVECTION_TICKS = 5` (4 Hz, `dt = 0.25 s`) to match vanilla water's spread rate —
+   because once-per-second fluid motion looks like stuttering blocks and smaller `dt` per step
+   is also more numerically stable under the CFL transfer cap. The exact `ADVECTION_TICKS` is a
+   constant tuned in the in-game audit, not a hardcoded coupling. The conservation algorithm is
+   identical regardless of cadence; only `dt` and call-frequency change.
+
+   The native side therefore exposes the two passes **independently** (a pass selector on the
+   step call, or separate entry points — an implementation choice for the plan), so the
+   scheduler can run conduction-only, advection-only, or both. The scheduler gains an advection
+   sub-cycle:
 
    ```
-   snapshot(T + mass)
-     → native step()                    [conduction + advection — BOTH in liborge]
-     → §9 validate (+ mass-conservation invariant)
-     → writeBack(T + mass)              [mass now flows back, not just T]
-     → reconcile: PhaseChanger (§7, unchanged)  +  FluidReconciler (NEW: mass → render level)
+   every 20 ticks (dt=1.0s):  snapshot(T)        → native conduction → §9 validate(T)
+                                → writeBack(T)     → PhaseChanger (§7, unchanged)
+   every  5 ticks (dt=0.25s): snapshot(T + mass) → native advection  → §9 validate(+Σmass)
+                                → writeBack(T + mass) → FluidReconciler (mass → render level)
    ```
 
-   Within the kernel, conduction is applied first (within-cell/contact heat exchange), then
-   advection (bulk-moves mass and the heat attached to it): a deliberate, documented order.
+   On a tick where both cadences coincide, conduction runs first (within-cell/contact heat
+   exchange), then advection (bulk-moves mass and the heat attached to it): a deliberate,
+   documented order. (Snapshot/halo assembly is shared machinery, so the plan may choose to run
+   one assembled snapshot every 5 ticks and sub-sample conduction every 4th — an optimization
+   left to the plan; the observable contract is the two cadences above.)
 
 3. **JNI / ABI change.** `orgeStep(…)` today returns only `Tout` and takes a temperature halo.
    It grows a **`haloMass`** input and a **`massOut`** output. Affected:
    `orge_kernel.hpp::step_section_with_halo` (signature + body), `orge_jni.cpp` (new pinned
    arrays, reverse-order release), and the hand-declared `NativeEngine.orgeStep` native method
-   on the Java side. This is a **breaking ABI bump** of `liborge` → new pinned artifact version.
+   on the Java side. This is a **breaking ABI change** to `liborge`; since the `.so` is a
+   committed binary (see Cross-repo & build), the rebuilt `.so` and the Java declaration must
+   land together. **Java-side mass plumbing:** `OrgeEngine.step` currently returns
+   `List<float[]>` (temperatures only); it gains a `StepResult(temperature, mass)` record so
+   `massOut` flows back without overloading the float-array return.
 
 4. **The advection rule (physics, native).** Per fluid cell, mass `m`, capacity
    `M_full = material.defaultMass` (full 1 m³ cell):
@@ -152,10 +168,20 @@ No new Java storage — `mass[]` already lives in `SectionData` (§5).
 ## Cross-repo & build
 
 This slice spans **two git repos**: `ORGE-ENGINE/` (kernel, JNI, reference sim, tests) and the
-main repo (native-method declaration, scheduler/§9/reconcile/suppressor/material-flag). The
-Gradle native-fetch task must pin and pull the **new `liborge-*` artifact version** built from
-the changed kernel. Plan must sequence: land + test the engine change → build/publish the new
-`liborge` artifacts → bump the pinned version in the main repo → wire the Java side.
+main repo (native-method declaration, scheduler/§9/reconcile/suppressor/material-flag).
+
+**There is no artifact pipeline.** `liborge` is a **committed binary** at
+`core/src/main/resources/natives/<os>-<arch>/liborge.so`, loaded from the classpath by
+`NativeLoader`; there is no Maven coordinate, no version string, and no Gradle fetch task.
+"Updating `liborge`" therefore means: **rebuild the `.so` via `ORGE-ENGINE/native/build_liborge.sh`
+(g++ over `orge_jni.cpp`) and recommit it into the main repo's resources.** Only `linux-x64` is
+bundled today; cross-platform (`windows`/`macos`) native builds are out of scope (see below).
+
+Plan must sequence: land + test the engine change in `ORGE-ENGINE/` → rebuild `liborge.so` →
+recommit it into `core/src/main/resources/natives/linux-x64/` together with the updated
+`NativeEngine.orgeStep` declaration (ABI must match) → wire the rest of the Java side. The
+ABI-breaking `.so` and its Java declaration must land in the same commit/PR to avoid a
+load-time signature mismatch.
 
 ## Known risk — vanilla fluid suppression
 
@@ -196,3 +222,7 @@ use `ExpectPlatform` across `fabric-1.21` + `neoforge-1.21`.
 - **Water ↔ lava interaction** beyond what §7 already does.
 - **Region-boundary water streaming** (no-flow wall for now).
 - **Temperature-dependent material curves.**
+- **Cross-platform native builds** (`windows`/`macos`) — only the committed `linux-x64`
+  `liborge.so` is rebuilt this slice (matches the existing bundle + the headless audit platform).
+- **Smooth/interpolated client-side fluid rendering** — reconcile maps mass to vanilla's discrete
+  8 levels at the advection cadence, so flow renders steppy, not animated. Vanilla renderer only.
