@@ -135,10 +135,17 @@ Flat **constants** per material (no temperature-dependent curves in v1):
   **mass and final temperature** across unchanged (mass is conserved exactly, even when
   the resulting density is unrealistic).
 - No latent-heat plateau in v1 (possible future refinement).
-- **Gas targets** (e.g. water → steam) use **inert `orge:` gas blocks introduced now**
-  (`orge:steam`, …). They conserve mass/temperature but have no buoyancy/flow until
-  Phase 2. This is the "gas/liquid block if needed" exception to the no-new-blocks rule;
-  core adds **no decorative/solid blocks**.
+- **New blocks only for genuinely new concepts.** `boiling_target`/`freezing_target` name
+  the **block to place**. Targets that vanilla already has are **overrides, not new blocks**:
+  water → `minecraft:ice` (freeze) / ice → `minecraft:water` (melt), lava → `minecraft:stone`
+  (freeze). Core registers a **new block only for a concept vanilla lacks** — gases/fluids:
+  **`orge:steam`** (water → steam, steam → water). In v1 `orge:steam` is an **inert, non-ticking,
+  non-colliding marker** — its temperature lives in the per-cell `SectionData` arrays, not in
+  blockstate/NBT; it has no buoyancy/flow until Phase 2. Core adds **no decorative/solid blocks**.
+- **Carry temperature, not mass, in v1.** Temperature is the simulated authority (it lives in
+  `SectionData` untied to block identity, so it carries across a swap automatically). Mass
+  conservation is deferred to Phase 2, when mass becomes authoritative (§8 v1 derives per-cell
+  mass from `Material.defaultMass`).
 
 ## 8. Scheduler
 
