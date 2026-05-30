@@ -186,7 +186,15 @@ No §5 change — `SectionData` stays temp+mass only; species identity stays in 
 - **Latent heat** — energy plateaus on boil/freeze (separate native track; couples to §7). Next after
   this.
 - **Full compressible-gas advection** (air as a tracked sloshing mass field) — the heavy alternative to
-  Decision 2.
+  Decision 2. **Architecture note (forward-compat):** gas is NOT a separate simulation layer — it is the
+  *same* advection pass + the *same* density-swap (which already yields buoyancy for free: a light gas
+  below a heavier cell is just a density inversion). The only gas-specific physics is **compressibility**,
+  added as two `phase == gas`-gated terms in the same pass: (1) **expansion/diffusion** — gas spreads to
+  fill all available volume / equalize instead of pooling under the liquid `M_full` capacity cap; (2) an
+  **equation of state** — density from amount + temperature (hot gas lighter), coupling gas density to the
+  temperature field *within the flow pass* (the conduction calc stays untouched). In Phase-2b steam is
+  treated as a light *incompressible* fluid (rises via the swap, no expansion/EOS); the compressible-gas
+  track flips a gas ambient→tracked and lights up those two terms — no new layer, no rearchitecture.
 - **Temperature-dependent densities** (hot water/lava less dense → thermal convection) — future curve work.
 - **Pressure / hydraulic head** beyond simple density ordering.
 - **New non-reacting liquid pairs** (oil, etc.) — the model supports them; no new materials this slice.
