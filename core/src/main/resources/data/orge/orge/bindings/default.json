@@ -82,6 +82,12 @@
     "minecraft:light_weighted_pressure_plate[power>0]": "orge:powered_redstone",
     "minecraft:heavy_weighted_pressure_plate[power>0]": "orge:powered_redstone",
     "minecraft:sculk_sensor[power>0]":              "orge:powered_redstone",
-    "minecraft:calibrated_sculk_sensor[power>0]":   "orge:powered_redstone"
+    "minecraft:calibrated_sculk_sensor[power>0]":   "orge:powered_redstone",
+
+    "minecraft:end_rod":      "orge:end_rod",
+    "minecraft:soul_fire":    "orge:soul_fire",
+    "minecraft:blue_ice":     "orge:blue_ice",
+    "minecraft:soul_lantern": "orge:soul_lantern",
+    "minecraft:soul_campfire[lit=true]": "orge:soul_campfire"
   }
 }
