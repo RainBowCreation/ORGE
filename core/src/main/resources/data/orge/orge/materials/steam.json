@@ -1,0 +1,9 @@
+{
+  "thermal_conductivity": 0.025,
+  "heat_capacity": 2080,
+  "default_mass": 0.6,
+  "molar_mass": 0.018,
+  "freezing_point": 373.15,
+  "freezing_target": "minecraft:water",
+  "representative_block": "orge:steam"
+}
