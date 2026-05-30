@@ -6,11 +6,14 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.material.MaterialBindings;
+import net.rainbowcreation.orge.material.PropertyView;
 
 /**
  * Live (server-thread) helpers shared by the Minecraft-coupled scheduler/phase adapters:
@@ -57,5 +60,32 @@ public final class LiveMaterials {
         int y = (i >> 4) & 15;
         int z = (i >> 8) & 15;
         return section.getBlockState(x, y, z).getBlock();
+    }
+
+    /** The {@link BlockState} at section-local cell index i (x-fastest, x+16y+256z). */
+    public static BlockState blockStateAt(LevelChunkSection section, int i) {
+        int x = i & 15;
+        int y = (i >> 4) & 15;
+        int z = (i >> 8) & 15;
+        return section.getBlockState(x, y, z);
+    }
+
+    /** The {@link Material} bound to {@code state}, honouring blockstate-predicate bindings. */
+    public static Material materialFor(BlockState state, ActiveMaterials.State mats) {
+        Block block = state.getBlock();
+        Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
+        PropertyView props = name -> propertyValue(state, name);
+        Identifier matId = mats.bindings().materialFor(blockId, props, LIVE_TAGS);
+        return mats.registry().getOrFallback(matId);
+    }
+
+    /** Serialized value of property {@code name} on {@code state}, or null if the block lacks it. */
+    private static String propertyValue(BlockState state, String name) {
+        Property<?> property = state.getBlock().getStateDefinition().getProperty(name);
+        return property == null ? null : nameOf(state, property);
+    }
+
+    private static <T extends Comparable<T>> String nameOf(BlockState state, Property<T> property) {
+        return property.getName(state.getValue(property));
     }
 }
