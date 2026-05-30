@@ -18,6 +18,8 @@ build/
 # Minecraft runtime
 run/
 */run/
+logs/
+*/logs/
 
 # OS
 .DS_Store
