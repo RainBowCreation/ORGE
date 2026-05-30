@@ -38,8 +38,12 @@ For v2 it is repurposed:
   renderer, and the socket server. Expose a pure `step()` entry point: given a batch of
   subchunks + a 1-cell neighbor halo (temps + material indices) + the material LUT + dt,
   run **one** step and return new temperatures (and, in Phase 2, mass).
-- **In-process via Panama FFI** (`java.lang.foreign`, stable on Java 21). No child
-  process, no socket, no per-tick (de)serialization across a process boundary.
+- **In-process via JNI** (`System.load`, stable on Java 21 — *not* Panama:
+  `java.lang.foreign` is a preview API on Java 21 that requires `--enable-preview`
+  at compile and runtime, so a vanilla Minecraft launcher cannot load it; see
+  `docs/superpowers/specs/2026-05-29-engine-track-ffi-design.md`). JNI also accesses
+  the Java arrays zero-copy via `GetPrimitiveArrayCritical`. No child process, no
+  socket, no per-tick serialization across a process boundary.
 - **Distribution:** ORGE-ENGINE's CI builds `liborge` for
   `{windows, linux, macos} × {x64, arm64}` and publishes them as release artifacts.
   The mod's Gradle pulls the pinned version and packs all platform libraries into the
@@ -195,7 +199,9 @@ custom payloads.
 
 ## Build & native integration notes
 
-- jextract over the engine's `step()` header → committed bindings in `:core`.
+- A small JNI bridge (`orge_jni.cpp`) over the header-only `orge_kernel.hpp` builds
+  `liborge.{so,dll,dylib}` (SDL-free). No jextract / generated bindings — the single
+  `native double orgeStep(...)` method is hand-declared in `NativeEngine`.
 - Gradle task fetches pinned `liborge-*` artifacts into
   `src/main/resources/natives/<os>-<arch>/`; runtime extracts to a temp dir and
   `System.load`s the match (mirrors the old `SimServerManager` extraction trick, minus
