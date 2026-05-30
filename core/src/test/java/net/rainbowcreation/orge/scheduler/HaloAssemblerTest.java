@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class HaloAssemblerTest {
 
+    // same formula as HaloAssembler#sidx (x + 16y + 256z)
     private static int sidx(int x, int y, int z) { return x + 16 * y + 256 * z; }
 
     private static HaloAssembler.Neighbor identityNeighbor() {
@@ -35,7 +36,7 @@ class HaloAssemblerTest {
     @Test
     void negXFacePullsTheNeighboursX15Layer() {
         NeighborHalo h = HaloAssembler.assemble(identityNeighbor(), null, null, null, null, null);
-        float[] negXT = h.tempFaces()[0];
+        float[] negXT = h.negXT();
         for (int z = 0; z < 16; z++) {
             for (int y = 0; y < 16; y++) {
                 assertEquals((float) sidx(15, y, z), negXT[y + 16 * z]);
@@ -46,7 +47,7 @@ class HaloAssemblerTest {
     @Test
     void posYFacePullsTheNeighboursY0Layer() {
         NeighborHalo h = HaloAssembler.assemble(null, null, null, identityNeighbor(), null, null);
-        float[] posYT = h.tempFaces()[3];
+        float[] posYT = h.posYT();
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
                 assertEquals((float) sidx(x, 0, z), posYT[x + 16 * z]);
@@ -57,10 +58,32 @@ class HaloAssemblerTest {
     @Test
     void negZFacePullsTheNeighboursZ15LayerForMatIx() {
         NeighborHalo h = HaloAssembler.assemble(null, null, null, null, identityNeighbor(), null);
-        char[] negZM = h.matFaces()[4];
+        char[] negZM = h.negZM();
         for (int y = 0; y < 16; y++) {
             for (int x = 0; x < 16; x++) {
                 assertEquals((char) sidx(x, y, 15), negZM[x + 16 * y]);
+            }
+        }
+    }
+
+    @Test
+    void posXFacePullsTheNeighboursX0Layer() {
+        // Only the +X neighbour present (2nd arg).
+        NeighborHalo h = HaloAssembler.assemble(null, identityNeighbor(), null, null, null, null);
+        for (int z = 0; z < 16; z++) {
+            for (int y = 0; y < 16; y++) {
+                assertEquals((float) sidx(0, y, z), h.posXT()[y + 16 * z]);
+            }
+        }
+    }
+
+    @Test
+    void posZFacePullsTheNeighboursZ0Layer() {
+        // Only the +Z neighbour present (6th arg).
+        NeighborHalo h = HaloAssembler.assemble(null, null, null, null, null, identityNeighbor());
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                assertEquals((char) sidx(x, y, 0), h.posZM()[x + 16 * y]);
             }
         }
     }
