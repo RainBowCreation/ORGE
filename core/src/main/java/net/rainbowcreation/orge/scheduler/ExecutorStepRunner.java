@@ -30,6 +30,9 @@ public final class ExecutorStepRunner implements StepRunner {
 
             @Override
             public List<float[]> result() {
+                if (!future.isDone()) {
+                    throw new IllegalStateException("result() called before isDone()");
+                }
                 try {
                     return future.get();
                 } catch (ExecutionException e) {
