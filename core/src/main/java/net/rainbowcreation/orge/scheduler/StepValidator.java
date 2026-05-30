@@ -45,4 +45,38 @@ public final class StepValidator {
         }
         return out;
     }
+
+    /** Per-region mass-conservation tolerance: ε·N (ε = 1e-2 kg per cell). */
+    public static final float MASS_EPSILON_PER_CELL = 1e-2f;
+
+    /**
+     * §9 invariant (DESIGN §10): true iff total mass is conserved within {@code ε·N}
+     * (boundary in/out = 0, no-flow walls) AND every cell is within {@code [0, fullMass+ε]}.
+     * Used as the accept/reject gate on a step's mass output.
+     *
+     * @param after        engine mass output (length N)
+     * @param before       snapshot input mass (length N)
+     * @param fullMassBound the largest legal per-cell mass for this section (max material defaultMass)
+     */
+    public static boolean massConserved(float[] after, float[] before, float fullMassBound) {
+        double sumA = 0, sumB = 0;
+        float cellEps = MASS_EPSILON_PER_CELL;
+        for (int i = 0; i < after.length; i++) {
+            if (!Float.isFinite(after[i])) return false;
+            if (after[i] < -cellEps || after[i] > fullMassBound + cellEps) return false;
+            sumA += after[i]; sumB += before[i];
+        }
+        return Math.abs(sumA - sumB) <= cellEps * after.length;
+    }
+
+    /** Non-finite mass → 0; finite mass clamped to [0, fullMassBound]. Mirrors {@link #clean}. */
+    public static float[] cleanMass(float[] mass, float fullMassBound) {
+        float[] out = new float[mass.length];
+        for (int i = 0; i < mass.length; i++) {
+            float v = mass[i];
+            if (!Float.isFinite(v) || v < 0f) out[i] = 0f;
+            else out[i] = Math.min(v, fullMassBound);
+        }
+        return out;
+    }
 }
