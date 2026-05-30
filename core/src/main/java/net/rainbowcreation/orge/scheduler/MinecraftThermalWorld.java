@@ -172,18 +172,25 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private NeighborHalo buildHalo(ServerLevel level, Identifier dim, SubchunkKey k,
                                    MaterialLut lut, ActiveMaterials.State mats) {
         return HaloAssembler.assemble(
-                neighbor(level, dim, k.cx() - 1, k.sectionY(), k.cz(), lut, mats),
-                neighbor(level, dim, k.cx() + 1, k.sectionY(), k.cz(), lut, mats),
-                neighbor(level, dim, k.cx(), k.sectionY() - 1, k.cz(), lut, mats),
-                neighbor(level, dim, k.cx(), k.sectionY() + 1, k.cz(), lut, mats),
-                neighbor(level, dim, k.cx(), k.sectionY(), k.cz() - 1, lut, mats),
-                neighbor(level, dim, k.cx(), k.sectionY(), k.cz() + 1, lut, mats));
+                neighbor(level, dim, k.cx() - 1, k.sectionY(), k.cz(), lut, mats, GeometryAssembler.Face.NEG_X),
+                neighbor(level, dim, k.cx() + 1, k.sectionY(), k.cz(), lut, mats, GeometryAssembler.Face.POS_X),
+                neighbor(level, dim, k.cx(), k.sectionY() - 1, k.cz(), lut, mats, GeometryAssembler.Face.NEG_Y),
+                neighbor(level, dim, k.cx(), k.sectionY() + 1, k.cz(), lut, mats, GeometryAssembler.Face.POS_Y),
+                neighbor(level, dim, k.cx(), k.sectionY(), k.cz() - 1, lut, mats, GeometryAssembler.Face.NEG_Z),
+                neighbor(level, dim, k.cx(), k.sectionY(), k.cz() + 1, lut, mats, GeometryAssembler.Face.POS_Z));
     }
 
-    /** A neighbour's (temperature, matIx) or null (void) when not loaded. */
+    /**
+     * A neighbour's face data (temperature, matIx, mass) or null (void) when not loaded. Only the
+     * single 16×16 plane the halo reads ({@code face}) is assembled — {@link GeometryAssembler#assembleFace}
+     * computes matIx/mass for those 256 cells, ~16× less geometry work than a full section assemble.
+     * At those face cells the values are bit-identical to the old full-section path, so the halo
+     * (and cross-section conservation) is unchanged.
+     */
     private HaloAssembler.Neighbor neighbor(ServerLevel level, Identifier dim,
                                             int cx, int sectionY, int cz,
-                                            MaterialLut lut, ActiveMaterials.State mats) {
+                                            MaterialLut lut, ActiveMaterials.State mats,
+                                            GeometryAssembler.Face face) {
         LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
         if (chunk == null) return null;
         LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, sectionY);
@@ -194,12 +201,15 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         GeometryAssembler.CellMaterials cellMat =
                 i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
         float[] temps = sectionTemps(level, store, key, cellMat);
-        // TODO(perf, §8 follow-on): assembles a full 4096-cell geometry per neighbour but only one 256-cell face is used by the halo. A GeometryAssembler.assembleFace(cells, lut, face) variant would cut this 16x.
-        GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
-        // Neighbour mass: the SAME §10 rule as the section's own mass (sectionMass) so the two
-        // sides of a shared face agree — stored/advected mass when the section exists (fluid
-        // entry point seeds empty fluid cells once), else the block-derived geometry seed.
-        float[] mass = sectionMass(store, key, geo, lut);
+        // Assemble ONLY the contributing face plane (the 256 cells the halo will read), not all 4096.
+        GeometryAssembler.Geometry geo = GeometryAssembler.assembleFace(cellMat, lut, face);
+        // Neighbour mass: the SAME §10 MassSnapshot rule as the section's own mass (sectionMass) so
+        // the two sides of a shared face agree — stored/advected mass when the section exists (fluid
+        // entry point seeds empty fluid cells once), else the block-derived geometry seed. Applied
+        // only at the face cells (selectFace) to match the face-only geometry.
+        boolean has = store != null && store.hasSection(key);
+        float[] stored = has ? store.get(key).massArray().clone() : null;
+        float[] mass = MassSnapshot.selectFace(stored, geo.matIx(), lut.materials(), has, geo.mass(), face);
         return new HaloAssembler.Neighbor(temps, geo.matIx(), mass);
     }
 }

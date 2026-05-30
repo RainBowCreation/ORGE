@@ -1,6 +1,8 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.NeighborHalo;
+import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SectionData;
 import org.junit.jupiter.api.Test;
 
@@ -86,6 +88,59 @@ class HaloAssemblerTest {
             for (int x = 0; x < 16; x++) {
                 assertEquals((char) sidx(x, y, 0), h.posZM()[x + 16 * y]);
             }
+        }
+    }
+
+    private static Material mat(String path, float defaultMass) {
+        return new Material(Identifier.fromNamespaceAndPath("orge", path),
+                2.5f, 1000f, 0f, defaultMass, 0f,
+                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+    }
+
+    /** Full-section Neighbor: matIx/mass from GeometryAssembler.assemble + per-cell temps. */
+    private static HaloAssembler.Neighbor fullNeighbor(GeometryAssembler.CellMaterials cells,
+                                                       float[] temps, MaterialLut lut) {
+        GeometryAssembler.Geometry g = GeometryAssembler.assemble(cells, lut);
+        return new HaloAssembler.Neighbor(temps, g.matIx(), g.mass());
+    }
+
+    /** Face-only Neighbor (the new path): matIx/mass from assembleFace for the contributing plane. */
+    private static HaloAssembler.Neighbor faceNeighbor(GeometryAssembler.CellMaterials cells,
+                                                       float[] temps, MaterialLut lut,
+                                                       GeometryAssembler.Face face) {
+        GeometryAssembler.Geometry g = GeometryAssembler.assembleFace(cells, lut, face);
+        return new HaloAssembler.Neighbor(temps, g.matIx(), g.mass());
+    }
+
+    @Test
+    void haloFromFaceOnlyNeighboursIsBitIdenticalToFullSectionNeighbours() {
+        Material[] palette = { mat("a", 11f), mat("b", 22f), mat("c", 33f), mat("d", 44f) };
+        GeometryAssembler.CellMaterials cells = i -> palette[i % palette.length];
+        // Distinct per-cell temps so a mis-mapped face would diverge.
+        float[] temps = new float[SectionData.CELLS];
+        for (int i = 0; i < temps.length; i++) temps[i] = i * 0.5f;
+
+        // ONE shared LUT for both paths, as in production snapshot() (a full assemble seeds the LUT
+        // first, then every neighbour assembles against it), so material indices agree.
+        MaterialLut lut = new MaterialLut();
+        GeometryAssembler.assemble(cells, lut); // seed the LUT exactly as the owning section does
+
+        NeighborHalo full = HaloAssembler.assemble(
+                fullNeighbor(cells, temps, lut), fullNeighbor(cells, temps, lut),
+                fullNeighbor(cells, temps, lut), fullNeighbor(cells, temps, lut),
+                fullNeighbor(cells, temps, lut), fullNeighbor(cells, temps, lut));
+        NeighborHalo face = HaloAssembler.assemble(
+                faceNeighbor(cells, temps, lut, GeometryAssembler.Face.NEG_X),
+                faceNeighbor(cells, temps, lut, GeometryAssembler.Face.POS_X),
+                faceNeighbor(cells, temps, lut, GeometryAssembler.Face.NEG_Y),
+                faceNeighbor(cells, temps, lut, GeometryAssembler.Face.POS_Y),
+                faceNeighbor(cells, temps, lut, GeometryAssembler.Face.NEG_Z),
+                faceNeighbor(cells, temps, lut, GeometryAssembler.Face.POS_Z));
+
+        for (int f = 0; f < 6; f++) {
+            assertArrayEquals(full.tempFaces()[f], face.tempFaces()[f], "temp face " + f + " bit-identical");
+            assertArrayEquals(full.matFaces()[f], face.matFaces()[f], "mat face " + f + " bit-identical");
+            assertArrayEquals(full.massFaces()[f], face.massFaces()[f], "mass face " + f + " bit-identical");
         }
     }
 }

@@ -53,4 +53,59 @@ class GeometryAssemblerTest {
             }
         }
     }
+
+    private static int sidx(int x, int y, int z) { return x + 16 * y + 256 * z; }
+
+    /** Maps a Face to the (fixed-axis,value) plane the halo extracts, mirroring HaloAssembler. */
+    private static boolean inPlane(GeometryAssembler.Face face, int x, int y, int z) {
+        return switch (face) {
+            case NEG_X -> x == 15;
+            case POS_X -> x == 0;
+            case NEG_Y -> y == 15;
+            case POS_Y -> y == 0;
+            case NEG_Z -> z == 15;
+            case POS_Z -> z == 0;
+        };
+    }
+
+    @Test
+    void assembleFaceIsBitIdenticalToFullAssembleAtTheFaceCellsForEveryFace() {
+        // A heterogeneous section where each cell's material is a deterministic function of its
+        // index, so a wrong face/index mapping would show up as a mismatch.
+        Material[] palette = {
+                mat("a", 10f), mat("b", 20f), mat("c", 30f), mat("d", 40f)
+        };
+        GeometryAssembler.CellMaterials cells = i -> palette[i % palette.length];
+
+        for (GeometryAssembler.Face face : GeometryAssembler.Face.values()) {
+            // SHARED LUT, as in production: snapshot() assembles the section (populating the LUT)
+            // and every neighbour face against the same MaterialLut, so indices agree. (Independent
+            // LUTs would diverge because assembleFace visits cells in a different order.)
+            MaterialLut lut = new MaterialLut();
+            GeometryAssembler.Geometry full = GeometryAssembler.assemble(cells, lut);
+            GeometryAssembler.Geometry faceGeo = GeometryAssembler.assembleFace(cells, lut, face);
+
+            int facesChecked = 0;
+            for (int z = 0; z < 16; z++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int x = 0; x < 16; x++) {
+                        int i = sidx(x, y, z);
+                        if (inPlane(face, x, y, z)) {
+                            assertEquals(full.matIx()[i], faceGeo.matIx()[i],
+                                    "matIx must match full assemble at face cell " + i + " for " + face);
+                            assertEquals(full.mass()[i], faceGeo.mass()[i],
+                                    "mass must match full assemble at face cell " + i + " for " + face);
+                            facesChecked++;
+                        } else {
+                            assertEquals(0, faceGeo.matIx()[i],
+                                    "off-face cell stays void for " + face + " at " + i);
+                            assertEquals(0f, faceGeo.mass()[i],
+                                    "off-face cell stays 0 mass for " + face + " at " + i);
+                        }
+                    }
+                }
+            }
+            assertEquals(256, facesChecked, "exactly 256 cells in the plane for " + face);
+        }
+    }
 }

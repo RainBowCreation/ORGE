@@ -68,4 +68,30 @@ public final class MassSnapshot {
         }
         return out;
     }
+
+    /**
+     * Halo-face variant of {@link #selectAll}: applies the SAME per-cell {@link #select} rule, but
+     * ONLY at the 256 cells of {@code face} (DESIGN §10/§2 perf follow-on). {@code matIx}/{@code geoMass}
+     * are the face-only geometry from {@link GeometryAssembler#assembleFace} (populated only at the
+     * face cells). The result is section-sized and, at every face cell, bit-identical to what
+     * {@link #selectAll} produced — the only cells the halo ever reads — so cross-section mass
+     * conservation is unchanged. When the section has never been simulated the face geometry seed is
+     * used as-is (face cells already carry the block-derived mass).
+     */
+    public static float[] selectFace(float[] stored, char[] matIx, List<Material> lut,
+                                     boolean hasSection, float[] geoMass,
+                                     GeometryAssembler.Face face) {
+        if (!hasSection) {
+            return geoMass;
+        }
+        float[] out = new float[SectionData.CELLS];
+        for (int k = 0; k < FACE_CELLS; k++) {
+            int i = face.cellIndex(k);
+            out[i] = select(stored[i], matIx[i], lut, true, geoMass[i]);
+        }
+        return out;
+    }
+
+    /** Cells in one 16×16 boundary plane. */
+    private static final int FACE_CELLS = 256;
 }

@@ -75,4 +75,56 @@ class MassSnapshotTest {
         float result = MassSnapshot.select(0f, STONE_IX, lut(), true, 2000f);
         assertEquals(0f, result, 0f, "do not seed solids/air");
     }
+
+    private static int sidx(int x, int y, int z) { return x + 16 * y + 256 * z; }
+
+    private static boolean inPlane(GeometryAssembler.Face face, int x, int y, int z) {
+        return switch (face) {
+            case NEG_X -> x == 15; case POS_X -> x == 0;
+            case NEG_Y -> y == 15; case POS_Y -> y == 0;
+            case NEG_Z -> z == 15; case POS_Z -> z == 0;
+        };
+    }
+
+    @Test
+    void selectFaceMatchesSelectAllAtFaceCellsAndSeedsFluidEntryPoints() {
+        // Stored mass: some fluid cells drained to ~0 (entry points), some carrying advected mass.
+        int cells = net.rainbowcreation.orge.section.SectionData.CELLS;
+        float[] stored = new float[cells];
+        char[] matIx = new char[cells];
+        float[] geoMass = new float[cells];
+        for (int i = 0; i < cells; i++) {
+            // Alternate water / stone; every 3rd water cell is a drained entry point (stored 0).
+            boolean water = (i % 2 == 0);
+            matIx[i] = water ? WATER_IX : STONE_IX;
+            geoMass[i] = water ? 640f : 2000f;
+            stored[i] = (water && i % 3 == 0) ? 0f : (water ? 300f : 2000f);
+        }
+
+        float[] all = MassSnapshot.selectAll(stored, matIx, lut(), true, geoMass);
+
+        for (GeometryAssembler.Face face : GeometryAssembler.Face.values()) {
+            // Face-only geometry mirrors assembleFace: matIx/geoMass populated only at face cells.
+            char[] faceMat = new char[cells];
+            float[] faceGeo = new float[cells];
+            for (int z = 0; z < 16; z++)
+                for (int y = 0; y < 16; y++)
+                    for (int x = 0; x < 16; x++)
+                        if (inPlane(face, x, y, z)) {
+                            int i = sidx(x, y, z);
+                            faceMat[i] = matIx[i];
+                            faceGeo[i] = geoMass[i];
+                        }
+
+            float[] faceMass = MassSnapshot.selectFace(stored, faceMat, lut(), true, faceGeo, face);
+            for (int z = 0; z < 16; z++)
+                for (int y = 0; y < 16; y++)
+                    for (int x = 0; x < 16; x++)
+                        if (inPlane(face, x, y, z)) {
+                            int i = sidx(x, y, z);
+                            assertEquals(all[i], faceMass[i], 0f,
+                                    "selectFace must equal selectAll at face cell " + i + " for " + face);
+                        }
+        }
+    }
 }
