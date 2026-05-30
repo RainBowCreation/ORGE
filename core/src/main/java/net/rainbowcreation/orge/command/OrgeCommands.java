@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permission;
@@ -27,8 +28,11 @@ import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Thin Brigadier adapter for {@code /orge}. Parses arguments, builds an
@@ -39,6 +43,13 @@ import java.util.Locale;
 public final class OrgeCommands {
 
     private final OrgeCommandLogic logic;
+
+    /**
+     * Players with {@code /orge get-live} toggled on. Each server tick their crosshair cell is
+     * painted to the ACTION BAR (not chat) by {@link #tickLiveReadouts}. Server-thread confined
+     * (commands + the tick hook both run on the server thread), so a plain {@link HashSet} suffices.
+     */
+    private final Set<UUID> liveReadout = new HashSet<>();
 
     public OrgeCommands(OrgeCommandLogic logic) {
         this.logic = logic;
@@ -88,9 +99,10 @@ public final class OrgeCommands {
     private static final double LIVE_REACH = 64.0;
 
     /**
-     * {@code /orge get-live} (op): raycast from the caller's eyes along their look vector (fluids
-     * included, so water/lava cells are hittable) and run the same per-cell GET on the targeted
-     * block — no coordinates to type. Requires a player source (it needs a crosshair).
+     * {@code /orge get-live} (op): TOGGLES a live per-cell readout for the caller. While on, each
+     * server tick {@link #tickLiveReadouts} raycasts their crosshair and paints the same GET line
+     * to the ACTION BAR — never chat, so it updates in place instead of flooding the log. Requires
+     * a player source (it needs a crosshair).
      */
     private int getLive(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack src = ctx.getSource();
@@ -98,17 +110,70 @@ public final class OrgeCommands {
             src.sendFailure(Component.literal("get-live needs a player (it reads your crosshair)"));
             return 0;
         }
-        ServerLevel level = src.getLevel();
+        final boolean nowOn = !liveReadout.remove(player.getUUID());
+        if (nowOn) {
+            liveReadout.add(player.getUUID());
+        }
+        src.sendSuccess(() -> Component.literal(
+                "ORGE live readout " + (nowOn ? "ON (crosshair → action bar)" : "OFF")), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    /**
+     * Server-tick hook: for every player with the live readout on, paint their crosshair cell to
+     * the action bar. Offline toggled players are skipped (kept so the readout resumes on rejoin).
+     */
+    public void tickLiveReadouts(MinecraftServer server) {
+        if (liveReadout.isEmpty()) {
+            return;
+        }
+        for (UUID id : liveReadout) {
+            ServerPlayer player = server.getPlayerList().getPlayer(id);
+            if (player == null) {
+                continue;
+            }
+            ServerLevel level = (ServerLevel) player.level();
+            BlockHitResult hit = crosshairHit(player, level);
+            Component line;
+            if (hit.getType() == HitResult.Type.MISS) {
+                line = Component.literal(String.format(Locale.ROOT,
+                        "ORGE: no block within %d blocks", (int) LIVE_REACH));
+            } else {
+                OrgeCommandLogic.Response resp = liveGetResponse(level, hit.getBlockPos(), player.position());
+                line = Component.literal(resp.lines().isEmpty() ? "" : resp.lines().get(0));
+            }
+            player.displayClientMessage(line, true); // true = action bar
+        }
+    }
+
+    /** Drops all live-readout toggles (server stop). */
+    public void clearLiveReadouts() {
+        liveReadout.clear();
+    }
+
+    /** Raycast from {@code player}'s eyes along their look vector, fluids included (water/lava hittable). */
+    private static BlockHitResult crosshairHit(ServerPlayer player, ServerLevel level) {
         Vec3 eye = player.getEyePosition();
         Vec3 end = eye.add(player.getViewVector(1.0f).scale(LIVE_REACH));
-        BlockHitResult hit = level.clip(new ClipContext(
+        return level.clip(new ClipContext(
                 eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, player));
-        if (hit.getType() == HitResult.Type.MISS) {
-            src.sendFailure(Component.literal(String.format(Locale.ROOT,
-                    "not looking at a block within %d blocks", (int) LIVE_REACH)));
-            return 0;
-        }
-        return read(ctx, OrgeCommandLogic.Op.GET, hit.getBlockPos());
+    }
+
+    /** The GET response for one cell (operator read, so it works wherever the player looks). */
+    private OrgeCommandLogic.Response liveGetResponse(ServerLevel level, BlockPos p, Vec3 source) {
+        Identifier dim = level.dimension().identifier();
+        OrgeCommandLogic.Request req = new OrgeCommandLogic.Request(OrgeCommandLogic.Op.GET, dim,
+                p.getX(), p.getY(), p.getZ(), p.getX(), p.getY(), p.getZ(),
+                null, null, true, sectionOf(source), level.getMinY(), level.getMaxY() + 1);
+        OrgeCommandLogic.Response resp = logic.run(req);
+        return resp.ok() ? appendToFirstLine(resp, liveCellDescriptor(level, p)) : resp;
+    }
+
+    private static SubchunkKey sectionOf(Vec3 pos) {
+        return new SubchunkKey(
+                ((int) Math.floor(pos.x)) >> 4,
+                ((int) Math.floor(pos.y)) >> 4,
+                ((int) Math.floor(pos.z)) >> 4);
     }
 
     /** {@code ", block=<id>, material=<id>"} for the live block at {@code pos} (server-thread read). */
@@ -146,11 +211,7 @@ public final class OrgeCommands {
         CommandSourceStack src = ctx.getSource();
         ServerLevel level = src.getLevel();
         Identifier dim = level.dimension().identifier();
-        Vec3 sp = src.getPosition();
-        SubchunkKey sourceSection = new SubchunkKey(
-                ((int) Math.floor(sp.x)) >> 4,
-                ((int) Math.floor(sp.y)) >> 4,
-                ((int) Math.floor(sp.z)) >> 4);
+        SubchunkKey sourceSection = sectionOf(src.getPosition());
         boolean operator = src.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS));
         int minY = level.getMinY();
         int maxYExclusive = level.getMaxY() + 1; // getMaxY() is inclusive top block Y

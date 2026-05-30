@@ -182,5 +182,8 @@ public final class Orge {
         OrgeCommands orgeCommands = new OrgeCommands(commandLogic);
         CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) ->
                 orgeCommands.register(dispatcher));
+        // /orge get-live paints each toggled player's crosshair cell to the action bar every tick.
+        TickEvent.SERVER_POST.register(orgeCommands::tickLiveReadouts);
+        LifecycleEvent.SERVER_STOPPING.register(server -> orgeCommands.clearLiveReadouts());
     }
 }
