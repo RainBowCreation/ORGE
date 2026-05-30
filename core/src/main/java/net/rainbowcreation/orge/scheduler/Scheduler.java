@@ -38,8 +38,9 @@ import java.util.List;
  *       for a batch and, if non-empty, submit the matching job to the runner.</li>
  *   <li><b>AWAITING</b>: when the step finishes, validate (§9) and write each result back per
  *       cadence; a result missing the deadline <i>holds previous values</i>, and after a grace
- *       window the step is cancelled. {@code engine.lastStepMillis()} drives the {@link Worker}
- *       health throttle.</li>
+ *       window the step is cancelled. The {@link Worker} health throttle is driven by the
+ *       per-cycle <b>server-thread</b> wall-time ORGE consumes (snapshot + write-back/reconcile),
+ *       not the off-thread {@code engine.lastStepMillis()} native step.</li>
  * </ul>
  *
  * <p>This class is loader- and Minecraft-free: all world access is behind {@link ThermalWorld}.
@@ -59,7 +60,15 @@ public final class Scheduler {
     /** Range bounds + health-throttle tunables (DESIGN §8; v1 constants). */
     public static final int DEFAULT_RANGE = 2;
     public static final int MAX_RANGE = 4;
-    public static final double COMPUTE_BUDGET_MILLIS = 250.0;
+    /**
+     * Per-cycle <b>server-thread</b> compute budget (ms) the health throttle backs off against.
+     * This is the wall-time ORGE spends ON the server thread each cadence cycle ({@code snapshot}
+     * + {@code writeBack}/reconcile/§9), NOT the off-thread native engine step. Kept a modest
+     * fraction of the 50 ms game tick so ORGE never becomes the reason the server falls behind;
+     * with the throttle measuring the real cost, the range settles where this work ≈ budget instead
+     * of climbing to {@link #MAX_RANGE}. Audit-tunable.
+     */
+    public static final double COMPUTE_BUDGET_MILLIS = 30.0;
     public static final int ON_TIME_TICKS_TO_CLIMB = 5;
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
@@ -84,6 +93,10 @@ public final class Scheduler {
     private boolean pendingAdvection;
     /** Largest legal per-cell mass for this batch (max material defaultMass), for the §9 check. */
     private float pendingFullMassBound;
+
+    /** Server-thread nanos spent in {@code world.snapshot(...)} for the in-flight cycle; summed
+     *  with the {@code complete()} body and fed to the health throttle (NOT the native step). */
+    private long pendingSnapshotNanos;
 
     /** Backwards-compatible constructor: no phase change, no reconcile (used by unit tests). */
     public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker) {
@@ -160,7 +173,11 @@ public final class Scheduler {
      * then advection (dt = 0.25) ON the post-conduction temperatures; otherwise advection only.
      */
     private void submit(boolean conduction, boolean advection) {
+        // Measure the server-thread cost of assembling the snapshot (geometry + halos): this is
+        // a dominant per-cycle cost ON the server thread and must feed the health throttle.
+        long snapStart = System.nanoTime();
         ThermalWorld.Batch batch = world.snapshot(worker.range());
+        pendingSnapshotNanos = System.nanoTime() - snapStart;
         if (batch.entries().isEmpty()) {
             return; // stay IDLE; nothing to simulate this step
         }
@@ -209,6 +226,10 @@ public final class Scheduler {
     }
 
     private void complete(boolean metDeadline) {
+        // Time the server-thread phase of this cycle (write-back + §9 + phase/reconcile). Summed
+        // with the snapshot time measured in submit() to give the per-cycle server-thread cost,
+        // which feeds the health throttle (NOT engine.lastStepMillis(), the off-thread native step).
+        long completeStart = System.nanoTime();
         List<StepResult> results;
         try {
             results = pending.result();
@@ -219,9 +240,23 @@ public final class Scheduler {
             toIdle();
             return;
         }
-        // Update health from this step BEFORE writing back, so a write-back exception can't
-        // leave the worker's range/streak stale.
-        worker.noteStep(engine.lastStepMillis(), metDeadline);
+        // Update health AFTER the write-back, fed the real per-cycle server-thread wall-time
+        // (snapshot + this complete body). A try/finally guarantees noteStep still runs even if
+        // write-back throws, so a write-back exception can't leave the worker's range/streak stale.
+        try {
+            writeBackResults(results, metDeadline);
+        } finally {
+            double serverThreadMillis = (pendingSnapshotNanos + (System.nanoTime() - completeStart)) / 1_000_000.0;
+            // engine.lastStepMillis() is the off-thread native step; logged for audit only — it
+            // does NOT drive the throttle (that would be blind to the dominant server-thread cost).
+            worker.noteStep(serverThreadMillis, metDeadline);
+            toIdle();
+        }
+    }
+
+    /** Write each result back per cadence (§9 validate, writeBack, phase/reconcile). Runs on the
+     *  server thread; its wall-time is part of the per-cycle budget the throttle measures. */
+    private void writeBackResults(List<StepResult> results, boolean metDeadline) {
         if (results.size() < pendingEntries.size()) {
             LOGGER.warn("[ORGE] engine returned {} results for {} sections; trailing sections hold previous values",
                     results.size(), pendingEntries.size());
@@ -261,7 +296,6 @@ public final class Scheduler {
                 phaseChanger.applyPhaseChanges(entry);
             }
         }
-        toIdle();
     }
 
     private void toIdle() {

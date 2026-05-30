@@ -8,7 +8,10 @@ import java.util.UUID;
  *
  * <p>Health throttle (DESIGN §8): a step that misses its deadline or runs over the compute
  * budget drops {@code range} by 1 (to {@link #MIN_RANGE}); after {@code ticksToClimb}
- * consecutive on-time, under-budget steps the range climbs by 1 (to {@code maxRange}).</p>
+ * consecutive on-time, under-budget steps the range climbs by 1 (to {@code maxRange}).
+ * The budget is the per-cycle <b>server-thread</b> wall-time ORGE consumes (snapshot +
+ * write-back/reconcile), so the throttle backs off on the cost that actually competes with
+ * the game tick — not the off-thread native engine step.</p>
  */
 public final class Worker {
 
@@ -57,10 +60,11 @@ public final class Worker {
 
     /**
      * Records a completed step. {@code metDeadline} = the result arrived within the 1 s
-     * deadline; {@code millis} = {@code engine.lastStepMillis()}. Drops range on a late step
-     * or one whose time is <b>strictly over</b> the budget ({@code millis > budgetMillis};
-     * exactly-at-budget is healthy); otherwise advances the on-time streak and climbs after
-     * {@code ticksToClimb} consecutive healthy steps.
+     * deadline; {@code millis} = the per-cycle <b>server-thread</b> wall-time ORGE spent this
+     * cycle (snapshot + write-back/reconcile), NOT the off-thread native engine step. Drops
+     * range on a late step or one whose time is <b>strictly over</b> the budget
+     * ({@code millis > budgetMillis}; exactly-at-budget is healthy); otherwise advances the
+     * on-time streak and climbs after {@code ticksToClimb} consecutive healthy steps.
      */
     public void noteStep(double millis, boolean metDeadline) {
         if (!metDeadline || millis > budgetMillis) {

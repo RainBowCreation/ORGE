@@ -58,8 +58,17 @@ class SchedulerTest {
         final List<float[]> massWrites = new ArrayList<>();
         final List<SubchunkKey> writeKeys = new ArrayList<>();
         int snapshots;
+        /** Optional server-thread cost injected into snapshot() to exercise the wall-time throttle. */
+        long snapshotSleepMillis;
 
-        @Override public Batch snapshot(int range) { snapshots++; return batch; }
+        @Override public Batch snapshot(int range) {
+            snapshots++;
+            if (snapshotSleepMillis > 0) {
+                long end = System.nanoTime() + snapshotSleepMillis * 1_000_000L;
+                while (System.nanoTime() < end) { /* busy-wait: real server-thread wall-time */ }
+            }
+            return batch;
+        }
         @Override public void writeBack(BatchEntry entry, StepResult r) {
             writeKeys.add(entry.key());
             writes.add(r.temperature());
@@ -85,7 +94,8 @@ class SchedulerTest {
     }
 
     private static Worker worker() {
-        return new Worker(UUID.randomUUID(), true, 2, 4, 250.0, 3);
+        // Use the production server-thread budget so the wall-time throttle tests are meaningful.
+        return new Worker(UUID.randomUUID(), true, 2, 4, Scheduler.COMPUTE_BUDGET_MILLIS, 3);
     }
 
     /**
@@ -331,5 +341,40 @@ class SchedulerTest {
         for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick();
 
         assertTrue(phase.applied.isEmpty(), "no phase change when the step is cancelled");
+    }
+
+    @Test
+    void throttleIgnoresHugeNativeStepTimeWhenServerThreadIsCheap() {
+        // engine.lastStepMillis() is huge (off-thread native step), but the server-thread cost
+        // (snapshot + write-back) is ~0. If the throttle were still fed lastStepMillis() the step
+        // would count as over-budget and drop the range; fed the real server-thread time it stays
+        // healthy and the streak advances. This pins that noteStep is NOT fed lastStepMillis().
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        Worker w = worker();
+        // 5_000 ms native step (well over any budget); cheap server thread.
+        Scheduler s = new Scheduler(deltaEngine(5f, 5_000.0), world, runner, w);
+
+        // Tick 5 submits; tick 6 services the in-flight step (noteStep runs there).
+        tickCompleting(s, runner, 6);
+        assertEquals(2, w.range(), "huge native step time does NOT drop the range");
+        assertTrue(w.onTimeStreak() >= 1, "a cheap server-thread cycle counts as healthy");
+    }
+
+    @Test
+    void throttleBacksOffWhenServerThreadSnapshotIsExpensive() {
+        // Inverse: tiny native step, but the snapshot burns real server-thread wall-time over the
+        // budget. Proves the measured server-thread time (snapshot phase) is what drives the throttle.
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        world.snapshotSleepMillis = (long) Scheduler.COMPUTE_BUDGET_MILLIS + 25; // over budget
+        Worker w = worker();
+        Scheduler s = new Scheduler(deltaEngine(5f, 1.0), world, runner, w);
+
+        // Tick 5 submits (snapshot burns the over-budget wall-time); tick 6 services + noteStep.
+        tickCompleting(s, runner, 6);
+        assertEquals(1, w.range(), "an over-budget server-thread snapshot drops the range from 2 to 1");
     }
 }

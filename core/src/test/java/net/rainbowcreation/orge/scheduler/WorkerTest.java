@@ -8,8 +8,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class WorkerTest {
 
+    // Budget is the per-cycle SERVER-THREAD wall-time budget (ms); over it = unhealthy. Matches
+    // the new Scheduler.COMPUTE_BUDGET_MILLIS scale (was 250.0 when fed the off-thread step time).
+    private static final double BUDGET = 30.0;
+
     private static Worker worker(int initialRange) {
-        return new Worker(UUID.randomUUID(), true, initialRange, 4, 250.0, 3);
+        return new Worker(UUID.randomUUID(), true, initialRange, 4, BUDGET, 3);
     }
 
     @Test
@@ -26,9 +30,25 @@ class WorkerTest {
     @Test
     void overBudgetCompletionDropsRangeAndResetsStreak() {
         Worker w = worker(3);
-        w.noteStep(300.0, true); // on time but over the 250ms budget
+        w.noteStep(45.0, true); // on time but over the 30ms server-thread budget
         assertEquals(2, w.range());
         assertEquals(0, w.onTimeStreak());
+    }
+
+    @Test
+    void serverThreadTimeOverBudgetDropsAndUnderBudgetClimbs() {
+        // The throttle is now fed the SERVER-THREAD wall-time. Prove a step whose millis is over
+        // budget drops the range, and a sequence of under-budget steps climbs it. (Logic unchanged;
+        // this pins the contract that what is fed in is the server-thread cost, not a native step.)
+        Worker over = worker(3);
+        over.noteStep(BUDGET + 1.0, true); // server-thread cost over budget
+        assertEquals(2, over.range(), "over-budget server-thread cost backs off the range");
+
+        Worker under = worker(2);
+        under.noteStep(BUDGET - 1.0, true);
+        under.noteStep(BUDGET - 1.0, true);
+        under.noteStep(BUDGET - 1.0, true); // 3 healthy under-budget steps -> climb
+        assertEquals(3, under.range(), "under-budget server-thread cost lets the range climb");
     }
 
     @Test
@@ -61,7 +81,7 @@ class WorkerTest {
     @Test
     void exactlyAtBudgetIsHealthy() {
         Worker w = worker(2);
-        w.noteStep(250.0, true); // millis == budget -> NOT over -> healthy
+        w.noteStep(BUDGET, true); // millis == budget -> NOT over -> healthy
         assertEquals(1, w.onTimeStreak(), "at-budget advances the streak");
         assertEquals(2, w.range(), "at-budget does not drop range");
     }
@@ -69,7 +89,7 @@ class WorkerTest {
     @Test
     void constructorClampsInvalidArguments() {
         // maxRange below MIN, initialRange above (clamped) max, ticksToClimb <= 0.
-        Worker w = new Worker(UUID.randomUUID(), true, 99, -5, 250.0, 0);
+        Worker w = new Worker(UUID.randomUUID(), true, 99, -5, BUDGET, 0);
         assertEquals(Worker.MIN_RANGE, w.range(), "initialRange clamped into [MIN, maxRange]; maxRange clamped to MIN");
         // ticksToClimb clamped to >=1, so a single healthy step climbs (but range already at max=MIN here).
         w.noteStep(10.0, true);
@@ -91,7 +111,7 @@ class WorkerTest {
     @Test
     void serverFallbackFlagAndIdExposed() {
         UUID id = UUID.randomUUID();
-        Worker w = new Worker(id, true, 2, 4, 250.0, 3);
+        Worker w = new Worker(id, true, 2, 4, BUDGET, 3);
         assertTrue(w.isServerFallback());
         assertEquals(id, w.id());
     }
