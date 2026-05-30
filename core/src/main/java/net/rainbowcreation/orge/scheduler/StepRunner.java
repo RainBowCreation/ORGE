@@ -1,5 +1,7 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.rainbowcreation.orge.engine.StepResult;
+
 import java.util.List;
 import java.util.concurrent.Callable;
 
@@ -11,7 +13,7 @@ import java.util.concurrent.Callable;
 public interface StepRunner {
 
     /** Submit a step; the returned handle is polled by the scheduler on later ticks. */
-    Handle submit(Callable<List<float[]>> task);
+    Handle submit(Callable<List<StepResult>> task);
 
     /** A submitted step in flight. */
     interface Handle {
@@ -22,7 +24,7 @@ public interface StepRunner {
          * The completed result. Precondition: {@link #isDone()} is true.
          * @throws RuntimeException if the task threw (the cause is attached).
          */
-        List<float[]> result();
+        List<StepResult> result();
 
         /** Best-effort cancel of a not-yet-finished step. */
         void cancel();

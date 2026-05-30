@@ -1,5 +1,6 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.rainbowcreation.orge.engine.StepResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -21,9 +22,9 @@ class ExecutorStepRunnerTest {
         ExecutorStepRunner runner = new ExecutorStepRunner();
         try {
             float[] arr = {1f, 2f};
-            StepRunner.Handle h = runner.submit(() -> List.of(arr));
+            StepRunner.Handle h = runner.submit(() -> List.of(new StepResult(arr, new float[]{0f, 0f})));
             awaitDone(h);
-            assertSame(arr, h.result().get(0));
+            assertSame(arr, h.result().get(0).temperature());
         } finally {
             runner.shutdown();
         }
@@ -50,16 +51,16 @@ class ExecutorStepRunnerTest {
         ExecutorStepRunner runner = new ExecutorStepRunner();
         try {
             float[] first = {1f};
-            StepRunner.Handle h1 = runner.submit(() -> List.of(first));
+            StepRunner.Handle h1 = runner.submit(() -> List.of(new StepResult(first, new float[]{0f})));
             awaitDone(h1);
-            assertSame(first, h1.result().get(0));
+            assertSame(first, h1.result().get(0).temperature());
 
             runner.shutdown(); // simulate SERVER_STOPPING
 
             float[] second = {2f};
-            StepRunner.Handle h2 = runner.submit(() -> List.of(second)); // simulate next world's tick
+            StepRunner.Handle h2 = runner.submit(() -> List.of(new StepResult(second, new float[]{0f}))); // simulate next world's tick
             awaitDone(h2);
-            assertSame(second, h2.result().get(0));
+            assertSame(second, h2.result().get(0).temperature());
         } finally {
             runner.shutdown();
         }
@@ -72,7 +73,7 @@ class ExecutorStepRunnerTest {
             // A task that blocks so the handle is observably not-done when we call result().
             StepRunner.Handle h = runner.submit(() -> {
                 Thread.sleep(500);
-                return java.util.List.of(new float[]{1f});
+                return java.util.List.of(new StepResult(new float[]{1f}, new float[]{0f}));
             });
             assertThrows(IllegalStateException.class, h::result);
         } finally {

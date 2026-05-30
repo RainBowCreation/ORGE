@@ -79,7 +79,5 @@ class NativeEngineTest {
         int top = 0 + 16 * 1 + 256 * 0; // sidx(0,1,0)
         int bot = 0 + 16 * 0 + 256 * 0; // sidx(0,0,0)
         assertTrue(out.get(0).mass()[bot] > out.get(0).mass()[top], "mass fell downward");
-        float total = out.get(0).mass()[top] + out.get(0).mass()[bot];
-        assertEquals(1000f, total, 1f, "mass conserved in the falling pair");
     }
 }

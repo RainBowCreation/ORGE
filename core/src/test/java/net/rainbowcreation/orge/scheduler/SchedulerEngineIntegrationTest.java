@@ -5,6 +5,7 @@ import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.engine.NativeEngine;
 import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.OrgeEngine;
+import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SectionData;
@@ -25,15 +26,15 @@ class SchedulerEngineIntegrationTest {
 
     /** Inline runner: runs the step synchronously and reports done immediately. */
     private static final class InlineRunner implements StepRunner {
-        @Override public Handle submit(Callable<List<float[]>> task) {
-            final List<float[]> out;
+        @Override public Handle submit(Callable<List<StepResult>> task) {
+            final List<StepResult> out;
             final RuntimeException err;
-            List<float[]> r = null; RuntimeException e = null;
+            List<StepResult> r = null; RuntimeException e = null;
             try { r = task.call(); } catch (Exception ex) { e = new RuntimeException(ex); }
             out = r; err = e;
             return new Handle() {
                 @Override public boolean isDone() { return true; }
-                @Override public List<float[]> result() { if (err != null) throw err; return out; }
+                @Override public List<StepResult> result() { if (err != null) throw err; return out; }
                 @Override public void cancel() {}
             };
         }
@@ -44,7 +45,7 @@ class SchedulerEngineIntegrationTest {
         float[] written;
         CapturingWorld(Batch b) { this.batch = b; }
         @Override public Batch snapshot(int range) { return batch; }
-        @Override public void writeBack(BatchEntry entry, float[] t) { this.written = t; }
+        @Override public void writeBack(BatchEntry entry, StepResult r) { this.written = r.temperature(); }
     }
 
     @Test

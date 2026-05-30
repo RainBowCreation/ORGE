@@ -56,16 +56,20 @@ final class BatchTestSupport {
     }
 
     /**
-     * A fluid (matIx 1) section with the top plane cell full (mass 1000) and the cell directly
-     * below empty (mass 0), all other cells empty; uniform 300 K, all-void halo. After one
-     * advection step the lower cell should gain mass (fluid falls).
+     * A section with exactly ONE fluid pair (matIx 1) — the cell at (0,1,0) full (mass 1000) and
+     * the cell directly below (0,0,0) empty (mass 0) — everything else void (matIx 0). Uniform
+     * 300 K, all-void halo. After one advection step the lower cell gains mass (fluid falls);
+     * because only the pair is fluid there is no horizontal leak, so the pair stays mass-conserved.
      */
     static StepTask fluidSection(SubchunkKey key) {
-        char[] mat = fillChar(SEC_N, (char) 1);
+        char[] mat = fillChar(SEC_N, (char) 0); // void everywhere
         float[] mass = fillFloat(SEC_N, 0f);
         int top = sidx(0, 1, 0);
+        int bot = sidx(0, 0, 0);
+        mat[top] = (char) 1;                    // fluid full cell
+        mat[bot] = (char) 1;                    // fluid empty cell below
         mass[top] = 1000f;
-        // mass[sidx(0,0,0)] stays 0 — the empty cell below.
+        // mass[bot] stays 0 — the empty cell below.
         return new StepTask(key, mat, mass, fillFloat(SEC_N, 300f), voidHalo());
     }
 

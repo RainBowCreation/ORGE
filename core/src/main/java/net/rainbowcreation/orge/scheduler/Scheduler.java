@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.rainbowcreation.orge.engine.OrgeEngine;
+import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.phase.PhaseChanger;
 import org.slf4j.Logger;
@@ -25,6 +26,7 @@ import java.util.List;
  * <p>This class is loader- and Minecraft-free: all world access is behind {@link ThermalWorld}.
  * Confined to the server thread (no internal locking), exactly like the §5 store.</p>
  */
+// TRANSITIONAL (pre-§10 advection): conduction-only adaptation to the StepResult/passes ABI; the decoupled two-cadence + FluidReconciler wiring lands in Task 17.
 public final class Scheduler {
 
     /** dt and cadence (DESIGN §4): one step per real second = every 20 ticks. */
@@ -115,14 +117,14 @@ public final class Scheduler {
             return; // stay IDLE; nothing to simulate this step
         }
         List<StepTask> tasks = batch.entries().stream().map(ThermalWorld.BatchEntry::task).toList();
-        pending = runner.submit(() -> engine.step(tasks, batch.lut(), STEP_DT_SECONDS));
+        pending = runner.submit(() -> engine.step(tasks, batch.lut(), STEP_DT_SECONDS, OrgeEngine.PASS_CONDUCTION));
         pendingEntries = batch.entries();
         ticksSinceSubmit = 0;
         state = State.AWAITING;
     }
 
     private void complete(boolean metDeadline) {
-        List<float[]> results;
+        List<StepResult> results;
         try {
             results = pending.result();
         } catch (RuntimeException e) {
@@ -142,8 +144,11 @@ public final class Scheduler {
         int n = Math.min(results.size(), pendingEntries.size());
         for (int i = 0; i < n; i++) {
             ThermalWorld.BatchEntry entry = pendingEntries.get(i);
-            float[] cleaned = StepValidator.clean(results.get(i), entry.task().temperature());
-            world.writeBack(entry, cleaned);
+            StepResult r = results.get(i);
+            float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature());
+            // Conduction-only (transitional): mass does not move, so carry the snapshot mass
+            // through unchanged. The advection cadence that writes engine mass lands in Task 17.
+            world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
             phaseChanger.applyPhaseChanges(entry);
         }
         toIdle();

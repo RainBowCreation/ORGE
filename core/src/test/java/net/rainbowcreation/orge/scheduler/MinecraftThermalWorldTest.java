@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.section.AmbientProvider;
 import net.rainbowcreation.orge.section.SectionData;
@@ -42,11 +43,11 @@ class MinecraftThermalWorldTest {
         StepTask task = new StepTask(key, new char[SectionData.CELLS], mass, temps, null);
         ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
 
-        world.writeBack(entry, temps);
+        world.writeBack(entry, new StepResult(temps, mass));
 
         SectionData data = mgr.store(DIM).get(key);
         assertEquals(350f, data.temperatureAt(0), 1e-4f, "temperature persisted");
-        assertEquals(1000f, data.massAt(0), 1e-4f, "geometry mass must be persisted, not left at 0");
+        assertEquals(1000f, data.massAt(0), 1e-4f, "engine mass must be persisted, not left at 0");
         assertEquals(1000f, data.massAt(SectionData.CELLS - 1), 1e-4f, "all cells carry their mass");
     }
 }

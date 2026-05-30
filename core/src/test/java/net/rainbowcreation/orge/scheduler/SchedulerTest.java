@@ -3,6 +3,7 @@ package net.rainbowcreation.orge.scheduler;
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.OrgeEngine;
+import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SubchunkKey;
@@ -18,14 +19,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class SchedulerTest {
 
     private static final class FakeRunner implements StepRunner {
-        Callable<List<float[]>> task;
+        Callable<List<StepResult>> task;
         boolean done;
         boolean cancelled;
-        List<float[]> canned;
+        List<StepResult> canned;
         RuntimeException failure;
 
         @Override
-        public Handle submit(Callable<List<float[]>> t) {
+        public Handle submit(Callable<List<StepResult>> t) {
             this.task = t;
             this.done = false;
             this.cancelled = false;
@@ -33,7 +34,7 @@ class SchedulerTest {
             this.failure = null;
             return new Handle() {
                 @Override public boolean isDone() { return done; }
-                @Override public List<float[]> result() {
+                @Override public List<StepResult> result() {
                     if (failure != null) throw failure;
                     if (canned != null) return canned;
                     try { return task.call(); } catch (Exception e) { throw new RuntimeException(e); }
@@ -54,13 +55,15 @@ class SchedulerTest {
     private static final class FakeWorld implements ThermalWorld {
         Batch batch;
         final List<float[]> writes = new ArrayList<>();
+        final List<float[]> massWrites = new ArrayList<>();
         final List<SubchunkKey> writeKeys = new ArrayList<>();
         int snapshots;
 
         @Override public Batch snapshot(int range) { snapshots++; return batch; }
-        @Override public void writeBack(BatchEntry entry, float[] t) {
+        @Override public void writeBack(BatchEntry entry, StepResult r) {
             writeKeys.add(entry.key());
-            writes.add(t);
+            writes.add(r.temperature());
+            massWrites.add(r.mass());
         }
     }
 
@@ -87,12 +90,12 @@ class SchedulerTest {
 
     private static OrgeEngine deltaEngine(float delta, double millis) {
         return new OrgeEngine() {
-            @Override public List<float[]> step(List<StepTask> tasks, List<Material> lut, double dt) {
-                List<float[]> out = new ArrayList<>();
+            @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
+                List<StepResult> out = new ArrayList<>();
                 for (StepTask t : tasks) {
                     float[] r = t.temperature().clone();
                     for (int i = 0; i < r.length; i++) r[i] += delta;
-                    out.add(r);
+                    out.add(new StepResult(r, t.mass().clone()));
                 }
                 return out;
             }
@@ -140,7 +143,7 @@ class SchedulerTest {
         for (int i = 0; i < 20; i++) s.onServerTick();
         float[] nan = new float[net.rainbowcreation.orge.section.SectionData.CELLS];
         java.util.Arrays.fill(nan, Float.NaN);
-        runner.canned = List.of(nan);
+        runner.canned = List.of(new StepResult(nan, new float[net.rainbowcreation.orge.section.SectionData.CELLS]));
         runner.done = true;
         s.onServerTick();
         assertEquals(300f, world.writes.get(0)[0], "NaN -> fallback (snapshot input 300)");
