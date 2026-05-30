@@ -43,6 +43,14 @@ class SchedulerTest {
         }
     }
 
+    private static final class RecordingPhaseChanger
+            implements net.rainbowcreation.orge.phase.PhaseChanger {
+        final List<SubchunkKey> applied = new ArrayList<>();
+        @Override public void applyPhaseChanges(ThermalWorld.BatchEntry entry) {
+            applied.add(entry.key());
+        }
+    }
+
     private static final class FakeWorld implements ThermalWorld {
         Batch batch;
         final List<float[]> writes = new ArrayList<>();
@@ -195,5 +203,51 @@ class SchedulerTest {
         for (int i = 0; i < 40; i++) s.onServerTick();
         assertNull(runner.task, "nothing submitted for an empty batch");
         assertTrue(world.snapshots >= 1, "but it still tried to snapshot at the boundary");
+    }
+
+    @Test
+    void phaseChangeRunsForEachWrittenEntryOnASuccessfulStep() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        RecordingPhaseChanger phase = new RecordingPhaseChanger();
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker(), phase);
+
+        for (int i = 0; i < 20; i++) s.onServerTick();
+        runner.done = true;
+        s.onServerTick();
+
+        assertEquals(List.of(new SubchunkKey(0, 0, 0)), phase.applied,
+                "phase change applied once for the single written section");
+    }
+
+    @Test
+    void phaseChangeDoesNotRunWhenTheStepFails() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        RecordingPhaseChanger phase = new RecordingPhaseChanger();
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker(), phase);
+
+        for (int i = 0; i < 20; i++) s.onServerTick();
+        runner.failure = new RuntimeException("boom");
+        runner.done = true;
+        s.onServerTick();
+
+        assertTrue(phase.applied.isEmpty(), "no phase change on a failed step (previous temps held)");
+    }
+
+    @Test
+    void phaseChangeDoesNotRunWhenTheDeadlineIsMissedAndCancelled() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        RecordingPhaseChanger phase = new RecordingPhaseChanger();
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker(), phase);
+
+        for (int i = 0; i < 20; i++) s.onServerTick();
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick();
+
+        assertTrue(phase.applied.isEmpty(), "no phase change when the step is cancelled");
     }
 }

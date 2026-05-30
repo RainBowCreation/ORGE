@@ -2,6 +2,7 @@ package net.rainbowcreation.orge.scheduler;
 
 import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.engine.StepTask;
+import net.rainbowcreation.orge.phase.PhaseChanger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +45,7 @@ public final class Scheduler {
     private final ThermalWorld world;
     private final StepRunner runner;
     private final Worker worker;
+    private final PhaseChanger phaseChanger;
 
     private State state = State.IDLE;
     private int tickCounter;
@@ -51,11 +53,18 @@ public final class Scheduler {
     private StepRunner.Handle pending;
     private List<ThermalWorld.BatchEntry> pendingEntries;
 
+    /** Backwards-compatible constructor: no phase change (used by unit tests). */
     public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker) {
+        this(engine, world, runner, worker, PhaseChanger.NOOP);
+    }
+
+    public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker,
+                     PhaseChanger phaseChanger) {
         this.engine = engine;
         this.world = world;
         this.runner = runner;
         this.worker = worker;
+        this.phaseChanger = phaseChanger;
     }
 
     /** Advance the scheduler by one server tick (call from the server-tick hook). */
@@ -117,6 +126,7 @@ public final class Scheduler {
             ThermalWorld.BatchEntry entry = pendingEntries.get(i);
             float[] cleaned = StepValidator.clean(results.get(i), entry.task().temperature());
             world.writeBack(entry, cleaned);
+            phaseChanger.applyPhaseChanges(entry);
         }
         toIdle();
     }
