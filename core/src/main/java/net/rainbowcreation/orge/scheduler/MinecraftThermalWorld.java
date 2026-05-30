@@ -1,5 +1,6 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -80,12 +81,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 if (section == null) {
                     continue;
                 }
-                GeometryAssembler.Geometry geo = GeometryAssembler.assemble(
-                        i -> LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats), lut);
+                final LevelChunkSection sec = section;
+                GeometryAssembler.CellMaterials cellMat =
+                        i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
+                GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
                 SectionStore store = stores.store(dim);
-                float[] temps = (store != null)
-                        ? store.get(key).temperatureArray().clone()
-                        : ambientTemps();
+                float[] temps = sectionTemps(level, store, key, cellMat);
                 NeighborHalo halo = buildHalo(level, dim, key, lut, mats);
                 entries.add(new BatchEntry(dim, key,
                         new StepTask(key, geo.matIx(), geo.mass(), temps, halo)));
@@ -108,10 +109,27 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         store.put(entry.key(), data);
     }
 
-    private static float[] ambientTemps() {
-        float[] t = new float[SectionData.CELLS];
-        java.util.Arrays.fill(t, SectionData.DEFAULT_AMBIENT_K);
-        return t;
+    /**
+     * Temperatures for one section: the stored gradient if the section has been simulated,
+     * otherwise a per-cell seed (sources at their default_temperature, bulk at biome ambient).
+     * Never-simulated sections are seeded but NOT persisted here — the post-step write-back
+     * creates the section; if the step is dropped, next second re-seeds (idempotent).
+     */
+    private float[] sectionTemps(ServerLevel level, SectionStore store, SubchunkKey key,
+                                 GeometryAssembler.CellMaterials cellMat) {
+        if (store != null && store.hasSection(key)) {
+            return store.get(key).temperatureArray().clone();
+        }
+        return AmbientSeeder.seed(cellMat::at, biomeAmbientK(level, key));
+    }
+
+    /** Biome base temperature sampled once at the section centre, mapped to Kelvin. */
+    private static float biomeAmbientK(ServerLevel level, SubchunkKey key) {
+        int bx = (key.cx() << 4) + 8;
+        int by = (key.sectionY() << 4) + 8;
+        int bz = (key.cz() << 4) + 8;
+        float base = level.getBiome(new BlockPos(bx, by, bz)).value().getBaseTemperature();
+        return BiomeTemperature.toKelvin(base);
     }
 
     private void addForcedSections(ServerLevel level, Set<SubchunkKey> union) {
@@ -150,10 +168,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         if (section == null) return null;
         SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
         SectionStore store = stores.store(dim);
-        float[] temps = (store != null) ? store.get(key).temperatureArray().clone() : ambientTemps();
+        final LevelChunkSection sec = section;
+        GeometryAssembler.CellMaterials cellMat =
+                i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
+        float[] temps = sectionTemps(level, store, key, cellMat);
         // TODO(perf, §8 follow-on): assembles a full 4096-cell geometry per neighbour but only one 256-cell face is used by the halo. A GeometryAssembler.assembleFace(cells, lut, face) variant would cut this 16x.
-        GeometryAssembler.Geometry geo =
-                GeometryAssembler.assemble(i -> LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats), lut);
+        GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
         return new HaloAssembler.Neighbor(temps, geo.matIx());
     }
 }
