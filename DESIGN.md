@@ -183,12 +183,20 @@ Recompute/cross-check verification is a possible future opt-in for hardened serv
 
 ## 10. Phase 2 (deferred)
 
-- Add a **fluid pass** to ORGE-ENGINE: after conduction, redistribute **mass** by
-  gravity + viscosity-limited spread. Mass = fluid level ⇒ finite water with **no source
-  blocks**. Java reconciles cell mass back to water levels and removes source blocks.
-- Give gas blocks (`orge:steam`, …) buoyancy via the same pass.
-- Optional: latent-heat plateaus; realistic temperature-dependent material curves
-  (seeded from `/old`).
+- **Phase-2a (DONE):** a **fluid pass** in ORGE-ENGINE — after conduction, redistribute **mass** by
+  gravity + viscosity-limited spread among same-material fluid cells. Mass = fluid level ⇒ finite water
+  with **no source blocks**; Java reconciles cell mass back to water levels and suppresses vanilla flow.
+- **Phase-2b (NEXT — spec `docs/superpowers/specs/2026-05-30-fluid-displacement-phase2b-design.md`):**
+  density-driven **displacement** unifies "fluid spreads into air", "gas buoyancy", and "liquid sorting"
+  into one rule. Each material carries **three masses** `min_flow_mass ≤ default_mass ≤ max_mass`, and the
+  *phase of matter is just where the resting density sits between them* (liquid rests at its ceiling →
+  pools/incompressible; gas rests at its floor → expands/fills/compressible). Buoyancy/fall/sort all fall
+  out of comparing **current** cell density; cells flip identity (`air ↔ fluid`, the kernel reports
+  `matOut`). Performance comes from **section-level, per-pass dormancy** (a decaying-cell sleep/wake that
+  replaces the vanilla fluid-tick settling we suppressed). Gas is the *same* pass — never a separate layer;
+  full compressible gas later is a data change (`max_mass > default_mass`), not a rearchitecture.
+- **After 2b — latent-heat plateaus** (boil/freeze energy plateaus; couples to §7); realistic
+  temperature-dependent material curves (seeded from `/old`).
 
 ---
 
