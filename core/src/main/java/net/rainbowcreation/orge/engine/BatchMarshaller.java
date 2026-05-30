@@ -24,8 +24,9 @@ final class BatchMarshaller {
 
     /** Flat inputs for one {@code orgeStep} call. {@code matCount} = LUT size. */
     record Flat(int n, char[] matIx, float[] mass, float[] tIn,
-                float[] haloT, char[] haloMat,
-                float[] lutCond, float[] lutHeatCap, int matCount) {}
+                float[] haloT, char[] haloMat, float[] haloMass,
+                float[] lutCond, float[] lutHeatCap,
+                float[] lutVisc, float[] lutFullMass, byte[] lutFluid, int matCount) {}
 
     static Flat flatten(List<StepTask> tasks, List<Material> lut) {
         int m = lut.size();
@@ -37,6 +38,7 @@ final class BatchMarshaller {
         float[] tIn = new float[n * SEC_N];
         float[] haloT = new float[n * FACES * FACE];
         char[] haloMat = new char[n * FACES * FACE];
+        float[] haloMass = new float[n * FACES * FACE];
 
         for (int s = 0; s < n; s++) {
             StepTask t = tasks.get(s);
@@ -52,24 +54,34 @@ final class BatchMarshaller {
 
             float[][] tf = t.halo().tempFaces();
             char[][] mf = t.halo().matFaces();
+            float[][] msf = t.halo().massFaces();
             for (int f = 0; f < FACES; f++) {
                 requireLen(tf[f], FACE, "halo temp face " + f, s);
                 requireLen(mf[f], FACE, "halo mat face " + f, s);
+                requireLen(msf[f], FACE, "halo mass face " + f, s);
                 int off = (s * FACES + f) * FACE;
                 System.arraycopy(tf[f], 0, haloT, off, FACE);
                 System.arraycopy(mf[f], 0, haloMat, off, FACE);
+                System.arraycopy(msf[f], 0, haloMass, off, FACE);
                 for (int c = 0; c < FACE; c++) requireMat(haloMat[off + c], m, "halo mat", s);
             }
         }
 
         float[] cond = new float[m];
         float[] heatCap = new float[m];
+        float[] visc = new float[m];
+        float[] fullMass = new float[m];
+        byte[] fluid = new byte[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
             heatCap[i] = mat.heatCapacity();
+            visc[i] = mat.viscosity();
+            fullMass[i] = mat.defaultMass();
+            fluid[i] = mat.fluid() ? (byte) 1 : (byte) 0;
         }
-        return new Flat(n, matIx, mass, tIn, haloT, haloMat, cond, heatCap, m);
+        return new Flat(n, matIx, mass, tIn, haloT, haloMat, haloMass,
+                cond, heatCap, visc, fullMass, fluid, m);
     }
 
     static List<float[]> slice(float[] tOut, int n) {
@@ -77,6 +89,17 @@ final class BatchMarshaller {
         for (int s = 0; s < n; s++) {
             float[] sec = new float[SEC_N];
             System.arraycopy(tOut, s * SEC_N, sec, 0, SEC_N);
+            out.add(sec);
+        }
+        return out;
+    }
+
+    /** Splits a flat per-cell mass output ({@code n*SEC_N}) back into per-section arrays. */
+    static List<float[]> sliceMass(float[] massOut, int n) {
+        List<float[]> out = new ArrayList<>(n);
+        for (int s = 0; s < n; s++) {
+            float[] sec = new float[SEC_N];
+            System.arraycopy(massOut, s * SEC_N, sec, 0, SEC_N);
             out.add(sec);
         }
         return out;
