@@ -16,6 +16,7 @@ import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
 import net.rainbowcreation.orge.block.ModBlocks;
 import net.rainbowcreation.orge.engine.EngineFactory;
+import net.rainbowcreation.orge.fluid.VanillaFluidSuppressor;
 import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.material.MaterialJsonLoader;
 import net.rainbowcreation.orge.phase.MinecraftFluidReconciler;
@@ -124,6 +125,12 @@ public final class Orge {
                 SECTION_STORES.onLevelUnload(level.dimension().identifier()));
 
         SectionStorePlatform.registerChunkHooks(SECTION_STORES);
+
+        // DESIGN §10 Decision 8 — make ORGE the sole authority over its managed water/lava by
+        // suppressing vanilla liquid physics for them. Best-effort per-loader event suppression
+        // today; full FlowingFluid#tick spread cancellation requires a mixin (see the seam's
+        // TODO(mixin)). The lava↔water → obsidian/cobblestone/basalt path is deliberately left live.
+        VanillaFluidSuppressor.install();
 
         // DESIGN.md §8 — scheduler: one fallback engine on a background thread, driven once per
         // real second from the common server-tick event. Single-node v1 (the server is the
