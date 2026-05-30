@@ -1,13 +1,20 @@
 package net.rainbowcreation.orge;
 
 import dev.architectury.event.events.common.LifecycleEvent;
+import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
+import net.rainbowcreation.orge.engine.EngineFactory;
+import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.material.MaterialJsonLoader;
+import net.rainbowcreation.orge.scheduler.ExecutorStepRunner;
+import net.rainbowcreation.orge.scheduler.MinecraftThermalWorld;
+import net.rainbowcreation.orge.scheduler.Scheduler;
+import net.rainbowcreation.orge.scheduler.Worker;
 import net.rainbowcreation.orge.section.AmbientProvider;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SectionStorePlatform;
@@ -15,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.UUID;
 
 /**
  * ORGE — Overhauled Realistic General Elements.
@@ -35,6 +43,11 @@ public final class Orge {
      * (scheduler, engine) read and write through this single instance.
      */
     public static final SectionStoreManager SECTION_STORES = new SectionStoreManager();
+
+    /** DESIGN §8 — the single-node conduction scheduler and its background runner. */
+    private static ExecutorStepRunner stepRunner;
+    private static MinecraftThermalWorld thermalWorld;
+    private static Scheduler scheduler;
 
     private static boolean initialized = false;
 
@@ -96,10 +109,23 @@ public final class Orge {
 
         SectionStorePlatform.registerChunkHooks(SECTION_STORES);
 
-        // DESIGN.md §6  — material model: register the built-in materials + JSON loader.
-        // DESIGN.md §8  — scheduler: register the per-tick server scheduler.
-        // DESIGN.md §2  — engine: bind liborge via Panama FFI (deferred; stub for now).
-        // Each of the above is a stubbed subsystem under this package; later phases
-        // fill them in and wire them here.
+        // DESIGN.md §8 — scheduler: one fallback engine on a background thread, driven once per
+        // real second from the common server-tick event. Single-node v1 (the server is the
+        // sole worker); client-distributed workers + the wire protocol are a follow-on track.
+        OrgeEngine engine = EngineFactory.create();
+        stepRunner = new ExecutorStepRunner();
+        thermalWorld = new MinecraftThermalWorld(SECTION_STORES);
+        Worker serverWorker = new Worker(
+                UUID.randomUUID(), true,
+                Scheduler.DEFAULT_RANGE, Scheduler.MAX_RANGE,
+                Scheduler.COMPUTE_BUDGET_MILLIS, Scheduler.ON_TIME_TICKS_TO_CLIMB);
+        scheduler = new Scheduler(engine, thermalWorld, stepRunner, serverWorker);
+
+        LifecycleEvent.SERVER_STARTED.register(server -> thermalWorld.bindServer(server));
+        LifecycleEvent.SERVER_STOPPING.register(server -> {
+            thermalWorld.unbindServer();
+            stepRunner.shutdown();
+        });
+        TickEvent.SERVER_POST.register(server -> scheduler.onServerTick());
     }
 }
