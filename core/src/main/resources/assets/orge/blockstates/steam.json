@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "orge:block/steam" }
+  }
+}

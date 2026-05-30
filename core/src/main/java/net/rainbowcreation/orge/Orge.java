@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
+import net.rainbowcreation.orge.block.ModBlocks;
 import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.material.MaterialJsonLoader;
@@ -76,6 +77,10 @@ public final class Orge {
         initialized = true;
 
         LOGGER.info("ORGE v2 thermal core initializing (Phase 1 skeleton).");
+
+        // DESIGN §7 — register ORGE's blocks (the inert orge:steam gas marker). Must run
+        // during mod init, before any world loads.
+        ModBlocks.register();
 
         // DESIGN.md §6 — material model: register the datapack reload listener so
         // materials + bindings load at server start and refresh on /reload. One
