@@ -14,8 +14,22 @@ public final class StepValidator {
 
     private StepValidator() {}
 
-    /** Returns a fresh sanitized copy of {@code result}, using {@code fallback[i]} where non-finite. */
+    /**
+     * Returns a fresh sanitized copy of {@code result}: each non-finite cell takes the
+     * corresponding {@code fallback} value (the snapshot input temperature), and each finite
+     * cell is clamped to {@code [MIN_K, MAX_K]}. Inputs are not mutated.
+     *
+     * @param result   the engine's raw output temperatures
+     * @param fallback the values to keep where {@code result} is non-finite; must be at least
+     *                 as long as {@code result}
+     * @return a new array of length {@code result.length}
+     * @throws IllegalArgumentException if {@code fallback} is shorter than {@code result}
+     */
     public static float[] clean(float[] result, float[] fallback) {
+        if (fallback.length < result.length) {
+            throw new IllegalArgumentException(
+                    "fallback (" + fallback.length + ") shorter than result (" + result.length + ")");
+        }
         float[] out = new float[result.length];
         for (int i = 0; i < result.length; i++) {
             float v = result[i];

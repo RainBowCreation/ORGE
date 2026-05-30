@@ -33,4 +33,10 @@ class StepValidatorTest {
         assertEquals(0f, out[0], "below 0 clamps to 0");
         assertEquals(6000f, out[1], "above 6000 clamps to 6000");
     }
+
+    @Test
+    void fallbackShorterThanResultThrows() {
+        assertThrows(IllegalArgumentException.class, () ->
+                StepValidator.clean(new float[]{Float.NaN}, new float[0]));
+    }
 }
