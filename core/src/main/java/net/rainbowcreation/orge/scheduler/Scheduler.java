@@ -69,6 +69,24 @@ public final class Scheduler {
 
     /** Advance the scheduler by one server tick (call from the server-tick hook). */
     public void onServerTick() {
+        onServerTick(true);
+    }
+
+    /**
+     * Advance the scheduler by one server tick, bound to Minecraft's game-tick clock rather than
+     * wall-clock time (DESIGN §4/§8). {@code gameAdvancing} is the server tick-rate manager's
+     * "are game elements ticking this tick?" verdict: it is {@code false} while the world is
+     * frozen ({@code /tick freeze}) and {@code true} during normal play, sprint, and the single
+     * ticks of {@code /tick step}. When ticks are frozen we do nothing at all — no counting, no
+     * submit, and no draining of an in-flight step's grace window — so the conduction clock
+     * pauses with the game and resumes exactly where it left off. The 20-tick cadence already
+     * makes the step rate scale with {@code /tick rate}, so slowing or speeding ticks slows or
+     * speeds the simulation for free.
+     */
+    public void onServerTick(boolean gameAdvancing) {
+        if (!gameAdvancing) {
+            return; // frozen: hold the conduction clock in lockstep with the game
+        }
         boolean boundary = (++tickCounter >= TICKS_PER_STEP);
         if (boundary) {
             tickCounter = 0;

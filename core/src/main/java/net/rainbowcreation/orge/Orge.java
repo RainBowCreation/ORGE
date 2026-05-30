@@ -146,7 +146,10 @@ public final class Orge {
             phaseChanger.unbindServer();
             stepRunner.shutdown();
         });
-        TickEvent.SERVER_POST.register(server -> scheduler.onServerTick());
+        // Bind the conduction clock to Minecraft's game-tick clock: skip stepping while the world
+        // is frozen (/tick freeze), and let the 20-tick cadence ride /tick rate (slow/sprint).
+        TickEvent.SERVER_POST.register(server ->
+                scheduler.onServerTick(server.tickRateManager().runsNormally()));
 
         // DESIGN observability track (Topic A): /orge get|section|set|fill. Reads walk a
         // source chain (client cache -> server fallback; v1 = server only); writes are

@@ -238,6 +238,55 @@ class SchedulerTest {
     }
 
     @Test
+    void frozenTicksDoNotAdvanceOrSubmit() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
+
+        // /tick freeze: SERVER_POST still fires, but game ticks are not advancing.
+        for (int i = 0; i < 40; i++) s.onServerTick(false);
+        assertEquals(0, world.snapshots, "no snapshot while game ticks are frozen");
+        assertNull(runner.task, "nothing submitted while frozen");
+
+        // Resume: the 20-tick cadence picks up from a clean grid.
+        for (int i = 0; i < 20; i++) s.onServerTick(true);
+        assertEquals(1, world.snapshots, "stepping resumes once ticks advance again");
+        assertNotNull(runner.task, "a step is submitted after the freeze lifts");
+    }
+
+    @Test
+    void longFreezeDoesNotCancelAnInFlightStep() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        Worker w = worker();
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
+
+        for (int i = 0; i < 20; i++) s.onServerTick(true); // submit a step
+        // Freeze far longer than the grace window while the step is still running.
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP * 5; i++) s.onServerTick(false);
+        assertFalse(runner.cancelled, "a freeze must not burn the in-flight grace window");
+        assertEquals(0, world.writes.size(), "no write-back until the frozen step completes");
+
+        runner.done = true;
+        s.onServerTick(true);
+        assertEquals(1, world.writes.size(), "the step writes back once ticks resume");
+        assertEquals(1, w.onTimeStreak(), "and counts as on-time (freeze did not consume the deadline)");
+    }
+
+    @Test
+    void noArgTickStillAdvances() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneSectionBatch(300f);
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
+
+        for (int i = 0; i < 20; i++) s.onServerTick();
+        assertEquals(1, world.snapshots, "the no-arg overload advances as before (gameAdvancing=true)");
+    }
+
+    @Test
     void phaseChangeDoesNotRunWhenTheDeadlineIsMissedAndCancelled() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
