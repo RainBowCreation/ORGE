@@ -1,7 +1,8 @@
-package net.rainbowcreation.orge.platform;
+package net.rainbowcreation.orge.platform.fabric;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.api.FabricLoader;
+import net.rainbowcreation.orge.platform.OrgePlatform;
 
 import java.nio.file.Path;
 

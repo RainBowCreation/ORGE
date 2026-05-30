@@ -1,8 +1,9 @@
-package net.rainbowcreation.orge.platform;
+package net.rainbowcreation.orge.platform.neoforge;
 
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.fml.loading.FMLPaths;
+import net.rainbowcreation.orge.platform.OrgePlatform;
 
 import java.nio.file.Path;
 

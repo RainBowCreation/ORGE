@@ -1,7 +1,9 @@
-package net.rainbowcreation.orge.section;
+package net.rainbowcreation.orge.section.fabric;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.minecraft.world.level.ChunkPos;
+import net.rainbowcreation.orge.section.SectionStoreManager;
+import net.rainbowcreation.orge.section.SectionStorePlatform;
 
 /**
  * Fabric implementation of {@link SectionStorePlatform} (matched by {@code <name>Impl}).

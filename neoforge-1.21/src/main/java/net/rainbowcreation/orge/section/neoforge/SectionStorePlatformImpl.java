@@ -1,9 +1,11 @@
-package net.rainbowcreation.orge.section;
+package net.rainbowcreation.orge.section.neoforge;
 
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.ChunkEvent;
+import net.rainbowcreation.orge.section.SectionStoreManager;
+import net.rainbowcreation.orge.section.SectionStorePlatform;
 
 /**
  * NeoForge implementation of {@link SectionStorePlatform} (matched by {@code <name>Impl}).
