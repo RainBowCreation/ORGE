@@ -3,6 +3,8 @@ package net.rainbowcreation.orge.scheduler;
 import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
+import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,28 +12,49 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 /**
- * The per-second server conduction scheduler (DESIGN §8), single-node v1: the server is the
+ * The per-second server thermal scheduler (DESIGN §8), single-node v1: the server is the
  * sole worker. Driven by {@link #onServerTick()} once per server tick, it runs a small
  * IDLE→AWAITING state machine over a single in-flight {@link StepRunner} step.
  *
+ * <p>Two decoupled cadences (DESIGN §10 Decision 2) ride the free-running {@link #tickCounter}
+ * on the global 20-tick grid:</p>
  * <ul>
- *   <li><b>IDLE</b>: count ticks; at {@link #TICKS_PER_STEP} ask the {@link ThermalWorld} for a
- *       batch and, if non-empty, submit {@code engine.step(...)} to the runner.</li>
- *   <li><b>AWAITING</b>: when the step finishes, validate (§9) and write each result back; a
- *       result missing the 1 s deadline <i>holds previous temps</i>, and after a grace window
- *       the step is cancelled. {@code engine.lastStepMillis()} drives the {@link Worker}
+ *   <li><b>Conduction</b> fires on the {@link #TICKS_PER_STEP}-tick boundary ({@code dt = 1.0 s},
+ *       {@link OrgeEngine#PASS_CONDUCTION}): within-cell heat exchange, then §9 validate(T),
+ *       writeBack(T), {@link PhaseChanger} (§7).</li>
+ *   <li><b>Advection</b> fires every {@link #ADVECTION_TICKS} ticks ({@code dt = 0.25 s},
+ *       {@link OrgeEngine#PASS_ADVECTION}): bulk mass movement, then §9 validate(+Σmass),
+ *       writeBack(T + mass), {@link FluidReconciler} (mass → render level).</li>
+ * </ul>
+ *
+ * <p>Each cadence boundary submits exactly ONE runner job (keeping the single-in-flight machine).
+ * On the coincident 20-tick boundary the job runs conduction first, then advection ON the
+ * post-conduction temperature field — within-cell heat exchange precedes bulk mass movement
+ * (documented coincident-tick order). Off the 20-tick boundary (ticks 5,10,15) the job runs
+ * advection only.</p>
+ *
+ * <ul>
+ *   <li><b>IDLE</b>: count ticks; at each 5-tick cadence boundary ask the {@link ThermalWorld}
+ *       for a batch and, if non-empty, submit the matching job to the runner.</li>
+ *   <li><b>AWAITING</b>: when the step finishes, validate (§9) and write each result back per
+ *       cadence; a result missing the deadline <i>holds previous values</i>, and after a grace
+ *       window the step is cancelled. {@code engine.lastStepMillis()} drives the {@link Worker}
  *       health throttle.</li>
  * </ul>
  *
  * <p>This class is loader- and Minecraft-free: all world access is behind {@link ThermalWorld}.
  * Confined to the server thread (no internal locking), exactly like the §5 store.</p>
  */
-// TRANSITIONAL (pre-§10 advection): conduction-only adaptation to the StepResult/passes ABI; the decoupled two-cadence + FluidReconciler wiring lands in Task 17.
 public final class Scheduler {
 
-    /** dt and cadence (DESIGN §4): one step per real second = every 20 ticks. */
+    /** Conduction cadence + dt (DESIGN §4): one step per real second = every 20 ticks. */
     public static final int TICKS_PER_STEP = 20;
     public static final double STEP_DT_SECONDS = 1.0;
+
+    /** Advection cadence (DESIGN §10 Decision 2): every 5 ticks = 4 Hz, dt = 0.25 s. Decoupled
+     *  from the 20-tick conduction cadence; tunable in the in-game audit. */
+    public static final int ADVECTION_TICKS = 5;
+    public static final double ADVECTION_DT_SECONDS = 0.25;
 
     /** Range bounds + health-throttle tunables (DESIGN §8; v1 constants). */
     public static final int DEFAULT_RANGE = 2;
@@ -48,6 +71,7 @@ public final class Scheduler {
     private final StepRunner runner;
     private final Worker worker;
     private final PhaseChanger phaseChanger;
+    private final FluidReconciler fluidReconciler;
 
     private State state = State.IDLE;
     private int tickCounter;
@@ -55,18 +79,31 @@ public final class Scheduler {
     private StepRunner.Handle pending;
     private List<ThermalWorld.BatchEntry> pendingEntries;
 
-    /** Backwards-compatible constructor: no phase change (used by unit tests). */
+    /** Which passes the in-flight job ran (captured at submit), to pick the writeback set. */
+    private boolean pendingConduction;
+    private boolean pendingAdvection;
+    /** Largest legal per-cell mass for this batch (max material defaultMass), for the §9 check. */
+    private float pendingFullMassBound;
+
+    /** Backwards-compatible constructor: no phase change, no reconcile (used by unit tests). */
     public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker) {
-        this(engine, world, runner, worker, PhaseChanger.NOOP);
+        this(engine, world, runner, worker, PhaseChanger.NOOP, FluidReconciler.NOOP);
+    }
+
+    /** Backwards-compatible constructor: phase change, default NOOP reconcile. */
+    public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker,
+                     PhaseChanger phaseChanger) {
+        this(engine, world, runner, worker, phaseChanger, FluidReconciler.NOOP);
     }
 
     public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker,
-                     PhaseChanger phaseChanger) {
+                     PhaseChanger phaseChanger, FluidReconciler fluidReconciler) {
         this.engine = engine;
         this.world = world;
         this.runner = runner;
         this.worker = worker;
         this.phaseChanger = phaseChanger;
+        this.fluidReconciler = fluidReconciler;
     }
 
     /** Advance the scheduler by one server tick (call from the server-tick hook). */
@@ -80,17 +117,21 @@ public final class Scheduler {
      * "are game elements ticking this tick?" verdict: it is {@code false} while the world is
      * frozen ({@code /tick freeze}) and {@code true} during normal play, sprint, and the single
      * ticks of {@code /tick step}. When ticks are frozen we do nothing at all — no counting, no
-     * submit, and no draining of an in-flight step's grace window — so the conduction clock
-     * pauses with the game and resumes exactly where it left off. The 20-tick cadence already
-     * makes the step rate scale with {@code /tick rate}, so slowing or speeding ticks slows or
-     * speeds the simulation for free.
+     * submit, and no draining of an in-flight step's grace window — so the simulation clock
+     * pauses with the game and resumes exactly where it left off. Both cadences scale with
+     * {@code /tick rate} for free.
      */
     public void onServerTick(boolean gameAdvancing) {
         if (!gameAdvancing) {
-            return; // frozen: hold the conduction clock in lockstep with the game
+            return; // frozen: hold the simulation clock in lockstep with the game
         }
-        boolean boundary = (++tickCounter >= TICKS_PER_STEP);
-        if (boundary) {
+        // tickCounter free-runs 1..TICKS_PER_STEP on the global 20-tick grid. The advection
+        // cadence fires when it is a multiple of ADVECTION_TICKS (ticks 5,10,15,20); conduction
+        // fires on the 20-tick boundary (tick 20), which is also an advection boundary.
+        tickCounter++;
+        boolean conductionBoundary = (tickCounter >= TICKS_PER_STEP);
+        boolean advectionBoundary = (tickCounter % ADVECTION_TICKS == 0);
+        if (conductionBoundary) {
             tickCounter = 0;
         }
         if (state == State.AWAITING) {
@@ -106,21 +147,65 @@ public final class Scheduler {
             }
             return; // never submit in the same tick we serviced an in-flight step
         }
-        if (boundary) {
-            submit();
+        if (advectionBoundary) {
+            // ONE job per cadence boundary. On the coincident 20-tick boundary it runs conduction
+            // first then advection (documented order); otherwise advection only.
+            submit(conductionBoundary, true);
         }
     }
 
-    private void submit() {
+    /**
+     * Submit one runner job for this cadence boundary. {@code conduction}/{@code advection} flag
+     * which passes the job runs. On the coincident tick the job runs conduction (dt = 1.0) first,
+     * then advection (dt = 0.25) ON the post-conduction temperatures; otherwise advection only.
+     */
+    private void submit(boolean conduction, boolean advection) {
         ThermalWorld.Batch batch = world.snapshot(worker.range());
         if (batch.entries().isEmpty()) {
             return; // stay IDLE; nothing to simulate this step
         }
         List<StepTask> tasks = batch.entries().stream().map(ThermalWorld.BatchEntry::task).toList();
-        pending = runner.submit(() -> engine.step(tasks, batch.lut(), STEP_DT_SECONDS, OrgeEngine.PASS_CONDUCTION));
+        List<Material> lut = batch.lut();
+        // fullMassBound = max material defaultMass over the batch LUT (a constant per step).
+        float fullMassBound = 0f;
+        for (Material m : lut) {
+            if (m.defaultMass() > fullMassBound) fullMassBound = m.defaultMass();
+        }
+        pendingFullMassBound = fullMassBound;
+        pendingConduction = conduction;
+        pendingAdvection = advection;
+        pending = runner.submit(() -> {
+            List<StepResult> current = null;
+            List<StepTask> stepInput = tasks;
+            if (conduction) {
+                current = engine.step(stepInput, lut, STEP_DT_SECONDS, OrgeEngine.PASS_CONDUCTION);
+                if (advection) {
+                    // Advection runs on the post-conduction temperature field (mass carried
+                    // through from the original snapshot — conduction does not move mass).
+                    stepInput = withTemperatures(tasks, current);
+                }
+            }
+            if (advection) {
+                current = engine.step(stepInput, lut, ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
+            }
+            return current;
+        });
         pendingEntries = batch.entries();
         ticksSinceSubmit = 0;
         state = State.AWAITING;
+    }
+
+    /** Build advection input tasks: each section's original geometry/mass/halo, but the
+     *  post-conduction temperatures from {@code conduction}. */
+    private static List<StepTask> withTemperatures(List<StepTask> tasks, List<StepResult> conduction) {
+        int n = Math.min(tasks.size(), conduction.size());
+        StepTask[] out = new StepTask[tasks.size()];
+        for (int i = 0; i < tasks.size(); i++) {
+            StepTask t = tasks.get(i);
+            float[] postT = i < n ? conduction.get(i).temperature() : t.temperature();
+            out[i] = new StepTask(t.key(), t.matIx(), t.mass(), postT, t.halo());
+        }
+        return List.of(out);
     }
 
     private void complete(boolean metDeadline) {
@@ -128,8 +213,8 @@ public final class Scheduler {
         try {
             results = pending.result();
         } catch (RuntimeException e) {
-            // A failed step never corrupts the store: hold previous temps, treat as late.
-            LOGGER.warn("[ORGE] conduction step failed; holding previous temps", e);
+            // A failed step never corrupts the store: hold previous values, treat as late.
+            LOGGER.warn("[ORGE] simulation step failed; holding previous values", e);
             worker.reportLate();
             toIdle();
             return;
@@ -138,18 +223,43 @@ public final class Scheduler {
         // leave the worker's range/streak stale.
         worker.noteStep(engine.lastStepMillis(), metDeadline);
         if (results.size() < pendingEntries.size()) {
-            LOGGER.warn("[ORGE] engine returned {} results for {} sections; trailing sections hold previous temps",
+            LOGGER.warn("[ORGE] engine returned {} results for {} sections; trailing sections hold previous values",
                     results.size(), pendingEntries.size());
         }
+        boolean conduction = pendingConduction;
+        boolean advection = pendingAdvection;
+        float fullMassBound = pendingFullMassBound;
         int n = Math.min(results.size(), pendingEntries.size());
         for (int i = 0; i < n; i++) {
             ThermalWorld.BatchEntry entry = pendingEntries.get(i);
             StepResult r = results.get(i);
             float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature());
-            // Conduction-only (transitional): mass does not move, so carry the snapshot mass
-            // through unchanged. The advection cadence that writes engine mass lands in Task 17.
-            world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
-            phaseChanger.applyPhaseChanges(entry);
+
+            if (advection) {
+                // Advection cycle (and the advection half of a coincident tick): mass moved, so
+                // validate Σmass and write T + mass; a non-conserving result holds previous mass.
+                float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);
+                if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound)) {
+                    LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
+                            entry.key());
+                    // Hold previous: skip write-back (and reconcile) for this entry. On a
+                    // coincident tick conduction's heat is folded into the advection T, so we do
+                    // NOT separately write T here — holding the whole entry is the safe choice.
+                    continue;
+                }
+                world.writeBack(entry, new StepResult(cleanT, cleanM));
+                if (conduction) {
+                    // Coincident tick: conduction's within-cell exchange is already reflected in
+                    // cleanT (advection stepped the post-conduction field), so phase change runs
+                    // on the freshly written section.
+                    phaseChanger.applyPhaseChanges(entry);
+                }
+                fluidReconciler.reconcile(entry);
+            } else {
+                // Conduction-only cycle: mass does not move, carry the snapshot mass through.
+                world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
+                phaseChanger.applyPhaseChanges(entry);
+            }
         }
         toIdle();
     }
@@ -159,7 +269,7 @@ public final class Scheduler {
         pendingEntries = null;
         ticksSinceSubmit = 0;
         state = State.IDLE;
-        // tickCounter is NOT reset here: it free-runs on the global 20-tick grid so the step
-        // cadence stays ~1 Hz regardless of how long the previous step took.
+        // tickCounter is NOT reset here: it free-runs on the global 20-tick grid so the cadences
+        // stay on the same phase regardless of how long the previous step took.
     }
 }

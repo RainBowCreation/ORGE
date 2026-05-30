@@ -88,13 +88,23 @@ class SchedulerTest {
         return new Worker(UUID.randomUUID(), true, 2, 4, 250.0, 3);
     }
 
+    /**
+     * A fake engine that adds {@code delta} to every temperature cell ONLY on a conduction pass;
+     * the advection pass is identity on temperature (physically correct: bulk mass movement on an
+     * identity engine does not change T). Mass is carried through unchanged. This lets the
+     * conduction-only assertions below survive the new advection cadence: advection submits do not
+     * perturb the temperatures the conduction pass produced.
+     */
     private static OrgeEngine deltaEngine(float delta, double millis) {
         return new OrgeEngine() {
             @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
                 List<StepResult> out = new ArrayList<>();
+                boolean conduction = (passes & PASS_CONDUCTION) != 0;
                 for (StepTask t : tasks) {
                     float[] r = t.temperature().clone();
-                    for (int i = 0; i < r.length; i++) r[i] += delta;
+                    if (conduction) {
+                        for (int i = 0; i < r.length; i++) r[i] += delta;
+                    }
                     out.add(new StepResult(r, t.mass().clone()));
                 }
                 return out;
@@ -103,34 +113,49 @@ class SchedulerTest {
         };
     }
 
+    /**
+     * Tick {@code s} {@code count} times, completing each submitted step synchronously (set
+     * {@code done} before the next tick services the in-flight job). Lets the scheduler return to
+     * IDLE between cadence boundaries so a multi-boundary run (e.g. reaching the coincident tick 20)
+     * proceeds. {@code runner.done} is left true at the end.
+     */
+    private static void tickCompleting(Scheduler s, FakeRunner runner, int count) {
+        for (int i = 0; i < count; i++) {
+            runner.done = true;
+            s.onServerTick();
+        }
+    }
+
     @Test
-    void submitsOnlyEveryTwentyTicks() {
+    void submitsOnTheFirstAdvectionBoundaryEveryFiveTicks() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
         world.batch = oneSectionBatch(300f);
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
 
-        for (int i = 0; i < 19; i++) s.onServerTick();
-        assertEquals(0, world.snapshots, "no snapshot before tick 20");
+        for (int i = 0; i < 4; i++) s.onServerTick();
+        assertEquals(0, world.snapshots, "no snapshot before the first advection boundary (tick 5)");
         s.onServerTick();
-        assertEquals(1, world.snapshots, "snapshot taken at the step boundary");
-        assertNotNull(runner.task, "a step was submitted");
+        assertEquals(1, world.snapshots, "snapshot taken at the 5-tick advection boundary");
+        assertNotNull(runner.task, "an advection step was submitted");
     }
 
     @Test
-    void writesBackValidatedResultsWhenDone_andRecordsOnTimeStep() {
+    void conductionStepWritesBackValidatedResultAtTheCoincidentBoundary() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
         world.batch = oneSectionBatch(300f);
         Worker w = worker();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
-        runner.done = true;
-        s.onServerTick();
-        assertEquals(1, world.writes.size());
-        assertEquals(305f, world.writes.get(0)[0], "input 300 + delta 5, validated");
-        assertEquals(1, w.onTimeStreak(), "on-time, under-budget step advanced the streak");
+        // Complete every advection boundary synchronously until we reach (and complete) the
+        // coincident conduction boundary at tick 20. Ticks 5,10,15 are advection-only (identity
+        // T); tick 20 runs conduction (+5) then advection (identity T) -> writes 305.
+        tickCompleting(s, runner, 21);
+
+        float lastT = world.writes.get(world.writes.size() - 1)[0];
+        assertEquals(305f, lastT, "conduction input 300 + delta 5, validated, written at tick 20");
+        assertTrue(w.onTimeStreak() >= 1, "on-time, under-budget steps advanced the streak");
     }
 
     @Test
@@ -140,7 +165,8 @@ class SchedulerTest {
         world.batch = oneSectionBatch(300f);
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        // Drive to the first advection submit (tick 5), then hand it a NaN result.
+        for (int i = 0; i < 5; i++) s.onServerTick();
         float[] nan = new float[net.rainbowcreation.orge.section.SectionData.CELLS];
         java.util.Arrays.fill(nan, Float.NaN);
         runner.canned = List.of(new StepResult(nan, new float[net.rainbowcreation.orge.section.SectionData.CELLS]));
@@ -157,7 +183,8 @@ class SchedulerTest {
         Worker w = worker();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        // First advection submit at tick 5; never mark done -> the grace window burns out.
+        for (int i = 0; i < 5; i++) s.onServerTick();
         for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick();
         assertTrue(runner.cancelled, "step cancelled after the grace window");
         assertEquals(0, world.writes.size(), "no write-back on a missed deadline (held previous)");
@@ -172,7 +199,8 @@ class SchedulerTest {
         Worker w = worker();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        // Submit at tick 5; let TICKS_PER_STEP ticks pass (into the grace window) then finish.
+        for (int i = 0; i < 5; i++) s.onServerTick();
         for (int i = 0; i < Scheduler.TICKS_PER_STEP; i++) s.onServerTick();
         runner.done = true;
         s.onServerTick();
@@ -188,7 +216,7 @@ class SchedulerTest {
         Worker w = worker();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        for (int i = 0; i < 5; i++) s.onServerTick();
         runner.failure = new RuntimeException("engine boom");
         runner.done = true;
         s.onServerTick();
@@ -205,39 +233,41 @@ class SchedulerTest {
 
         for (int i = 0; i < 40; i++) s.onServerTick();
         assertNull(runner.task, "nothing submitted for an empty batch");
-        assertTrue(world.snapshots >= 1, "but it still tried to snapshot at the boundary");
+        assertTrue(world.snapshots >= 1, "but it still tried to snapshot at a cadence boundary");
     }
 
     @Test
-    void phaseChangeRunsForEachWrittenEntryOnASuccessfulStep() {
+    void phaseChangeRunsForEachWrittenEntryOnTheConductionBoundary() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
         world.batch = oneSectionBatch(300f);
         RecordingPhaseChanger phase = new RecordingPhaseChanger();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker(), phase);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
-        runner.done = true;
-        s.onServerTick();
+        // Reach + complete the coincident conduction boundary (tick 20); phase change runs there.
+        tickCompleting(s, runner, 21);
 
-        assertEquals(List.of(new SubchunkKey(0, 0, 0)), phase.applied,
-                "phase change applied once for the single written section");
+        assertTrue(phase.applied.contains(new SubchunkKey(0, 0, 0)),
+                "phase change applied for the written section at the conduction boundary");
     }
 
     @Test
-    void phaseChangeDoesNotRunWhenTheStepFails() {
+    void phaseChangeDoesNotRunWhenTheConductionStepFails() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
         world.batch = oneSectionBatch(300f);
         RecordingPhaseChanger phase = new RecordingPhaseChanger();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker(), phase);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        // Complete advection boundaries until tick 20 is the next serviced completion, then fail it.
+        for (int i = 0; i < 19; i++) { runner.done = true; s.onServerTick(); }
+        // Tick 20 submits conduction+advection; fail its result.
+        s.onServerTick();          // tick 20: submit (state AWAITING)
         runner.failure = new RuntimeException("boom");
         runner.done = true;
-        s.onServerTick();
-
-        assertTrue(phase.applied.isEmpty(), "no phase change on a failed step (previous temps held)");
+        int before = phase.applied.size();
+        s.onServerTick();          // service the coincident step -> fails
+        assertEquals(before, phase.applied.size(), "no phase change on a failed conduction step");
     }
 
     @Test
@@ -252,8 +282,8 @@ class SchedulerTest {
         assertEquals(0, world.snapshots, "no snapshot while game ticks are frozen");
         assertNull(runner.task, "nothing submitted while frozen");
 
-        // Resume: the 20-tick cadence picks up from a clean grid.
-        for (int i = 0; i < 20; i++) s.onServerTick(true);
+        // Resume: the cadence picks up; the first advection boundary is tick 5.
+        for (int i = 0; i < 5; i++) s.onServerTick(true);
         assertEquals(1, world.snapshots, "stepping resumes once ticks advance again");
         assertNotNull(runner.task, "a step is submitted after the freeze lifts");
     }
@@ -266,7 +296,7 @@ class SchedulerTest {
         Worker w = worker();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
 
-        for (int i = 0; i < 20; i++) s.onServerTick(true); // submit a step
+        for (int i = 0; i < 5; i++) s.onServerTick(true); // submit a step at tick 5
         // Freeze far longer than the grace window while the step is still running.
         for (int i = 0; i < Scheduler.TICKS_PER_STEP * 5; i++) s.onServerTick(false);
         assertFalse(runner.cancelled, "a freeze must not burn the in-flight grace window");
@@ -285,7 +315,7 @@ class SchedulerTest {
         world.batch = oneSectionBatch(300f);
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        for (int i = 0; i < 5; i++) s.onServerTick();
         assertEquals(1, world.snapshots, "the no-arg overload advances as before (gameAdvancing=true)");
     }
 
@@ -297,7 +327,7 @@ class SchedulerTest {
         RecordingPhaseChanger phase = new RecordingPhaseChanger();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker(), phase);
 
-        for (int i = 0; i < 20; i++) s.onServerTick();
+        for (int i = 0; i < 5; i++) s.onServerTick();
         for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick();
 
         assertTrue(phase.applied.isEmpty(), "no phase change when the step is cancelled");
