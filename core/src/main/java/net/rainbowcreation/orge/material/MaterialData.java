@@ -98,9 +98,10 @@ public final class MaterialData {
                     String tagStr      = obj.get("tag").getAsString();
                     String materialStr = obj.get("material").getAsString();
                     try {
-                        Identifier tagId      = Identifier.parse(tagStr);
+                        BlockStatePredicate.Parsed parsed = BlockStatePredicate.parseKey(tagStr);
+                        Identifier tagId      = Identifier.parse(parsed.id());
                         Identifier materialId = Identifier.parse(materialStr);
-                        into.addTagBinding(tagId, materialId);
+                        into.addTagBinding(tagId, parsed.requirements(), materialId);
                     } catch (Exception e) {
                         throw new IllegalArgumentException(
                                 "invalid material binding: tag=\"" + tagStr
@@ -116,9 +117,10 @@ public final class MaterialData {
                     String blockStr    = entry.getKey();
                     String materialStr = entry.getValue().getAsString();
                     try {
-                        Identifier blockId    = Identifier.parse(blockStr);
+                        BlockStatePredicate.Parsed parsed = BlockStatePredicate.parseKey(blockStr);
+                        Identifier blockId    = Identifier.parse(parsed.id());
                         Identifier materialId = Identifier.parse(materialStr);
-                        into.addOverride(blockId, materialId);
+                        into.addOverride(blockId, parsed.requirements(), materialId);
                     } catch (Exception e) {
                         throw new IllegalArgumentException(
                                 "invalid material binding: block=\"" + blockStr
