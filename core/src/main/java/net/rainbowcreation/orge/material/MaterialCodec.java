@@ -29,7 +29,8 @@ import java.util.Optional;
  *   <li><b>Required:</b> {@code thermal_conductivity}, {@code heat_capacity}, {@code default_mass}</li>
  *   <li><b>Optional with defaults:</b>
  *     {@code viscosity} → 0, {@code molar_mass} → 0,
- *     {@code boiling_point} → +∞, {@code freezing_point} → -∞</li>
+ *     {@code boiling_point} → +∞, {@code freezing_point} → -∞,
+ *     {@code default_temperature} → NaN (absent), {@code pinned} → false</li>
  *   <li><b>Optional nullable ids:</b>
  *     {@code boiling_target}, {@code freezing_target}, {@code representative_block} → null</li>
  * </ul>
@@ -39,7 +40,7 @@ public final class MaterialCodec {
     private MaterialCodec() {}
 
     // -------------------------------------------------------------------------
-    // Internal record: the 10 body fields (id is supplied separately by loader)
+    // Internal record: the 12 body fields (id is supplied separately by loader)
     // -------------------------------------------------------------------------
 
     record BodyData(
@@ -52,15 +53,17 @@ public final class MaterialCodec {
             float freezingPoint,
             Optional<Identifier> boilingTarget,
             Optional<Identifier> freezingTarget,
-            Optional<Identifier> representativeBlock
+            Optional<Identifier> representativeBlock,
+            float defaultTemperature,
+            boolean pinned
     ) {}
 
     // -------------------------------------------------------------------------
-    // Internal codec for the body (10 fields, no id)
+    // Internal codec for the body (12 fields, no id)
     // -------------------------------------------------------------------------
 
     /**
-     * DFU codec for the 10 JSON body fields. The material id is NOT part of
+     * DFU codec for the 12 JSON body fields. The material id is NOT part of
      * this codec — it must be supplied externally via {@link #fromJson}.
      */
     private static final Codec<BodyData> BODY_CODEC = RecordCodecBuilder.create(instance ->
@@ -84,7 +87,11 @@ public final class MaterialCodec {
                     Identifier.CODEC.optionalFieldOf("freezing_target")
                             .forGetter(BodyData::freezingTarget),
                     Identifier.CODEC.optionalFieldOf("representative_block")
-                            .forGetter(BodyData::representativeBlock)
+                            .forGetter(BodyData::representativeBlock),
+                    Codec.FLOAT.optionalFieldOf("default_temperature", Float.NaN)
+                            .forGetter(BodyData::defaultTemperature),
+                    Codec.BOOL.optionalFieldOf("pinned", false)
+                            .forGetter(BodyData::pinned)
             ).apply(instance, BodyData::new)
     );
 
@@ -99,7 +106,7 @@ public final class MaterialCodec {
      * (e.g. {@code data/orge/orge/materials/stone.json} → {@code orge:stone}).
      *
      * @param id   the namespaced id to attach to the decoded material
-     * @param body a {@code JsonElement} containing the 10 body fields
+     * @param body a {@code JsonElement} containing the 12 body fields
      * @return the decoded {@link Material}
      * @throws IllegalArgumentException if the JSON is missing a required field or
      *                                   contains a malformed value
@@ -107,6 +114,10 @@ public final class MaterialCodec {
     public static Material fromJson(Identifier id, JsonElement body) {
         DataResult<BodyData> result = BODY_CODEC.parse(JsonOps.INSTANCE, body);
         BodyData bd = result.getOrThrow(IllegalArgumentException::new);
+        if (bd.pinned() && Float.isNaN(bd.defaultTemperature())) {
+            throw new IllegalArgumentException(
+                    "material " + id + ": pinned=true requires default_temperature");
+        }
         return new Material(
                 id,
                 bd.thermalConductivity(),
@@ -118,7 +129,9 @@ public final class MaterialCodec {
                 bd.freezingPoint(),
                 bd.boilingTarget().orElse(null),
                 bd.freezingTarget().orElse(null),
-                bd.representativeBlock().orElse(null)
+                bd.representativeBlock().orElse(null),
+                bd.defaultTemperature(),
+                bd.pinned()
         );
     }
 }
