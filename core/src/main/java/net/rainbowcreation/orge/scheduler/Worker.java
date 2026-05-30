@@ -1,30 +1,39 @@
 package net.rainbowcreation.orge.scheduler;
 
+import java.util.UUID;
+
 /**
- * A compute worker in the server-orchestrated pool (DESIGN.md §3/§8) — a connected
- * client, or the single server fallback engine instance.
+ * A compute worker in the server-orchestrated pool (DESIGN §3/§8). In the single-node v1
+ * there is exactly one, the {@code serverFallback} worker (the server itself).
  *
- * <p>Carries the health-throttle state: a worker that delivers late/incomplete drops
- * its {@code range} by 1 (to a minimum); after K consecutive on-time ticks under a
- * compute-time budget it climbs back by 1 toward the configured default/max.</p>
+ * <p>Health throttle (DESIGN §8): a step that misses its deadline or runs over the compute
+ * budget drops {@code range} by 1 (to {@link #MIN_RANGE}); after {@code ticksToClimb}
+ * consecutive on-time, under-budget steps the range climbs by 1 (to {@code maxRange}).</p>
  */
 public final class Worker {
 
     public static final int MIN_RANGE = 1;
 
-    private final java.util.UUID id;
+    private final UUID id;
     private final boolean serverFallback;
+    private final int maxRange;
+    private final double budgetMillis;
+    private final int ticksToClimb;
 
     private int range;
     private int onTimeStreak;
 
-    public Worker(java.util.UUID id, boolean serverFallback, int initialRange) {
+    public Worker(UUID id, boolean serverFallback, int initialRange,
+                  int maxRange, double budgetMillis, int ticksToClimb) {
         this.id = id;
         this.serverFallback = serverFallback;
-        this.range = Math.max(MIN_RANGE, initialRange);
+        this.maxRange = Math.max(MIN_RANGE, maxRange);
+        this.budgetMillis = budgetMillis;
+        this.ticksToClimb = Math.max(1, ticksToClimb);
+        this.range = clampRange(initialRange);
     }
 
-    public java.util.UUID id() {
+    public UUID id() {
         return id;
     }
 
@@ -36,10 +45,35 @@ public final class Worker {
         return range;
     }
 
-    // TODO(phase: scheduler): wire onTimeStreak/range adjustment to reported HEALTH
-    //  (drop on late/incomplete; climb after K on-time ticks under budget).
+    public int onTimeStreak() {
+        return onTimeStreak;
+    }
+
+    /** A step missed its deadline (or was cancelled): drop range, reset streak. */
     public void reportLate() {
         onTimeStreak = 0;
-        range = Math.max(MIN_RANGE, range - 1);
+        range = clampRange(range - 1);
+    }
+
+    /**
+     * Records a completed step. {@code metDeadline} = the result arrived within the 1 s
+     * deadline; {@code millis} = {@code engine.lastStepMillis()}. Drops range on a late or
+     * over-budget step; otherwise advances the on-time streak and climbs after
+     * {@code ticksToClimb} consecutive healthy steps.
+     */
+    public void noteStep(double millis, boolean metDeadline) {
+        if (!metDeadline || millis > budgetMillis) {
+            reportLate();
+            return;
+        }
+        onTimeStreak++;
+        if (onTimeStreak >= ticksToClimb) {
+            onTimeStreak = 0;
+            range = clampRange(range + 1);
+        }
+    }
+
+    private int clampRange(int r) {
+        return Math.max(MIN_RANGE, Math.min(maxRange, r));
     }
 }
