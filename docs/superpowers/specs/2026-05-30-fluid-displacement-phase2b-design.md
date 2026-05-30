@@ -1,9 +1,10 @@
 # §10 Phase-2b — Density-driven displacement (wetting · buoyancy · liquid sorting) — Design Spec
 
 **Status:** approved (review 2026-05-30) — ready for `writing-plans`. Supersedes the separate roadmap
-items "gas buoyancy" and "liquid sorting" by unifying them under one density model. All four open
-decisions ruled by the user (air-as-empty-but-gas-path-general · full-cell swap · `matOut` ABI bump ok ·
-per-species §9 as one O(N) pass).
+items "gas buoyancy" and "liquid sorting" by unifying them under one density model. User-ruled decisions:
+air-as-empty-but-gas-path-general · full-cell swap · `matOut` ABI bump ok · per-species §9 as one O(N)
+pass · **three-mass model** (`min_flow_mass ≤ default_mass ≤ max_mass`, phase = where rest sits) ·
+**section-level per-pass dormancy** (decaying-cell, ported) with event wake · boil-volume over-cap deposit.
 
 ## Why this, and why now
 
@@ -174,6 +175,60 @@ integration: snapshot/writeback, §9 validation, block-level reconciliation/supp
     land the rebuilt `.so` **and** the updated `NativeEngine.orgeStep` declaration **together** (ABI
     must match). `linux-x64` only; cross-platform out of scope.
 
+11. **Section-level, per-pass DORMANCY (the decaying-cell method, ported) — the #1 performance
+    requirement.** *(User model 2026-05-30, proven in the prior Java mod.)* Suppressing vanilla fluid
+    ticking removed vanilla's single biggest fluid optimization — it stops ticking settled water — so
+    **ORGE must supply its own, or a calm ocean re-simulates every cell at 4 Hz forever.** The old Java
+    model used a per-**cell** decay countdown (settled → count down → at 0, drop from calc until a nearby
+    block updates or temperature changes). In the native engine the **section** (4096 cells) is the unit
+    of cost (snapshot + halo + dispatch + reconcile + packets are all per-section; the kernel's 4096-cell
+    loop is cheap by comparison), so the decay **lifts to the section level**:
+    - **Per-pass dormancy (matches the decoupled cadences).** A section is **flow-dormant** when no cell
+      moved mass (`max|Δmass| < ε`) for K advection steps → skip its advection; **thermal-dormant** when
+      `max|ΔT| < ε` for K conduction steps → skip its conduction. *Both* → fully asleep, dropped from the
+      schedule entirely. *Either* → only the live pass runs.
+    - **Near-free bookkeeping.** The reduction (`max|Δmass|`, `max|ΔT|`) piggybacks the existing post-step
+      writeback loop (`cleanMass`/§9 already iterate the cells); decrement/reset the per-section, per-pass
+      countdown there. The **countdown (not instant sleep) is the hysteresis** that stops cells near
+      equilibrium from flickering active↔dormant. K is tunable in the audit.
+    - **Event-driven WAKE (the one genuinely new integration piece).** Once dormant, a section is **no
+      longer snapshotted**, so the §round-2 snapshot-diff (`CellMaterialTracker`) cannot notice changes —
+      dormancy *requires* an explicit wake. Wake triggers (must be exhaustive — a missed trigger = stale
+      frozen fluid, the classic dormancy failure mode):
+
+      | Trigger | Mechanism |
+      |---|---|
+      | block placed/broken/changed (incl. bucket) | block-update event → mark section active |
+      | temperature source added/removed (B+C pins) | source-roster change → wake the section |
+      | neighbour pushes flux across the shared seam | an active section with nonzero boundary-face flux wakes the adjacent section (lets flow propagate INTO sleeping regions — without it flow stops dead at a dormant border) |
+      | section newly enters player range | starts active (one step to settle) |
+
+    - **Scheduler shape change.** `world.snapshot(range)` becomes *"snapshot the **active set** within
+      range"*, not the whole sphere — the sim becomes **event-driven**: edits/new-sections inject into the
+      active set, settled sections fall out. This is the change that makes large worlds cheap.
+    - **Cell-level decay is a noted SECONDARY optimization** — skipping settled cells inside an *active*
+      section's kernel inner loop. Lower value here (the inner loop is already cheap); add only if
+      profiling shows mostly-still active sections cost. Section-level captures ~95%.
+
+12. **Phase-change mass↔volume accounting (the boil-volume landmine).** Boiling a full water cell
+    conserves mass (1000 kg water → 1000 kg steam) but **not volume**: 1000 kg of steam at steam's
+    resting density (0.6) wants ~1667 cells, and even at steam's `max_mass` cap it cannot sit in one cell.
+    So §7 phase-change cannot simply swap the block in place at full mass. **Decision:** phase change is a
+    mass-preserving **species conversion** that deposits the converted mass into the cell **over-cap if
+    necessary** (a transiently compressed gas parcel), and the **advection pass relieves it on the next
+    steps** via the ordinary expansion/spread rule (gas relaxing toward `default_mass`). The §9 gate must
+    therefore **exempt §7-transitioned cells from the per-cell `max_mass` bound for that step** (it already
+    exempts them from the conservation sum, Decision 6) — otherwise `cleanMass` clamps the fresh steam and
+    destroys mass. This couples §7 ↔ the mass model and is shared with the latent-heat track; Phase-2b
+    implements the *exemption + over-cap deposit*, full vaporization energetics stay in latent heat.
+
+13. **Performance notes (orchestration, not the per-cell rule).** The displacement rule is a handful of
+    comparisons per cell — cheap. The real costs are per-section orchestration, addressed by:
+    **(a)** dormancy/active-set (Decision 11); **(b)** **reconcile throttle** — the reconciler only writes
+    a block when the mass crosses into a different render **level bucket** (mass can move every step
+    without a packet), and block writes stay `UPDATE_CLIENTS`-only; **(c)** **scratch-buffer reuse** on the
+    worker thread (pool the `temp[]`/`mass[]`/`matOut[]` arrays) so a 4 Hz cadence doesn't churn the GC.
+
 ## Components
 
 ### Engine (C++, `ORGE-ENGINE/` repo)
@@ -182,7 +237,7 @@ integration: snapshot/writeback, §9 validation, block-level reconciliation/supp
 | `sim_engine.hpp` | add the cross-species displacement rule over `mass_kg` + species; tune buoyancy/sorting/wetting in `sim_render.hpp` (SDL). |
 | `orge_kernel.hpp::step_section_with_halo` | relax the destination guard to `air OR strictly-lighter fluid`; add cross-species swap with per-species conservation; output `matOut[]`. Bit-identical to `sim_engine.hpp`. |
 | `orge_jni.cpp` | pin/release the new `matOut` output array (reverse order). |
-| `ORGE-ENGINE/tests/` | wetting (water spreads into air → flat pool) · buoyancy (steam column rises through air, settles at top) · sorting (lighter-below inversion resolves, no oscillation) · per-species conservation · §7-pair exclusion (water/lava never swap) · settling stability (no checkerboard over N steps). |
+| `ORGE-ENGINE/tests/` | wetting (water spreads into air → flat pool, **stops at `min_flow_mass`**, coverage ≈ mass/floor) · buoyancy (steam column rises through air, settles at top) · sorting (lighter-below inversion resolves, no oscillation) · per-species conservation · §7-pair exclusion (water/lava never swap) · settling stability (no checkerboard over N steps) · **settle-detection** (a settled field reports `max|Δ| < ε` so the section can sleep) · boil-volume (an over-cap steam parcel expands toward `default_mass` over K steps without losing mass). |
 
 ### Java (main repo)
 | Component | Layer | Change |
@@ -190,11 +245,15 @@ integration: snapshot/writeback, §9 validation, block-level reconciliation/supp
 | `NativeEngine.orgeStep` | core | native declaration → new ABI (`matOut` out). |
 | `StepResult` | core | add `material` (`char[]`) field beside `temperature` + `mass`. |
 | scheduler writeBack / reconcile plumbing | scheduler | thread `matOut` from `StepResult` to the reconciler (transient; **not** written to `SectionData`). |
-| §9 mass guard | core | per-species conservation + bound; §7-transition exemption. |
-| `MinecraftFluidReconciler` | MC adapter | `air → fluid` placement (incl. `orge:steam`); reads `matOut`. |
+| §9 mass guard | core | per-species conservation + bound; §7-transition exemption (incl. over-cap, Decision 12). |
+| `MinecraftFluidReconciler` | MC adapter | `air → fluid` placement (incl. `orge:steam`); reads `matOut`; level-bucket reconcile throttle (Decision 13). |
 | `VanillaFluidSuppressor` | both loaders | unchanged mechanism; confirm it still whitelists §7 contact under wetting. |
+| **dormancy/active-set** (Decision 11) | scheduler (core, pure) | per-section per-pass settle countdown + active-set; `world.snapshot` steps the active set, not the whole range sphere. Pure + unit-tested (mirrors §9/MassSnapshot). |
+| **wake hooks** | both loaders | block-update + bucket events → mark section active; seam-flux + new-in-range wake. `ExpectPlatform`, behind a pure `WakeSink` seam. |
+| **scratch-buffer pool** | scheduler | reuse `temp[]`/`mass[]`/`matOut[]` on the worker thread (Decision 13c). |
 
-No §5 change — `SectionData` stays temp+mass only; species identity stays in world blocks.
+No §5 change — `SectionData` stays temp+mass only; species identity stays in world blocks. The dormancy
+countdown is scheduler-side state (active-set), not persisted in §5.
 
 ## Known risks / open questions for review
 
@@ -207,15 +266,39 @@ No §5 change — `SectionData` stays temp+mass only; species identity stays in 
    species from mass magnitude in Java) is fragile and rejected.
 4. **Per-species §9 check (Decision 6): RESOLVED** — yes, implemented as the same single O(N) pass with
    a small per-species accumulator (no perf regression), on the background thread.
-4. **Oscillation:** the main physics risk; mitigated by the SDL-visualizer tuning loop before any Java
+5. **Dormancy (Decision 11): RESOLVED** — section-level per-pass decay + event-driven wake (the user's
+   proven decaying-cell method, grain lifted cell → section). The risk is a **missed wake trigger** →
+   stale frozen fluid; mitigated by an exhaustive, unit-tested wake-trigger set.
+6. **Boil-volume (Decision 12): RESOLVED** — phase change deposits converted species mass over-cap and
+   the advection pass expands it; §9 exempts §7-transitioned cells from the per-cell bound that step.
+7. **Oscillation:** the main *physics* risk; mitigated by the SDL-visualizer tuning loop before any Java
    wiring, exactly as Phase-2a de-risked conduction/advection.
-5. **Region edges (carried from Phase-2a Decision 12):** no-flow walls; fluid still piles at the loaded
-   boundary. Unchanged limitation.
+8. **Cadence interaction (advection 4 Hz vs §7 phase change 1 Hz):** water+lava can sit adjacent for up
+   to 20 ticks before §7 reacts them to obsidian. Acceptable (vanilla obsidian isn't instant either), but
+   the C++ tests must confirm the swap/spread does nothing pathological in that window.
+9. **Region edges (carried from Phase-2a Decision 12):** no-flow walls; fluid still piles at the loaded
+   boundary. The round-3 **cross-seam §9 transient** (per-section closed-wall gate vs. real kernel seam
+   flux) becomes **more frequent under wetting**; the deferred fix (batch-level Σ, or engine-reported seam
+   flux) moves up the priority list — flagged, not yet scheduled into this slice.
+
+## Testing (Java side; C++ in the Components table)
+
+- **Dormancy/active-set (pure unit):** a settled section's countdown reaches 0 and it leaves the active
+  set; a wake trigger (block edit / source change / seam flux / new-in-range) re-adds it; per-pass
+  independence (flow-dormant but thermal-active still conducts). Missed-wake is the failure mode → cover
+  every trigger.
+- **§9 per-species + boil-volume exemption (pure unit):** per-species conservation; a §7-transitioned
+  over-cap cell is exempt from the bound that step (no mass destroyed).
+- **`FluidReconcileLogic` (pure):** `air → fluid` placement levels; level-bucket throttle (mass moves
+  within a bucket → no write).
+- **Integration (headless `AuditScenarioTest`, new `liborge`):** water above a gap falls + spreads into
+  air + stops finite; steam rises; water next to lava still steams/obsidians via §7; a settled pool
+  sleeps then wakes on an edit.
 
 ## Out of scope (deferred)
 
 - **Latent heat** — energy plateaus on boil/freeze (separate native track; couples to §7). Next after
-  this.
+  this. Phase-2b lands only the boil-volume *exemption + over-cap deposit* (Decision 12), not the energetics.
 - **Full compressible-gas advection** — the follow-on track, **already de-risked by Decision 0's
   `default_mass`/`max_mass` split**. Gas is NOT a separate simulation layer: it is the *same* advection
   pass + the *same* density-swap (buoyancy is free — a light gas below a heavier cell is just a density
@@ -229,7 +312,10 @@ No §5 change — `SectionData` stays temp+mass only; species identity stays in 
   behaves as a light fluid that rises via the swap; the compressible-gas track lights up (a)–(c) — **no
   new layer, no rearchitecture.**
 - **Temperature-dependent densities** (hot water/lava less dense → thermal convection) — future curve work.
-- **Pressure / hydraulic head** beyond simple density ordering.
+- **Pressure / hydraulic head / connected-vessel equalization** beyond simple density ordering —
+  **explicit scope decision:** water falls + spreads but will **not climb** to "find its level" up the far
+  side of a U-tube (no hydrostatic pressure term). This matches vanilla (vanilla water doesn't climb) and
+  is a deliberate omission, not a bug.
 - **New non-reacting liquid pairs** (oil, etc.) — the model supports them; no new materials this slice.
 - **Cross-platform native builds**; **smooth client-side fluid interpolation** (vanilla's 8 discrete
   levels at the advection cadence — steppy, not animated).
