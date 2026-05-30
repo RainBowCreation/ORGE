@@ -5,6 +5,7 @@ import net.rainbowcreation.orge.scheduler.SphereUnion;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -82,7 +83,7 @@ public final class OrgeCommandLogic {
         float t = view.tempAt(addr.cell());
         float m = view.massAt(addr.cell());
         String formStr = view.form() + (view.ambient() ? " (ambient)" : "");
-        return Response.ok(String.format(
+        return Response.ok(String.format(Locale.ROOT,
                 "cell (%d,%d,%d) [%s]: %.2f K (%.2f C), %.1f kg, form=%s",
                 r.x1(), r.y1(), r.z1(), r.dimension(), t, t - 273.15f, m, formStr));
     }
@@ -118,13 +119,13 @@ public final class OrgeCommandLogic {
         }
         String formStr = view.form() + (view.ambient() ? " (ambient)" : "");
         return Response.ok(List.of(
-                String.format("section (%d,%d,%d) [%s]: form=%s",
+                String.format(Locale.ROOT, "section (%d,%d,%d) [%s]: form=%s",
                         key.cx(), key.sectionY(), key.cz(), r.dimension(), formStr),
-                String.format("  T    min/avg/max = %.2f / %.2f / %.2f K",
+                String.format(Locale.ROOT, "  T    min/avg/max = %.2f / %.2f / %.2f K",
                         tMin, tSum / cells, tMax),
-                String.format("  mass min/avg/max = %.1f / %.1f / %.1f kg",
+                String.format(Locale.ROOT, "  mass min/avg/max = %.1f / %.1f / %.1f kg",
                         mMin, mSum / cells, mMax),
-                String.format("  non-uniform cells (T!=cell0): %d / %d", nonUniform, cells)));
+                String.format(Locale.ROOT, "  non-uniform cells (T!=cell0): %d / %d", nonUniform, cells)));
     }
     private Response set(Request r) {
         if (!r.operator()) {
@@ -141,11 +142,11 @@ public final class OrgeCommandLogic {
         String massPart;
         if (r.massKg() != null) {
             writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
-            massPart = String.format(", %.1f kg", r.massKg());
+            massPart = String.format(Locale.ROOT, ", %.1f kg", r.massKg());
         } else {
             massPart = " (mass unchanged)";
         }
-        return Response.ok(String.format("set (%d,%d,%d) -> %.2f K%s",
+        return Response.ok(String.format(Locale.ROOT, "set (%d,%d,%d) -> %.2f K%s",
                 r.x1(), r.y1(), r.z1(), r.temperatureK(), massPart));
     }
 
@@ -158,7 +159,7 @@ public final class OrgeCommandLogic {
         int zlo = Math.min(r.z1(), r.z2()), zhi = Math.max(r.z1(), r.z2());
         long cells = (long) (xhi - xlo + 1) * (yhi - ylo + 1) * (zhi - zlo + 1);
         if (cells > FILL_CELL_CAP) {
-            return Response.fail(String.format("fill too large: %d cells (max %d)", cells, FILL_CELL_CAP));
+            return Response.fail(String.format(Locale.ROOT, "fill too large: %d cells (max %d)", cells, FILL_CELL_CAP));
         }
         if (ylo < r.minBuildY() || yhi >= r.maxBuildY()) {
             return Response.fail(yError(r));
@@ -183,10 +184,10 @@ public final class OrgeCommandLogic {
         if (written == 0) {
             return Response.fail("fill wrote 0 cells (none loaded); move closer");
         }
-        String msg = String.format("filled %d cells in [(%d,%d,%d)..(%d,%d,%d)] -> %.2f K",
+        String msg = String.format(Locale.ROOT, "filled %d cells in [(%d,%d,%d)..(%d,%d,%d)] -> %.2f K",
                 written, xlo, ylo, zlo, xhi, yhi, zhi, r.temperatureK());
         if (skipped > 0) {
-            msg += String.format(" (%d skipped: not loaded)", skipped);
+            msg += String.format(Locale.ROOT, " (%d skipped: not loaded)", skipped);
         }
         return Response.ok(msg);
     }
@@ -218,7 +219,7 @@ public final class OrgeCommandLogic {
     }
 
     private String yError(Request r) {
-        return String.format("Y out of build height [%d,%d)", r.minBuildY(), r.maxBuildY());
+        return String.format(Locale.ROOT, "Y out of build height [%d,%d)", r.minBuildY(), r.maxBuildY());
     }
 
     private String rangeError() {
