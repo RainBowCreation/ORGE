@@ -12,10 +12,14 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionCheck;
 import net.minecraft.server.permissions.PermissionLevel;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
@@ -44,10 +48,15 @@ public final class OrgeCommands {
         dispatcher.register(Commands.literal("orge")
                 .then(Commands.literal("get")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> read(ctx, OrgeCommandLogic.Op.GET))))
+                                .executes(ctx -> read(ctx, OrgeCommandLogic.Op.GET,
+                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
+                .then(Commands.literal("get-live")
+                        .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
+                        .executes(this::getLive))
                 .then(Commands.literal("section")
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                .executes(ctx -> read(ctx, OrgeCommandLogic.Op.SECTION))))
+                                .executes(ctx -> read(ctx, OrgeCommandLogic.Op.SECTION,
+                                        BlockPosArgument.getBlockPos(ctx, "pos")))))
                 .then(Commands.literal("set")
                         .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
                         .then(Commands.argument("pos", BlockPosArgument.blockPos())
@@ -65,8 +74,7 @@ public final class OrgeCommands {
                                                         .executes(ctx -> fill(ctx, FloatArgumentType.getFloat(ctx, "mass")))))))));
     }
 
-    private int read(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Op op) {
-        BlockPos p = BlockPosArgument.getBlockPos(ctx, "pos");
+    private int read(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Op op, BlockPos p) {
         OrgeCommandLogic.Response resp = logic.run(request(ctx, op, p, p, null, null));
         // GET reports one cell: append the LIVE block + mapped ORGE material so the operator can
         // see what the thermal store's mass/temp actually belongs to (the store keeps no material).
@@ -74,6 +82,33 @@ public final class OrgeCommands {
             resp = appendToFirstLine(resp, liveCellDescriptor(ctx.getSource().getLevel(), p));
         }
         return print(ctx, resp);
+    }
+
+    /** Max distance the {@code get-live} crosshair ray travels before giving up. */
+    private static final double LIVE_REACH = 64.0;
+
+    /**
+     * {@code /orge get-live} (op): raycast from the caller's eyes along their look vector (fluids
+     * included, so water/lava cells are hittable) and run the same per-cell GET on the targeted
+     * block — no coordinates to type. Requires a player source (it needs a crosshair).
+     */
+    private int getLive(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        if (!(src.getEntity() instanceof ServerPlayer player)) {
+            src.sendFailure(Component.literal("get-live needs a player (it reads your crosshair)"));
+            return 0;
+        }
+        ServerLevel level = src.getLevel();
+        Vec3 eye = player.getEyePosition();
+        Vec3 end = eye.add(player.getViewVector(1.0f).scale(LIVE_REACH));
+        BlockHitResult hit = level.clip(new ClipContext(
+                eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, player));
+        if (hit.getType() == HitResult.Type.MISS) {
+            src.sendFailure(Component.literal(String.format(Locale.ROOT,
+                    "not looking at a block within %d blocks", (int) LIVE_REACH)));
+            return 0;
+        }
+        return read(ctx, OrgeCommandLogic.Op.GET, hit.getBlockPos());
     }
 
     /** {@code ", block=<id>, material=<id>"} for the live block at {@code pos} (server-thread read). */
