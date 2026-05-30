@@ -10,6 +10,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.engine.NeighborHalo;
+import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.section.SectionData;
@@ -97,7 +98,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     // Server thread only.
     @Override
-    public void writeBack(BatchEntry entry, float[] newTemperatures) {
+    public void writeBack(BatchEntry entry, StepResult result) {
         SectionStore store = stores.store(entry.dimension());
         if (store == null || !store.isLoaded(entry.key().cx(), entry.key().cz())) {
             return;
@@ -105,14 +106,13 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         SectionData data = store.get(entry.key());
         // TODO(perf, §8 follow-on): temperatureArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllTemperatures(float[]) that skips the fill would avoid the churn for first-touch sections.
         float[] dst = data.temperatureArray();
-        System.arraycopy(newTemperatures, 0, dst, 0, SectionData.CELLS);
-        // Persist per-cell mass too: the engine returns only new temperatures, but the section's
-        // mass is the block-derived geometry mass (Material.defaultMass) assembled this snapshot.
-        // Without this, a simulated section keeps the synthesized uniform mass (0) and /orge get
-        // reports 0 kg for every cell except those explicitly set. Re-copied each step so a
-        // phase-change block swap (new geometry) keeps the stored mass in sync.
+        System.arraycopy(result.temperature(), 0, dst, 0, SectionData.CELLS);
+        // Persist the engine's per-cell mass (§10): advection now MOVES mass between cells, so the
+        // authoritative post-step mass is result.mass() — no longer the snapshot geometry mass.
+        // Conduction cycles carry mass through unchanged (the scheduler passes the snapshot mass
+        // back in result.mass()), so this stays the block-derived geometry mass when no flow ran.
         float[] massDst = data.massArray();
-        System.arraycopy(entry.task().mass(), 0, massDst, 0, SectionData.CELLS);
+        System.arraycopy(result.mass(), 0, massDst, 0, SectionData.CELLS);
         store.put(entry.key(), data);
     }
 

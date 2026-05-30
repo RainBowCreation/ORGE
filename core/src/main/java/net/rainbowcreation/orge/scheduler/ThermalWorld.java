@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SubchunkKey;
@@ -29,9 +30,9 @@ public interface ThermalWorld {
     Batch snapshot(int range);
 
     /**
-     * Persist one validated result on the server thread: write {@code newTemperatures} into the
-     * entry's section and mark its column dirty (§5). A section that has unloaded since the
+     * Persist one validated result on the server thread: write the result's temperatures AND mass
+     * into the entry's section and mark its column dirty (§5). A section that has unloaded since the
      * snapshot is skipped.
      */
-    void writeBack(BatchEntry entry, float[] newTemperatures);
+    void writeBack(BatchEntry entry, StepResult result);
 }
