@@ -1,0 +1,2 @@
+{ "thermal_conductivity": 1.0, "heat_capacity": 1000, "default_mass": 100,
+  "default_temperature": 600, "pinned": true }

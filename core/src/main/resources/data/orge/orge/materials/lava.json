@@ -5,5 +5,7 @@
   "molar_mass": 0.060,
   "freezing_point": 1000,
   "freezing_target": "minecraft:stone",
-  "representative_block": "minecraft:lava"
+  "representative_block": "minecraft:lava",
+  "default_temperature": 1400,
+  "pinned": true
 }
