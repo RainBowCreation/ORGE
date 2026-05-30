@@ -148,4 +148,55 @@ class OrgeCommandLogicTest {
         OrgeCommandLogic.Response r = logic.run(get(1600, 0, 1600, true, new SubchunkKey(0, 0, 0)));
         assertTrue(r.ok());
     }
+
+    static OrgeCommandLogic.Request section(int x, int y, int z, boolean op, SubchunkKey src) {
+        return new OrgeCommandLogic.Request(OrgeCommandLogic.Op.SECTION, DIM,
+                x, y, z, x, y, z, null, null, op, src, MIN_Y, MAX_Y);
+    }
+
+    @Test
+    void sectionSummarizesUniformAmbient() {
+        Map<SubchunkKey, SectionView> data = new HashMap<>();
+        data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
+        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+
+        OrgeCommandLogic.Response r = logic.run(section(0, 0, 0, true, null));
+
+        assertTrue(r.ok());
+        String joined = String.join("\n", r.lines());
+        assertTrue(joined.contains("(ambient)"), joined);
+        assertTrue(joined.contains("285.00 / 285.00 / 285.00 K"), joined);
+        assertTrue(joined.contains("0 / 4096"), "uniform -> 0 non-uniform cells: " + joined);
+    }
+
+    @Test
+    void sectionReportsGradientMinAvgMaxAndNonUniformCount() {
+        float[] t = new float[SectionData.CELLS];
+        float[] m = new float[SectionData.CELLS];
+        java.util.Arrays.fill(t, 300f);
+        t[0] = 300f;       // cell0 baseline
+        t[1] = 400f;       // one hotter cell
+        t[2] = 200f;       // one colder cell
+        Map<SubchunkKey, SectionView> data = new HashMap<>();
+        data.put(new SubchunkKey(0, 0, 0), arrayView(t, m, false, SectionData.Form.FULL));
+        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+
+        OrgeCommandLogic.Response r = logic.run(section(0, 0, 0, true, null));
+
+        String joined = String.join("\n", r.lines());
+        assertTrue(joined.contains("200.00 / "), "min reflects coldest: " + joined);
+        assertTrue(joined.contains(" / 400.00 K"), "max reflects hottest: " + joined);
+        assertTrue(joined.contains("2 / 4096"), "two cells differ from cell0: " + joined);
+        assertFalse(joined.contains("(ambient)"), "stored section not annotated ambient");
+    }
+
+    @Test
+    void sectionProximityGatedForNonOp() {
+        Map<SubchunkKey, SectionView> data = new HashMap<>();
+        data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
+        OrgeCommandLogic logic = logic(List.of(source(data)), null, 2);
+        OrgeCommandLogic.Response r = logic.run(section(0, 0, 0, false, new SubchunkKey(9, 0, 0)));
+        assertFalse(r.ok());
+        assertTrue(r.lines().get(0).contains("out of range"));
+    }
 }

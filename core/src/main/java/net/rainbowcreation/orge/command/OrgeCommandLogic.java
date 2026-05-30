@@ -89,7 +89,43 @@ public final class OrgeCommandLogic {
 
     // ----- ops implemented in later tasks -----
 
-    private Response section(Request r) { throw new UnsupportedOperationException("Task 6"); }
+    private Response section(Request r) {
+        if (!inBuildRange(r.y1(), r)) {
+            return Response.fail(yError(r));
+        }
+        SubchunkKey key = CellAddress.of(r.x1(), r.y1(), r.z1()).key();
+        if (!readAllowed(r, key)) {
+            return Response.fail(rangeError());
+        }
+        Optional<SectionView> v = resolve(r.dimension(), key);
+        if (v.isEmpty()) {
+            return Response.fail(noStore(r.dimension()));
+        }
+        SectionView view = v.get();
+        float tMin = Float.POSITIVE_INFINITY, tMax = Float.NEGATIVE_INFINITY, tSum = 0f;
+        float mMin = Float.POSITIVE_INFINITY, mMax = Float.NEGATIVE_INFINITY, mSum = 0f;
+        float t0 = view.tempAt(0);
+        int nonUniform = 0;
+        int cells = net.rainbowcreation.orge.section.SectionData.CELLS;
+        for (int i = 0; i < cells; i++) {
+            float t = view.tempAt(i);
+            float m = view.massAt(i);
+            tMin = Math.min(tMin, t); tMax = Math.max(tMax, t); tSum += t;
+            mMin = Math.min(mMin, m); mMax = Math.max(mMax, m); mSum += m;
+            if (t != t0) {
+                nonUniform++;
+            }
+        }
+        String formStr = view.form() + (view.ambient() ? " (ambient)" : "");
+        return Response.ok(List.of(
+                String.format("section (%d,%d,%d) [%s]: form=%s",
+                        key.cx(), key.sectionY(), key.cz(), r.dimension(), formStr),
+                String.format("  T    min/avg/max = %.2f / %.2f / %.2f K",
+                        tMin, tSum / cells, tMax),
+                String.format("  mass min/avg/max = %.1f / %.1f / %.1f kg",
+                        mMin, mSum / cells, mMax),
+                String.format("  non-uniform cells (T!=cell0): %d / %d", nonUniform, cells)));
+    }
     private Response set(Request r) { throw new UnsupportedOperationException("Task 7"); }
     private Response fill(Request r) { throw new UnsupportedOperationException("Task 8"); }
 
