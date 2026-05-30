@@ -14,6 +14,9 @@ import java.util.Optional;
  * <p>{@code boilingTarget}/{@code freezingTarget} are the <b>block id to place</b> (the
  * resulting block's own thermal behaviour and reverse transition come from its binding/
  * material). No Minecraft world access — fully unit-testable.</p>
+ *
+ * <p>Assumes a finite temperature — §9 ({@code StepValidator}) replaces any NaN/±Inf before
+ * the scheduler writes back, so this runs only on clean values.</p>
  */
 public final class PhaseRule {
 

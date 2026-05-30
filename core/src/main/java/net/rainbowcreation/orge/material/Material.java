@@ -14,8 +14,8 @@ import net.minecraft.resources.Identifier;
  * @param molarMass            kg/mol
  * @param boilingPoint         K
  * @param freezingPoint        K
- * @param boilingTarget        material id this becomes above {@code boilingPoint}, or null
- * @param freezingTarget       material id this becomes below {@code freezingPoint}, or null
+ * @param boilingTarget        block id placed when this boils (temperature above {@code boilingPoint}), or null
+ * @param freezingTarget       block id placed when this freezes (temperature below {@code freezingPoint}), or null
  * @param representativeBlock  block placed when something <i>becomes</i> this material
  */
 public record Material(

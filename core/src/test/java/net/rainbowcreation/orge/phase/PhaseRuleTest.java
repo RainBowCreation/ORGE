@@ -8,12 +8,14 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/** Tests for {@link PhaseRule} — the pure §7 phase-change decision. */
 class PhaseRuleTest {
 
     private static Identifier id(String path) { return Identifier.fromNamespaceAndPath("minecraft", path); }
 
     private static Material mat(float boilingPoint, Identifier boilingTarget,
                                float freezingPoint, Identifier freezingTarget) {
+        // id, thermalConductivity, heatCapacity, viscosity, defaultMass, molarMass, then the phase fields:
         return new Material(Identifier.fromNamespaceAndPath("orge", "x"),
                 0.6f, 1000f, 0f, 1000f, 0.018f,
                 boilingPoint, freezingPoint, boilingTarget, freezingTarget, null);
@@ -63,6 +65,8 @@ class PhaseRuleTest {
 
     @Test
     void boilingTakesPrecedenceWhenBothCouldFire() {
+        // Contrived overlap (boil 300 < freeze 400) so BOTH branches are simultaneously true at 350 K —
+        // the only way to actually exercise boiling-before-freezing precedence.
         Material m = mat(300f, id("a"), 400f, id("b"));
         assertEquals(Optional.of(id("a")), PhaseRule.targetBlock(350f, m), "boiling checked first");
     }
