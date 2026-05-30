@@ -12,6 +12,7 @@ import net.rainbowcreation.orge.block.ModBlocks;
 import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.material.MaterialJsonLoader;
+import net.rainbowcreation.orge.phase.MinecraftPhaseChanger;
 import net.rainbowcreation.orge.scheduler.ExecutorStepRunner;
 import net.rainbowcreation.orge.scheduler.MinecraftThermalWorld;
 import net.rainbowcreation.orge.scheduler.Scheduler;
@@ -49,6 +50,7 @@ public final class Orge {
     private static ExecutorStepRunner stepRunner;
     private static MinecraftThermalWorld thermalWorld;
     private static Scheduler scheduler;
+    private static MinecraftPhaseChanger phaseChanger;
 
     private static boolean initialized = false;
 
@@ -120,15 +122,21 @@ public final class Orge {
         OrgeEngine engine = EngineFactory.create();
         stepRunner = new ExecutorStepRunner();
         thermalWorld = new MinecraftThermalWorld(SECTION_STORES);
+        phaseChanger = new MinecraftPhaseChanger(SECTION_STORES);
         Worker serverWorker = new Worker(
                 UUID.randomUUID(), true,
                 Scheduler.DEFAULT_RANGE, Scheduler.MAX_RANGE,
                 Scheduler.COMPUTE_BUDGET_MILLIS, Scheduler.ON_TIME_TICKS_TO_CLIMB);
-        scheduler = new Scheduler(engine, thermalWorld, stepRunner, serverWorker);
+        scheduler = new Scheduler(engine, thermalWorld, stepRunner, serverWorker, phaseChanger);
 
-        LifecycleEvent.SERVER_STARTED.register(server -> thermalWorld.bindServer(server));
+        // DESIGN §7 — phase change reacts to the temps the scheduler writes back each second.
+        LifecycleEvent.SERVER_STARTED.register(server -> {
+            thermalWorld.bindServer(server);
+            phaseChanger.bindServer(server);
+        });
         LifecycleEvent.SERVER_STOPPING.register(server -> {
             thermalWorld.unbindServer();
+            phaseChanger.unbindServer();
             stepRunner.shutdown();
         });
         TickEvent.SERVER_POST.register(server -> scheduler.onServerTick());
