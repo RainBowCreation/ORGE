@@ -14,11 +14,12 @@ class HaloAssemblerTest {
     private static HaloAssembler.Neighbor identityNeighbor() {
         float[] t = new float[SectionData.CELLS];
         char[] m = new char[SectionData.CELLS];
+        float[] mass = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
             t[i] = i;
             m[i] = (char) i;
         }
-        return new HaloAssembler.Neighbor(t, m);
+        return new HaloAssembler.Neighbor(t, m, mass);
     }
 
     @Test

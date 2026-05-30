@@ -12,8 +12,24 @@ import net.rainbowcreation.orge.engine.NeighborHalo;
  */
 public final class HaloAssembler {
 
+    /** Cells in a section (16³) — neighbour arrays are section-sized, indexed by {@link #sidx}. */
+    private static final int SECTION_CELLS = 4096;
+
     /** A neighbouring section's data needed to fill one halo face. */
-    public record Neighbor(float[] temperature, char[] matIx) {}
+    public record Neighbor(float[] temperature, char[] matIx, float[] mass) {
+
+        /**
+         * An absent neighbour: all-zero, section-sized ({@value SECTION_CELLS}) arrays — no
+         * temperature, void material, 0 kg. Equivalent to a {@code null} neighbour (no flux, no
+         * mass flows in), but usable where a non-null {@link Neighbor} is required.
+         */
+        public static Neighbor absent() {
+            return new Neighbor(
+                    new float[SECTION_CELLS],
+                    new char[SECTION_CELLS],
+                    new float[SECTION_CELLS]);
+        }
+    }
 
     private HaloAssembler() {}
 
@@ -34,43 +50,52 @@ public final class HaloAssembler {
         char[] posYM = new char[NeighborHalo.FACE_CELLS];
         char[] negZM = new char[NeighborHalo.FACE_CELLS];
         char[] posZM = new char[NeighborHalo.FACE_CELLS];
+        float[] negXMass = new float[NeighborHalo.FACE_CELLS];
+        float[] posXMass = new float[NeighborHalo.FACE_CELLS];
+        float[] negYMass = new float[NeighborHalo.FACE_CELLS];
+        float[] posYMass = new float[NeighborHalo.FACE_CELLS];
+        float[] negZMass = new float[NeighborHalo.FACE_CELLS];
+        float[] posZMass = new float[NeighborHalo.FACE_CELLS];
 
         // X faces: face index = y + 16*z; neighbour plane x = 15 (negX) / x = 0 (posX).
         for (int z = 0; z < 16; z++) {
             for (int y = 0; y < 16; y++) {
                 int f = y + 16 * z;
-                copyCell(negX, sidx(15, y, z), negXT, negXM, f);
-                copyCell(posX, sidx(0, y, z), posXT, posXM, f);
+                copyCell(negX, sidx(15, y, z), negXT, negXM, negXMass, f);
+                copyCell(posX, sidx(0, y, z), posXT, posXM, posXMass, f);
             }
         }
         // Y faces: face index = x + 16*z; neighbour plane y = 15 (negY) / y = 0 (posY).
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
                 int f = x + 16 * z;
-                copyCell(negY, sidx(x, 15, z), negYT, negYM, f);
-                copyCell(posY, sidx(x, 0, z), posYT, posYM, f);
+                copyCell(negY, sidx(x, 15, z), negYT, negYM, negYMass, f);
+                copyCell(posY, sidx(x, 0, z), posYT, posYM, posYMass, f);
             }
         }
         // Z faces: face index = x + 16*y; neighbour plane z = 15 (negZ) / z = 0 (posZ).
         for (int y = 0; y < 16; y++) {
             for (int x = 0; x < 16; x++) {
                 int f = x + 16 * y;
-                copyCell(negZ, sidx(x, y, 15), negZT, negZM, f);
-                copyCell(posZ, sidx(x, y, 0), posZT, posZM, f);
+                copyCell(negZ, sidx(x, y, 15), negZT, negZM, negZMass, f);
+                copyCell(posZ, sidx(x, y, 0), posZT, posZM, posZMass, f);
             }
         }
 
         return new NeighborHalo(
                 negXT, posXT, negYT, posYT, negZT, posZT,
-                negXM, posXM, negYM, posYM, negZM, posZM);
+                negXM, posXM, negYM, posYM, negZM, posZM,
+                negXMass, posXMass, negYMass, posYMass, negZMass, posZMass);
     }
 
     /** Copies one source cell into a face slot; a {@code null} neighbour leaves the void default (0). */
-    private static void copyCell(Neighbor n, int srcIndex, float[] tFace, char[] mFace, int faceIndex) {
+    private static void copyCell(Neighbor n, int srcIndex,
+                                 float[] tFace, char[] mFace, float[] massFace, int faceIndex) {
         if (n == null) {
-            return; // arrays default to 0f / 0 (void)
+            return; // arrays default to 0f / 0 (void) / 0 kg
         }
         tFace[faceIndex] = n.temperature()[srcIndex];
         mFace[faceIndex] = n.matIx()[srcIndex];
+        massFace[faceIndex] = n.mass()[srcIndex];
     }
 }

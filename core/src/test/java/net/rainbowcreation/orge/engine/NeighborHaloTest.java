@@ -17,7 +17,8 @@ class NeighborHaloTest {
     void orderedAccessorsFollowNegPosXYZ() {
         NeighborHalo h = new NeighborHalo(
                 tf(1), tf(2), tf(3), tf(4), tf(5), tf(6),
-                mf((char) 1), mf((char) 2), mf((char) 3), mf((char) 4), mf((char) 5), mf((char) 6));
+                mf((char) 1), mf((char) 2), mf((char) 3), mf((char) 4), mf((char) 5), mf((char) 6),
+                tf(0), tf(0), tf(0), tf(0), tf(0), tf(0));
 
         float[][] temps = h.tempFaces();
         char[][]  mats  = h.matFaces();

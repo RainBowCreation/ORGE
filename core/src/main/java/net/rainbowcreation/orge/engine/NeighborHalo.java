@@ -17,7 +17,8 @@ package net.rainbowcreation.orge.engine;
  */
 public record NeighborHalo(
         float[] negXT, float[] posXT, float[] negYT, float[] posYT, float[] negZT, float[] posZT,
-        char[]  negXM, char[]  posXM, char[]  negYM, char[]  posYM, char[]  negZM, char[]  posZM
+        char[]  negXM, char[]  posXM, char[]  negYM, char[]  posYM, char[]  negZM, char[]  posZM,
+        float[] negXMass, float[] posXMass, float[] negYMass, float[] posYMass, float[] negZMass, float[] posZMass
 ) {
     public static final int FACE_CELLS = 256;
 
@@ -29,5 +30,10 @@ public record NeighborHalo(
     /** Material-index faces in the canonical order negX, posX, negY, posY, negZ, posZ. */
     public char[][] matFaces() {
         return new char[][]{negXM, posXM, negYM, posYM, negZM, posZM};
+    }
+
+    /** Neighbour-mass faces (kg) in the canonical order negX, posX, negY, posY, negZ, posZ. */
+    public float[][] massFaces() {
+        return new float[][]{negXMass, posXMass, negYMass, posYMass, negZMass, posZMass};
     }
 }

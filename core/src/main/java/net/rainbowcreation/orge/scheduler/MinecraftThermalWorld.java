@@ -181,6 +181,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         float[] temps = sectionTemps(level, store, key, cellMat);
         // TODO(perf, §8 follow-on): assembles a full 4096-cell geometry per neighbour but only one 256-cell face is used by the halo. A GeometryAssembler.assembleFace(cells, lut, face) variant would cut this 16x.
         GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
-        return new HaloAssembler.Neighbor(temps, geo.matIx());
+        // Neighbour mass: stored masses when the section exists, else the geometry default mass per cell.
+        float[] mass = (store != null && store.hasSection(key))
+                ? store.get(key).massArray().clone()
+                : geo.mass();
+        return new HaloAssembler.Neighbor(temps, geo.matIx(), mass);
     }
 }

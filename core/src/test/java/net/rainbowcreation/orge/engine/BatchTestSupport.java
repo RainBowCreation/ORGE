@@ -34,7 +34,9 @@ final class BatchTestSupport {
                 fillFloat(FACE, 0f), fillFloat(FACE, 0f), fillFloat(FACE, 0f),
                 fillFloat(FACE, 0f), fillFloat(FACE, 0f), fillFloat(FACE, 0f),
                 fillChar(FACE, (char) 0), fillChar(FACE, (char) 0), fillChar(FACE, (char) 0),
-                fillChar(FACE, (char) 0), fillChar(FACE, (char) 0), fillChar(FACE, (char) 0));
+                fillChar(FACE, (char) 0), fillChar(FACE, (char) 0), fillChar(FACE, (char) 0),
+                fillFloat(FACE, 0f), fillFloat(FACE, 0f), fillFloat(FACE, 0f),
+                fillFloat(FACE, 0f), fillFloat(FACE, 0f), fillFloat(FACE, 0f));
     }
 
     /** A uniform solid (matIx 1) section at temperature T, default mass, void halo. */
