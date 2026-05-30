@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.scheduler.ThermalWorld;
 import net.rainbowcreation.orge.section.SectionData;
@@ -18,6 +19,7 @@ import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.List;
+import java.util.function.IntFunction;
 
 /**
  * Live {@link PhaseChanger} over a running {@link MinecraftServer} (DESIGN §7). After the
@@ -75,13 +77,14 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         }
 
         ActiveMaterials.State mats = ActiveMaterials.current();
+        final LevelChunkSection sec = section;
+        IntFunction<Material> cellMat = i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
+
+        // Materials are read from PRE-SWAP blocks; the re-pin set is computed before swapping
+        // so a surviving source still reads as its source material.
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(
-                temps,
-                i -> LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats),
-                BuiltInRegistries.BLOCK::containsKey);
-        if (plan.isEmpty()) {
-            return;
-        }
+                temps, cellMat, BuiltInRegistries.BLOCK::containsKey);
+        List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cellMat, plan);
 
         int ox = key.cx() << 4;
         int oy = key.sectionY() << 4;
@@ -96,6 +99,14 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
             // cascade (DESIGN §7). The chunk light engine still re-lights on the state change;
             // if a light-emitting transition (e.g. lava→stone) ever looks stale, revisit the flag.
             level.setBlock(new BlockPos(ox + x, oy + y, oz + z), state, Block.UPDATE_CLIENTS);
+        }
+
+        // Conditional re-pin: hold surviving source cells at their default_temperature (engine-audit C).
+        if (!resets.isEmpty()) {
+            for (SourcePinPlanner.Reset r : resets) {
+                data.setTemperature(r.cellIndex(), r.temperatureK());
+            }
+            store.put(key, data);
         }
     }
 
