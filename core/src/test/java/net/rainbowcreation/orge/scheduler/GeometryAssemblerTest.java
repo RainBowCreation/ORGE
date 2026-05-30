@@ -42,5 +42,15 @@ class GeometryAssemblerTest {
         assertEquals(g.matIx()[0], g.matIx()[2], "all stone cells share an index");
         assertNotEquals(g.matIx()[0], g.matIx()[1], "stone and air differ");
         assertEquals(3, lut.materials().size(), "void + stone + air");
+
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            if (i % 2 == 0) {
+                assertEquals(g.matIx()[0], g.matIx()[i], "even cell is stone");
+                assertEquals(2700f, g.mass()[i]);
+            } else {
+                assertEquals(g.matIx()[1], g.matIx()[i], "odd cell is air");
+                assertEquals(1.2f, g.mass()[i]);
+            }
+        }
     }
 }

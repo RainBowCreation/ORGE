@@ -18,11 +18,23 @@ public final class GeometryAssembler {
         Material at(int cellIndex);
     }
 
-    /** Assembled per-cell geometry arrays (both length {@value SectionData#CELLS}). */
+    /**
+     * Assembled per-cell geometry arrays (both length {@value SectionData#CELLS}).
+     *
+     * <p>The arrays are live references handed over without copying — ownership transfers
+     * to the caller, which typically wraps them straight into a {@code StepTask}. Treat a
+     * {@code Geometry} as consumed after that hand-off; do not retain it expecting an
+     * independent snapshot.</p>
+     */
     public record Geometry(char[] matIx, float[] mass) {}
 
     private GeometryAssembler() {}
 
+    /**
+     * Builds the geometry arrays for one section. Allocates two {@value SectionData#CELLS}-length
+     * arrays per call; callers should cache the result per section version (DESIGN §8) rather than
+     * re-assembling every tick.
+     */
     public static Geometry assemble(CellMaterials cells, MaterialLut lut) {
         char[] matIx = new char[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
