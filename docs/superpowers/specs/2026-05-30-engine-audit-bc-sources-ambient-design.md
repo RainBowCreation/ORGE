@@ -277,3 +277,24 @@ covered by the headless tests. Noted, not a blocker.
 - `copper_torch`/`copper_lantern` (not vanilla 1.21.11).
 - §3 multi-worker distribution / wire protocol; §10 Phase-2 fluids; client-cache transport.
 - Latent heat, temperature-dependent material curves, mass conservation (Phase 2).
+
+### Deferral decision — 2026-05-30 (post B+C, post in-game audit)
+After B+C landed and the in-game audit confirmed the conduction core works (sources
+seed, water boils next to lava, lava holds; two scheduler bugs found + fixed), we are
+**explicitly skipping the following "for now"** — they are NOT on the immediate roadmap:
+
+1. **Block-entity heat sources** (Tier 3, e.g. brewing stand).
+2. **Entity heat sources** (Tier 4, e.g. `end_crystal`).
+3. **Fluid / gas handler** (§10 Phase-2: fluid flow, gas diffusion/buoyancy, latent heat,
+   mass conservation).
+
+**Why deferred (the constraint that makes these different from B+C):** all three likely
+require either a **second engine** or a **modification to the ORGE (`liborge`) engine
+itself** — B+C deliberately required *no* native/engine change (it is pure orchestration +
+data over the existing stateless conduction `step()`). Block-entity/entity sources need a
+new per-tick probing path that does not map onto the current section/cell block-derived
+model; fluid/gas needs advective transport (mass actually moving between cells), which the
+current pure-conduction kernel does not model. Each is its own track: brainstorm → spec →
+plan, and each must first decide the engine question (extend `liborge` vs. a new engine vs.
+a server-side pre/post pass) before any implementation. Do **not** start them as a
+continuation of this plan.
