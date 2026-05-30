@@ -57,8 +57,9 @@ public final class Worker {
 
     /**
      * Records a completed step. {@code metDeadline} = the result arrived within the 1 s
-     * deadline; {@code millis} = {@code engine.lastStepMillis()}. Drops range on a late or
-     * over-budget step; otherwise advances the on-time streak and climbs after
+     * deadline; {@code millis} = {@code engine.lastStepMillis()}. Drops range on a late step
+     * or one whose time is <b>strictly over</b> the budget ({@code millis > budgetMillis};
+     * exactly-at-budget is healthy); otherwise advances the on-time streak and climbs after
      * {@code ticksToClimb} consecutive healthy steps.
      */
     public void noteStep(double millis, boolean metDeadline) {
