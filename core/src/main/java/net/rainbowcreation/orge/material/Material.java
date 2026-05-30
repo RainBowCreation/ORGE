@@ -17,6 +17,8 @@ import net.minecraft.resources.Identifier;
  * @param boilingTarget        block id placed when this boils (temperature above {@code boilingPoint}), or null
  * @param freezingTarget       block id placed when this freezes (temperature below {@code freezingPoint}), or null
  * @param representativeBlock  block placed when something <i>becomes</i> this material
+ * @param defaultTemperature   seed/natural temperature (K) for this material; {@link Float#NaN} when absent
+ * @param pinned               when true the cell temperature is held at {@code defaultTemperature} every tick
  */
 public record Material(
         Identifier id,
@@ -29,7 +31,24 @@ public record Material(
         float freezingPoint,
         Identifier boilingTarget,
         Identifier freezingTarget,
-        Identifier representativeBlock
+        Identifier representativeBlock,
+        float defaultTemperature,
+        boolean pinned
 ) {
+    /** Backward-compatible constructor: no natural/pin temperature, not a source. */
+    public Material(Identifier id, float thermalConductivity, float heatCapacity,
+                    float viscosity, float defaultMass, float molarMass,
+                    float boilingPoint, float freezingPoint,
+                    Identifier boilingTarget, Identifier freezingTarget,
+                    Identifier representativeBlock) {
+        this(id, thermalConductivity, heatCapacity, viscosity, defaultMass, molarMass,
+                boilingPoint, freezingPoint, boilingTarget, freezingTarget, representativeBlock,
+                Float.NaN, false);
+    }
+
+    /** True when a natural/seed/pin temperature is defined (i.e. {@code default_temperature} present). */
+    public boolean hasDefaultTemperature() {
+        return !Float.isNaN(defaultTemperature);
+    }
     // TODO(phase: materials): builder + validate non-negative constants.
 }
