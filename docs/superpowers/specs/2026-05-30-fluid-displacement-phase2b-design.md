@@ -55,10 +55,30 @@ integration: snapshot/writeback, §9 validation, block-level reconciliation/supp
 
 ## Decisions (proposed — these are what I want your ruling on)
 
-1. **Air/gas are the lightest fluids, not inert.** Every cell has a density = its material's
-   `defaultMass`, including air (1.2) and steam (0.6). The "same-material-only" guard (Decision 7 of
-   Phase-2a) is **relaxed**: a fluid may move into a cell that is **air OR a strictly-lighter fluid**.
-   §7-reacting pairs stay excluded (Decision 5).
+0. **Two mass numbers per material — `default_mass` (resting density) vs `max_mass` (compression cap)
+   — replaces the incompressible/compressible binary** *(user model 2026-05-30).* The right distinction
+   is not "liquid vs gas" but **whether a material's resting density equals its per-cell capacity cap**:
+   - `default_mass` = **resting density** — the seed value, the density used for buoyancy comparison's
+     resting point, and the density a gas spreads/relaxes *toward*.
+   - `max_mass` = **per-cell capacity cap** — how much mass fits in one 1 m³ cell before it can't pack
+     denser; used as the fall/merge remaining-capacity and the §9 per-cell upper bound.
+   - **Liquid:** `max_mass == default_mass` (water 1000/1000). "Incompressible" is then *emergent*, not a
+     special case — there is no headroom above the resting density, so liquid pools and merges but never
+     packs denser. **Gas:** `max_mass > default_mass` (steam rests at 0.6, compresses toward a higher
+     cap) → genuinely compressible, and its low resting density makes the ordinary horizontal-spread rule
+     thin it out to **fill volume** (expansion = spread-to-resting-density, *no new code*).
+   - **Buoyancy/swap compares the cell's CURRENT mass** (current density), not `default_mass`: a
+     *compressed* gas cell is denser than air and correctly **sinks until it expands**, then rises.
+   - **This slice:** add the `max_mass` field; set `max_mass = default_mass` for **every current
+     material** (water/lava/ice/solid/steam) → **zero behavior change today**. The kernel's capacity cap
+     and §9 bound switch from `defaultMass` to `max_mass` (same value now). The compressible-gas track is
+     then a **data change** (`steam.max_mass = …` + enable gas spread-to-resting) — **not** a
+     rearchitecture. Satisfies the "compressible gas is a must" requirement with one field defined now.
+
+1. **Air/gas are the lightest fluids, not inert.** Every cell has a (current) density = its mass in the
+   cell; a material's *resting* density is `default_mass` (air 1.2, steam 0.6). The "same-material-only"
+   guard (Decision 7 of Phase-2a) is **relaxed**: a fluid may move into a cell that is **air OR a
+   strictly-lighter (by current density) fluid**. §7-reacting pairs stay excluded (Decision 5).
 
 2. **Air-as-empty is a *specialization* of a general gas path — NOT a baked-in assumption.**
    *(RULING 2026-05-30: air-as-empty for this slice, but the model MUST keep compressible gas
@@ -185,16 +205,18 @@ No §5 change — `SectionData` stays temp+mass only; species identity stays in 
 
 - **Latent heat** — energy plateaus on boil/freeze (separate native track; couples to §7). Next after
   this.
-- **Full compressible-gas advection** (air as a tracked sloshing mass field) — the heavy alternative to
-  Decision 2. **Architecture note (forward-compat):** gas is NOT a separate simulation layer — it is the
-  *same* advection pass + the *same* density-swap (which already yields buoyancy for free: a light gas
-  below a heavier cell is just a density inversion). The only gas-specific physics is **compressibility**,
-  added as two `phase == gas`-gated terms in the same pass: (1) **expansion/diffusion** — gas spreads to
-  fill all available volume / equalize instead of pooling under the liquid `M_full` capacity cap; (2) an
-  **equation of state** — density from amount + temperature (hot gas lighter), coupling gas density to the
-  temperature field *within the flow pass* (the conduction calc stays untouched). In Phase-2b steam is
-  treated as a light *incompressible* fluid (rises via the swap, no expansion/EOS); the compressible-gas
-  track flips a gas ambient→tracked and lights up those two terms — no new layer, no rearchitecture.
+- **Full compressible-gas advection** — the follow-on track, **already de-risked by Decision 0's
+  `default_mass`/`max_mass` split**. Gas is NOT a separate simulation layer: it is the *same* advection
+  pass + the *same* density-swap (buoyancy is free — a light gas below a heavier cell is just a density
+  inversion) + the *same* horizontal spread (which, given gas's low resting `default_mass`, thins gas out
+  to **fill volume** = expansion, no new code). What the compressible-gas track adds on top is mostly
+  **data + one behavior**: (a) set `steam.max_mass > default_mass` so gas has headroom to pack denser
+  (Decision 0); (b) make the gas spread relax *toward `default_mass`* (fill/equalize) rather than pool
+  under a cap; (c) optionally an **equation of state** so resting density falls with temperature (hot gas
+  lighter), coupling gas density to the temperature field *within the flow pass* (the conduction calc
+  stays untouched). In Phase-2b every material keeps `max_mass == default_mass` (steam included), so steam
+  behaves as a light fluid that rises via the swap; the compressible-gas track lights up (a)–(c) — **no
+  new layer, no rearchitecture.**
 - **Temperature-dependent densities** (hot water/lava less dense → thermal convection) — future curve work.
 - **Pressure / hydraulic head** beyond simple density ordering.
 - **New non-reacting liquid pairs** (oil, etc.) — the model supports them; no new materials this slice.
