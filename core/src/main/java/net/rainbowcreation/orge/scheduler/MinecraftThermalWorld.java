@@ -33,6 +33,9 @@ import java.util.Set;
  * section's {@link StepTask} via the pure {@link SphereUnion}/{@link GeometryAssembler}/
  * {@link HaloAssembler} units, and writes validated results back through the §5
  * {@link SectionStoreManager}. The only Minecraft-coupled class in the scheduler.
+ * Both {@link #snapshot} and {@link #writeBack} touch the server-thread-confined
+ * {@link SectionStoreManager} and MUST be called on the server thread (the
+ * {@code volatile server} field is the only cross-thread state).
  */
 public final class MinecraftThermalWorld implements ThermalWorld {
 
@@ -49,9 +52,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     /** Live tag-membership bridge — §6's deferred {@link MaterialBindings.TagMembership} consumer. */
     private static final MaterialBindings.TagMembership LIVE_TAGS = (tagId, blockId) -> {
-        Block block = BuiltInRegistries.BLOCK.getValue(blockId);
+        // NOTE: getValue returns the default (air) for an unregistered id rather than null.
+        // Safe here because every blockId originates from BuiltInRegistries.BLOCK.getKey(block)
+        // in materialFor; callers must only pass registered block ids.
         TagKey<Block> tag = TagKey.create(Registries.BLOCK, tagId);
-        return block.builtInRegistryHolder().is(tag);
+        return BuiltInRegistries.BLOCK.wrapAsHolder(BuiltInRegistries.BLOCK.getValue(blockId)).is(tag);
     };
 
     private Material materialFor(Block block, ActiveMaterials.State mats) {
@@ -60,6 +65,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         return mats.registry().getOrFallback(matId);
     }
 
+    // Server thread only.
     @Override
     public Batch snapshot(int range) {
         MinecraftServer srv = this.server;
@@ -109,6 +115,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         return new Batch(entries, lut.materials());
     }
 
+    // Server thread only.
     @Override
     public void writeBack(BatchEntry entry, float[] newTemperatures) {
         SectionStore store = stores.store(entry.dimension());
@@ -116,6 +123,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return;
         }
         SectionData data = store.get(entry.key());
+        // TODO(perf, §8 follow-on): temperatureArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllTemperatures(float[]) that skips the fill would avoid the churn for first-touch sections.
         float[] dst = data.temperatureArray();
         System.arraycopy(newTemperatures, 0, dst, 0, SectionData.CELLS);
         store.put(entry.key(), data);
@@ -186,6 +194,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
         SectionStore store = stores.store(dim);
         float[] temps = (store != null) ? store.get(key).temperatureArray().clone() : ambientTemps();
+        // TODO(perf, §8 follow-on): assembles a full 4096-cell geometry per neighbour but only one 256-cell face is used by the halo. A GeometryAssembler.assembleFace(cells, lut, face) variant would cut this 16x.
         GeometryAssembler.Geometry geo =
                 GeometryAssembler.assemble(i -> materialFor(blockAt(section, i), mats), lut);
         return new HaloAssembler.Neighbor(temps, geo.matIx());
