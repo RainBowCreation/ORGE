@@ -43,9 +43,14 @@ class SphereUnionTest {
     void overlappingAnchorsAreDeduped() {
         Set<SubchunkKey> a = SphereUnion.expand(
                 Set.of(new SubchunkKey(0, 0, 0), new SubchunkKey(1, 0, 0)), 2);
+        assertEquals(12, a.size(), "two adjacent range-2 spheres share 2 sections -> 12 unique");
         assertTrue(a.contains(new SubchunkKey(0, 0, 0)));
         assertTrue(a.contains(new SubchunkKey(1, 0, 0)));
-        assertTrue(a.size() < 14);
+    }
+
+    @Test
+    void emptyAnchorsYieldEmptySet() {
+        assertEquals(Set.of(), SphereUnion.expand(Set.of(), 5));
     }
 
     @Test

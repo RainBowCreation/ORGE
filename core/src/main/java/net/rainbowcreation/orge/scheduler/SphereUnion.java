@@ -9,7 +9,7 @@ import java.util.Set;
  * Expands a set of player anchor sections into the union of their range-N spheres
  * (DESIGN §4). Range 1 = the anchor section only; a section at offset
  * {@code (dx,dy,dz)} is included iff {@code dx²+dy²+dz² <= (range-1)²}. Overlapping
- * spheres dedup naturally via the {@link Set}.
+ * spheres dedup naturally via the {@link Set}. A {@code range <= 0} is treated as range 1 (anchor only).
  */
 public final class SphereUnion {
 
