@@ -27,12 +27,18 @@ class MaterialLutTest {
     @Test
     void firstRealMaterialGetsIndexOne_andRepeatsReuseIt() {
         MaterialLut lut = new MaterialLut();
-        Material stone = mat("stone", 2.5f);
-        char first = lut.indexOf(stone);
-        char again = lut.indexOf(stone);
+        char first = lut.indexOf(mat("stone", 2.5f));   // instance A
+        char again = lut.indexOf(mat("stone", 2.5f));   // instance B — same id, different object
         assertEquals(1, first);
-        assertEquals(1, again, "same material id reuses its index");
+        assertEquals(1, again, "same material id deduplicates across distinct instances");
         assertEquals(2, lut.materials().size());
+    }
+
+    @Test
+    void indexOfVoidReturnsZeroAndDoesNotAppend() {
+        MaterialLut lut = new MaterialLut();
+        assertEquals(0, lut.indexOf(MaterialLut.VOID));
+        assertEquals(1, lut.materials().size());
     }
 
     @Test

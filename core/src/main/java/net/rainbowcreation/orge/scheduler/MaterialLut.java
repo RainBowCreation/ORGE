@@ -4,6 +4,7 @@ import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,9 @@ public final class MaterialLut {
         if (existing != null) {
             return existing;
         }
+        if (lut.size() > Character.MAX_VALUE) {
+            throw new IllegalStateException("MaterialLut overflow: more than 65535 materials");
+        }
         char ix = (char) lut.size();
         lut.add(material);
         byId.put(material.id(), ix);
@@ -48,6 +52,6 @@ public final class MaterialLut {
 
     /** The table to hand to the engine; index 0 = {@link #VOID}. */
     public List<Material> materials() {
-        return lut;
+        return Collections.unmodifiableList(lut);
     }
 }
