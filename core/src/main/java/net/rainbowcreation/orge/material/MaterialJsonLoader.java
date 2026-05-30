@@ -109,10 +109,4 @@ public final class MaterialJsonLoader extends SimplePreparableReloadListener<Act
         }
     }
 
-    // TODO(phase: phase-change): wire MaterialBindings.TagMembership to live block tags
-    //  here (a registry-backed bridge resolving Identifier tag membership against the
-    //  server's BlockTags). materialFor(blockId, tags) is only consumed by phase-change
-    //  (§7), which does not exist yet, so the runtime tag bridge is intentionally deferred.
-    //  Bindings still LOAD fully (tags + overrides are stored on the active MaterialBindings);
-    //  only resolution-against-live-tags is pending.
 }

@@ -92,6 +92,9 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
             int y = (i >> 4) & 15;
             int z = (i >> 8) & 15;
             BlockState state = BuiltInRegistries.BLOCK.getValue(t.blockId()).defaultBlockState();
+            // UPDATE_CLIENTS only: sync the change to clients but skip the neighbour/physics
+            // cascade (DESIGN §7). The chunk light engine still re-lights on the state change;
+            // if a light-emitting transition (e.g. lava→stone) ever looks stale, revisit the flag.
             level.setBlock(new BlockPos(ox + x, oy + y, oz + z), state, Block.UPDATE_CLIENTS);
         }
     }
