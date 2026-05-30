@@ -3,6 +3,8 @@
   "heat_capacity": 4186,
   "default_mass": 1000,
   "molar_mass": 0.018,
+  "viscosity": 0.001,
+  "fluid": true,
   "freezing_point": 273.15,
   "freezing_target": "minecraft:ice",
   "boiling_point": 373.15,

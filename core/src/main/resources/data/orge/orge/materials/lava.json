@@ -3,6 +3,8 @@
   "heat_capacity": 1450,
   "default_mass": 3100,
   "molar_mass": 0.060,
+  "viscosity": 100,
+  "fluid": true,
   "freezing_point": 1000,
   "freezing_target": "minecraft:stone",
   "representative_block": "minecraft:lava",

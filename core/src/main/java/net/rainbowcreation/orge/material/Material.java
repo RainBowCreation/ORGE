@@ -19,6 +19,7 @@ import net.minecraft.resources.Identifier;
  * @param representativeBlock  block placed when something <i>becomes</i> this material
  * @param defaultTemperature   seed/natural temperature (K) for this material; {@link Float#NaN} when absent
  * @param pinned               when true the cell temperature is held at {@code defaultTemperature} every tick
+ * @param fluid                when true this material participates in Phase-2 mass-conservative flow
  */
 public record Material(
         Identifier id,
@@ -33,9 +34,10 @@ public record Material(
         Identifier freezingTarget,
         Identifier representativeBlock,
         float defaultTemperature,
-        boolean pinned
+        boolean pinned,
+        boolean fluid
 ) {
-    /** Backward-compatible constructor: no natural/pin temperature, not a source. */
+    /** Backward-compatible constructor: no natural/pin temperature, not a source, not a fluid. */
     public Material(Identifier id, float thermalConductivity, float heatCapacity,
                     float viscosity, float defaultMass, float molarMass,
                     float boilingPoint, float freezingPoint,
@@ -43,7 +45,18 @@ public record Material(
                     Identifier representativeBlock) {
         this(id, thermalConductivity, heatCapacity, viscosity, defaultMass, molarMass,
                 boilingPoint, freezingPoint, boilingTarget, freezingTarget, representativeBlock,
-                Float.NaN, false);
+                Float.NaN, false, false);
+    }
+
+    /** Constructor with pin temperature + pinned flag, not a fluid. */
+    public Material(Identifier id, float thermalConductivity, float heatCapacity,
+                    float viscosity, float defaultMass, float molarMass,
+                    float boilingPoint, float freezingPoint,
+                    Identifier boilingTarget, Identifier freezingTarget,
+                    Identifier representativeBlock, float defaultTemperature, boolean pinned) {
+        this(id, thermalConductivity, heatCapacity, viscosity, defaultMass, molarMass,
+                boilingPoint, freezingPoint, boilingTarget, freezingTarget, representativeBlock,
+                defaultTemperature, pinned, false);
     }
 
     /** True when a natural/seed/pin temperature is defined (i.e. {@code default_temperature} present). */

@@ -30,7 +30,7 @@ import java.util.Optional;
  *   <li><b>Optional with defaults:</b>
  *     {@code viscosity} → 0, {@code molar_mass} → 0,
  *     {@code boiling_point} → +∞, {@code freezing_point} → -∞,
- *     {@code default_temperature} → NaN (absent), {@code pinned} → false</li>
+ *     {@code default_temperature} → NaN (absent), {@code pinned} → false, {@code fluid} → false</li>
  *   <li><b>Optional nullable ids:</b>
  *     {@code boiling_target}, {@code freezing_target}, {@code representative_block} → null</li>
  * </ul>
@@ -55,7 +55,8 @@ public final class MaterialCodec {
             Optional<Identifier> freezingTarget,
             Optional<Identifier> representativeBlock,
             float defaultTemperature,
-            boolean pinned
+            boolean pinned,
+            boolean fluid
     ) {}
 
     // -------------------------------------------------------------------------
@@ -91,7 +92,9 @@ public final class MaterialCodec {
                     Codec.FLOAT.optionalFieldOf("default_temperature", Float.NaN)
                             .forGetter(BodyData::defaultTemperature),
                     Codec.BOOL.optionalFieldOf("pinned", false)
-                            .forGetter(BodyData::pinned)
+                            .forGetter(BodyData::pinned),
+                    Codec.BOOL.optionalFieldOf("fluid", false)
+                            .forGetter(BodyData::fluid)
             ).apply(instance, BodyData::new)
     );
 
@@ -131,7 +134,8 @@ public final class MaterialCodec {
                 bd.freezingTarget().orElse(null),
                 bd.representativeBlock().orElse(null),
                 bd.defaultTemperature(),
-                bd.pinned()
+                bd.pinned(),
+                bd.fluid()
         );
     }
 }
