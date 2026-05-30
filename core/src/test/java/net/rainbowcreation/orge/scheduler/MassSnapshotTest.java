@@ -11,8 +11,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Pure unit tests for {@link MassSnapshot#select}, the per-cell mass-selection rule the
  * snapshot uses to decide a cell's input mass (§10 advection): persisted advected mass is
- * preserved, freshly-placed fluid cells (stored ≈0) are seeded once to full, solids/air keep
- * their stored value. This is the fix for advection-result discard + water-level oscillation.
+ * preserved, freshly-placed fluid cells (stored exactly 0) are seeded once to full, solids/air
+ * keep their stored value. This is the fix for advection-result discard + water-level oscillation,
+ * and (the {@code <= 0} guard) for mass re-injection at draining fluid edges.
  */
 class MassSnapshotTest {
 
@@ -70,6 +71,17 @@ class MassSnapshotTest {
     }
 
     @Test
+    void fluidCellWithTinyDrainedResidueIsNotReSeeded() {
+        // Regression: a fluid cell the engine drained to a tiny positive residue (in the old
+        // re-injection band (kernel-eps, 1e-3]) must keep that residue, NOT snap back to full.
+        // Under the old `<= ADV_EPS` (1e-3) rule this re-seeded to defaultMass every snapshot,
+        // regrowing water edges; the `<= 0` rule keeps it draining.
+        float result = MassSnapshot.select(5e-4f, WATER_IX, lut(), true, 640f);
+        assertEquals(5e-4f, result, 0f,
+                "drained residue in (1e-4,1e-3] must be preserved, not re-seeded to full");
+    }
+
+    @Test
     void nonFluidCellWithEmptyStoreStaysEmpty() {
         // A solid/air cell with 0 stored mass must NOT be seeded.
         float result = MassSnapshot.select(0f, STONE_IX, lut(), true, 2000f);
@@ -94,11 +106,21 @@ class MassSnapshotTest {
         char[] matIx = new char[cells];
         float[] geoMass = new float[cells];
         for (int i = 0; i < cells; i++) {
-            // Alternate water / stone; every 3rd water cell is a drained entry point (stored 0).
+            // Alternate water / stone. Among water cells: every 3rd is a drained entry point
+            // (stored 0 -> seeded), every 5th carries a tiny drained residue (5e-4 -> preserved,
+            // never re-seeded), the rest carry advected mass.
             boolean water = (i % 2 == 0);
             matIx[i] = water ? WATER_IX : STONE_IX;
             geoMass[i] = water ? 640f : 2000f;
-            stored[i] = (water && i % 3 == 0) ? 0f : (water ? 300f : 2000f);
+            if (!water) {
+                stored[i] = 2000f;
+            } else if (i % 3 == 0) {
+                stored[i] = 0f;        // entry point -> seeded to defaultMass
+            } else if (i % 5 == 0) {
+                stored[i] = 5e-4f;     // drained residue -> preserved, NOT re-seeded
+            } else {
+                stored[i] = 300f;      // advected mass -> preserved
+            }
         }
 
         float[] all = MassSnapshot.selectAll(stored, matIx, lut(), true, geoMass);

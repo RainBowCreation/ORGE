@@ -12,18 +12,16 @@ import java.util.List;
  * <p>The store is authoritative once a section has been simulated: its per-cell mass is the
  * accumulated advection result and must be preserved, otherwise every snapshot would reset
  * fluid cells to "full" and discard real flow (the level-oscillation bug). The single
- * exception is the <b>fluid entry point</b>: a fluid cell the store reports as empty
- * ({@code <= ADV_EPS}) is a freshly-placed/streamed fluid block the store doesn't know about
- * yet, so it is seeded once to that material's {@link Material#defaultMass()}. Solids and air
- * are never seeded.</p>
+ * exception is the <b>fluid entry point</b>: a fluid cell the store reports as exactly empty
+ * ({@code <= 0}) is a freshly-placed/streamed fluid block the store doesn't know about yet, so
+ * it is seeded once to that material's {@link Material#defaultMass()}. A cell the engine actively
+ * drained to a tiny positive residue is NOT re-seeded (it keeps draining), so fluid edges can't
+ * regrow. Solids and air are never seeded.</p>
  *
  * <p>Used by both the section's own mass and the halo neighbour mass so cross-section mass
  * conservation can't diverge between the two sides of a face.</p>
  */
 public final class MassSnapshot {
-
-    /** A stored mass at or below this (kg) counts as "empty" for fluid-entry seeding. */
-    public static final float ADV_EPS = 1e-3f;
 
     private MassSnapshot() {}
 
@@ -44,11 +42,22 @@ public final class MassSnapshot {
             return geoMass;
         }
         Material m = lut.get(matIx);
-        if (m.fluid() && stored <= ADV_EPS) {
+        if (m.fluid() && stored <= 0f) {
             // Freshly-placed/streamed fluid the store hasn't seen: seed once to full.
+            //
+            // The guard is exactly-empty (<= 0), NOT a fat epsilon, to avoid re-injecting mass at
+            // draining fluid edges. A cell the kernel actively drained leaves one of two marks:
+            //   * stored == 0 AND the reconciler has turned it to air -> next snapshot it is a
+            //     non-fluid cell, so this branch never fires; or
+            //   * stored > 0 (a thin positive residue the kernel hasn't yet zeroed at its own
+            //     epsilon) with a fluid block still present -> NOT seeded, it keeps draining until
+            //     the kernel zeroes it.
+            // A never-fluid placement cell's stored mass is exactly 0.0, so <= 0 seeds precisely
+            // the placement/stream entry points and eliminates the old (kernel-eps, 1e-3] re-
+            // injection band that grew water edges unboundedly.
             return m.defaultMass();
         }
-        // Solids, air, and already-flowing fluid: keep the persisted mass.
+        // Solids, air, and already-flowing/draining fluid: keep the persisted mass.
         return stored;
     }
 
