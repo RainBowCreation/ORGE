@@ -8,14 +8,23 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionCheck;
 import net.minecraft.server.permissions.PermissionLevel;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.section.SubchunkKey;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 /**
  * Thin Brigadier adapter for {@code /orge}. Parses arguments, builds an
@@ -58,7 +67,29 @@ public final class OrgeCommands {
 
     private int read(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Op op) {
         BlockPos p = BlockPosArgument.getBlockPos(ctx, "pos");
-        return dispatch(ctx, request(ctx, op, p, p, null, null));
+        OrgeCommandLogic.Response resp = logic.run(request(ctx, op, p, p, null, null));
+        // GET reports one cell: append the LIVE block + mapped ORGE material so the operator can
+        // see what the thermal store's mass/temp actually belongs to (the store keeps no material).
+        if (op == OrgeCommandLogic.Op.GET && resp.ok()) {
+            resp = appendToFirstLine(resp, liveCellDescriptor(ctx.getSource().getLevel(), p));
+        }
+        return print(ctx, resp);
+    }
+
+    /** {@code ", block=<id>, material=<id>"} for the live block at {@code pos} (server-thread read). */
+    private static String liveCellDescriptor(ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        Material material = LiveMaterials.materialFor(state, ActiveMaterials.current());
+        return String.format(Locale.ROOT, ", block=%s, material=%s", blockId, material.id());
+    }
+
+    private static OrgeCommandLogic.Response appendToFirstLine(OrgeCommandLogic.Response resp, String suffix) {
+        List<String> lines = new ArrayList<>(resp.lines());
+        if (!lines.isEmpty()) {
+            lines.set(0, lines.get(0) + suffix);
+        }
+        return new OrgeCommandLogic.Response(resp.ok(), lines);
     }
 
     private int set(CommandContext<CommandSourceStack> ctx, Float mass) {
@@ -95,7 +126,10 @@ public final class OrgeCommands {
     }
 
     private int dispatch(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Request req) {
-        OrgeCommandLogic.Response resp = logic.run(req);
+        return print(ctx, logic.run(req));
+    }
+
+    private int print(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Response resp) {
         CommandSourceStack src = ctx.getSource();
         for (String line : resp.lines()) {
             if (resp.ok()) {
