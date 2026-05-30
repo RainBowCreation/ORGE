@@ -216,16 +216,93 @@ class AuditScenarioTest {
                 "an emptied cell reconciles to REMOVE");
     }
 
+    // A fluid lava (fluid=true) for the advection-merge audit. Distinct material index from water,
+    // so the same-material guard (spec Decision 7) must keep their masses separate even though both
+    // are fluids. defaultMass 3000 kg, viscosity > water so it spreads less.
+    private static Material fluidLava() {
+        return new Material(LAVA, 1.5f, 1000f, 0.1f, 3000f, 0f,
+                Float.POSITIVE_INFINITY, 1000f, null, STONE, null, 1400f, true, true);
+    }
+
     @Test
     void waterNextToLavaStillSteamsAndMassesDoNotMerge() {
-        // water cell adjacent to a pinned lava cell. Advection only moves mass between same-material
-        // fluid cells, so the lava's 3100 kg never flows into the water cell and vice-versa; the
-        // water-on-lava interaction stays owned by §7 (PhaseRule -> orge:steam).
-        Material water = water();
-        // a water cell heated above boiling still yields orge:steam via PhaseRule (unchanged §7).
-        Optional<Identifier> target = PhaseRule.targetBlock(400f, water);
-        assertEquals(ORGE_STEAM, target.orElse(null));
-        // reconcile keeps materials separate: water fraction uses water's full mass, lava uses lava's.
+        // Drives the native kernel with adjacent water+lava fluid cells. Spec Decision 7: advection
+        // only moves mass between SAME-material fluid cells, so water's mass never merges into the
+        // adjacent lava cell and vice-versa, even though both are fluids. The water-on-lava
+        // interaction stays owned by §7 (PhaseRule -> orge:steam), asserted below.
+        NativeEngine e;
+        try {
+            NativeLoader.load();
+            e = new NativeEngine();
+        } catch (Throwable t) {
+            assumeTrue(false, "no bundled liborge for this platform: " + t.getMessage());
+            return;
+        }
+
+        Material water = water();          // LUT idx 1, fluid, defaultMass 1000
+        Material lava  = fluidLava();      // LUT idx 2, fluid, defaultMass 3000
+        assertTrue(water.fluid(), "audit water must be a fluid to advect");
+        assertTrue(lava.fluid(),  "audit lava must be a fluid so the guard (not isFluid) is what blocks the merge");
+
+        char[]  matIx = new char[SEC_N];   // all void (idx 0)
+        float[] mass  = new float[SEC_N];
+        float[] temp  = new float[SEC_N];
+        Arrays.fill(temp, 300f);
+
+        // y=8 plane, x running 6..9 at z=8:
+        //   wHi  (x=8): water, lots of mass + hot -> wants to spread/fall
+        //   lava (x=9): wHi's +x neighbour, lava with mass, cold -> water would merge in w/o guard
+        //   wLo  (x=7): wHi's -x neighbour, SAME material (water), empty -> must still receive
+        // A column above wHi gives it a head to fall, exercising the FALL path past the lava too.
+        int wHi  = sidx(8, 8, 8);
+        int wTop = sidx(8, 9, 8);          // water above wHi (fall path stays same-material)
+        int lava2 = sidx(9, 8, 8);         // lava neighbour of wHi
+        int wLo  = sidx(7, 8, 8);          // empty water neighbour of wHi
+        matIx[wHi]  = (char) 1; mass[wHi]  = 900f;  temp[wHi]  = 1000f;
+        matIx[wTop] = (char) 1; mass[wTop] = 1000f; temp[wTop] = 1000f;
+        matIx[lava2] = (char) 2; mass[lava2] = 600f; temp[lava2] = 300f;
+        matIx[wLo]  = (char) 1; mass[wLo]  = 0f;     temp[wLo]  = 300f;
+
+        float waterTotalIn = mass[wHi] + mass[wTop] + mass[wLo];
+        float lavaMassIn   = mass[lava2];
+        float totalIn      = sum(mass);
+
+        // LUT: [void, water, lava] — both water and lava are fluids.
+        List<Material> lut = List.of(
+                new Material(Identifier.fromNamespaceAndPath("orge", "void"),
+                        0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null),
+                water,
+                lava);
+
+        for (int it = 0; it < 30; it++) {
+            StepTask task = new StepTask(new SubchunkKey(0, 0, 0), matIx, mass, temp, voidHalo());
+            List<StepResult> out = e.step(List.of(task), lut,
+                    Scheduler.ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
+            mass = out.get(0).mass();
+            temp = out.get(0).temperature();
+            // total conservation holds every step (the symmetric guard never breaks it).
+            assertEquals(totalIn, sum(mass), 1e-2f, "Σmass must be conserved at iteration " + it);
+        }
+
+        // (1) the lava cell's mass is UNCHANGED by the adjacent water: no water merged across the
+        //     material boundary (and lava, being denser/empty-of-same-material-neighbours here, did
+        //     not gain water either). Same-material guard in action.
+        assertEquals(lavaMassIn, mass[lava2], 1e-2f,
+                "lava mass must not change from adjacent water (spec Decision 7), was " + mass[lava2]);
+        // (2) lava temperature stayed cold: no enthalpy crossed the boundary.
+        assertEquals(300f, temp[lava2], 1e-1f,
+                "lava temperature must stay unblended by water, was " + temp[lava2]);
+        // (3) all the water mass stayed within the water cells (none leaked into the lava cell).
+        float waterTotalOut = mass[wHi] + mass[wTop] + mass[wLo];
+        assertEquals(waterTotalIn, waterTotalOut, 1e-2f,
+                "all water mass must remain in water cells, was " + waterTotalOut);
+        // (4) same-material flow still happened: the empty water neighbour received from wHi.
+        assertTrue(mass[wLo] > 0f, "same-material empty water neighbour should have received, was " + mass[wLo]);
+
+        // KEEP §7: a water cell heated above boiling still yields orge:steam via PhaseRule.
+        Optional<Identifier> phaseTarget = PhaseRule.targetBlock(400f, water);
+        assertEquals(ORGE_STEAM, phaseTarget.orElse(null));
+        // KEEP reconcile: per-material defaultMass — water fraction uses water's full mass.
         assertEquals(0, FluidReconcileLogic.levelForFraction(
                 FluidReconcileLogic.fraction(1000f, water.defaultMass())));
     }
