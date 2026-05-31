@@ -317,30 +317,17 @@ class CrossSectionNativeE2ETest {
      * halo = WEST's x=15 plane. Both floors are real air so a supported floor cell can wet sideways.
      * Conserved every cycle.
      *
-     * <p><b>QUARANTINED — reproduces a GENUINE kernel cross-section conservation bug.</b> The assertions
-     * here are the CORRECT invariants (NOT weakened); the test fails because the engine's horizontal
-     * (X/Z) <i>same-fluid leveling across a section seam</i> is non-conservative. The dedicated seam
-     * passes only cover the Y-seam fall (2b-ii) and air-receiver X/Z wetting (E3 / 2b-iii). Two ADJACENT
-     * fluid cells leveling across an X/Z seam fall through to the interior spread pass (orge_kernel.hpp
-     * §"(2b-i) HORIZONTAL spread"), whose boundary branch fluxes only "toward lower mass"
-     * ({@code if (diff <= 0) continue}) and relies on the comment "neighbour section adds the +dm on its
-     * own pass". That antisymmetry is FALSE for leveling: the higher-mass side SUBTRACTS dm, but the
-     * lower-mass receiver's own pass sees {@code diff < 0} and SKIPS the matching add, so the dm vanishes.
-     * Minimal pure-C++ kernel repro (no JNI): two X-adjacent sections, WEST x=15 column = 1000 kg water,
-     * EAST x=0 column = 500 kg water, one PASS_ADVECTION step each with mass-carrying X halos →
-     * {@code massIn=24000, massOut=23000} (LOSES 1000 kg); donor drops 187.5 but receiver drops 62.5
-     * (gain = -62.5) instead of gaining +187.5. In this E2E the failing assertion is the per-cycle batch
-     * §9 gate in {@code stepBatchOnce}: "§9 batch ledger must conserve every fluid species across the
-     * whole multi-section batch" (water leaks ~1209 kg / cycle once EAST's edge becomes water and the two
-     * water columns try to level across the seam). FIX BELONGS IN THE ENGINE: give X/Z same-fluid seam
-     * leveling its own antisymmetric pass (like 2b-ii), where each section writes only its own cell from
-     * identical pre-step dm, OR have the lower-mass side mirror-add the higher side's dm. Re-enable once
-     * the engine ships that fix and re-bundles liborge.so.
+     * <p>Exercises the engine's antisymmetric X/Z same-fluid seam-leveling pass (E4): two ADJACENT fluid
+     * cells leveling across an X/Z section seam must conserve mass. Previously the interior spread pass
+     * (orge_kernel.hpp §"(2b-i) HORIZONTAL spread") fluxed only "toward lower mass" at the boundary
+     * ({@code if (diff <= 0) continue}) and relied on the neighbour section adding the +dm on its own
+     * pass — an antisymmetry that was FALSE for leveling (the higher-mass side SUBTRACTED dm, the
+     * lower-mass receiver SKIPPED the matching add, and the dm vanished: e.g. 1000/500 kg X-adjacent
+     * columns lost 1000 kg/step). E4 gives X/Z same-fluid seam leveling its own antisymmetric pass so
+     * each section writes only its own cell from identical pre-step dm. The assertions below are the
+     * CORRECT invariants: the per-cycle batch §9 gate in {@code stepBatchOnce} must hold every cycle, and
+     * water must genuinely move across the X seam into the east air.
      */
-    @org.junit.jupiter.api.Disabled("Quarantined: reproduces a real engine bug — horizontal (X/Z) "
-            + "same-fluid leveling across a section seam is non-conservative (pure-C++ repro loses "
-            + "1000 kg/step). Assertions are the correct invariant; re-enable after the engine ships an "
-            + "antisymmetric X/Z same-fluid seam-leveling pass and re-bundles liborge.so.")
     @Test
     void horizontalSpreadCrossesXSeam() {
         NativeEngine e = requireNative();
@@ -383,8 +370,19 @@ class CrossSectionNativeE2ETest {
                 "water must spread across the X seam into the east section, east water = " + eastWater);
         assertTrue(eastEdgeWater > 0f,
                 "the east section's -x edge (x=0) must hold the wetted water, was " + eastEdgeWater);
-        assertEquals(waterBefore, speciesMass(west, 1) + eastWater, Math.max(1f, waterBefore * 1e-3f),
-                "water conserved across the X-seam batch");
+
+        // The authoritative conservation gate is the per-cycle batch §9 ledger asserted EVERY cycle in
+        // stepBatchOnce (conserved() across the whole multi-section batch). Here we bound the end state
+        // exactly as case (a) does: as the water levels/wets across the X seam it ADOPTS the east-floor
+        // real-air's resting ~1.2 kg INTO the water (the §9 wetting credit air-in -> fluid-out), so the
+        // WATER species legitimately gains a little absorbed air. Water must never DECREASE (no leak —
+        // the bug this test guards lost ~1209 kg/cycle), and may grow only by the air it could absorb.
+        float waterAfter = speciesMass(west, 1) + eastWater;
+        float airBudget  = 2f * SEC_N * air.defaultMass(); // west+east air mass available to absorb
+        assertTrue(waterAfter >= waterBefore - 1f,
+                "water species must not LEAK across the X-seam batch (no mass loss), was " + waterAfter);
+        assertTrue(waterAfter <= waterBefore + airBudget,
+                "water may only grow by absorbed air (wetting credit), was " + waterAfter);
     }
 
     // =========================================================================================
