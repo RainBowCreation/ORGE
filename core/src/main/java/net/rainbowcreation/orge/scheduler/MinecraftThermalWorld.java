@@ -180,7 +180,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      * cross-section fall). Entries may span dimensions, so they are grouped per dimension and each
      * group runs against that dimension's §5 store via the headless {@link CrossSectionSeamPass}.
      * The pass mutates the store + {@link CellMaterialTracker} and wakes touched sections through
-     * {@link #wakeNeighbourFlow}.
+     * {@link #wakeNeighbourFlow}. The fall is best-effort: if a receiver's stored species is absent
+     * from this batch's {@code lut} (e.g. a never-stepped neighbour), the pass maps it to void and
+     * makes no transfer that cycle — a "stuck" fall there is by design, not a bug.
      */
     @Override
     public List<TouchedSection> settleCrossSectionSeams(List<BatchEntry> entries, List<Material> lut) {

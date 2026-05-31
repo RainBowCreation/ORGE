@@ -365,7 +365,9 @@ public final class Scheduler {
         // every section the seam pass mutated. The donor may be reconciled twice this cycle (full
         // in the loop, drained here — idempotent); the RECEIVER, which may not be a batch entry at
         // all, is rendered ONLY here. Reads the §5 store, not `results`, so a partial result set is
-        // fine. Never runs on a conduction-only cycle (mass does not move).
+        // fine — a §9-held donor (skipped its write-back above) simply settles its last-persisted
+        // floor, which is consistent with its tracker and idempotent. Never runs on a conduction-only
+        // cycle (mass does not move).
         if (advection) {
             List<ThermalWorld.TouchedSection> touched =
                     world.settleCrossSectionSeams(pendingEntries, pendingMaterials);
