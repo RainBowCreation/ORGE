@@ -108,6 +108,15 @@ public final class StepValidator {
      * mass invention (a water→air drain mislabeled as lava fails because lava's after-sum would exceed
      * its before-sum while water's after-sum falls short).
      *
+     * <p>The native fall pass adds one more case: the <b>air-displacement swap</b> (fluid-in /
+     * air-out), where a falling liquid swaps with the real-air cell below and the displaced air rises
+     * into the donor. It is credited symmetrically to wetting — the donor's risen-air {@code after}
+     * mass is added to the <b>input</b> fluid's sumAfter (the swap-credit branch below) so the fluid's
+     * dual index balances. NOTE this credits an engine-emitted {@code after} value, where the wetting
+     * credit trusts the snapshot {@code before}; it therefore trusts the kernel to write only the air's
+     * resting mass (~1.2 kg) into a swapped cell — a convention enforced by the bit-identical parity +
+     * native regression, not a bound checked here.
+     *
      * <p>Separately, each fluid cell is bounded on its <b>output</b> species,
      * {@code after[i] ∈ [−ε, maxMass(outMat[i]) + ε]}. The ONLY exemption is from this BOUND: a cell
      * already <b>over its own output-species cap</b> ({@code after[i] > maxMass(outMat[i])}) is a
@@ -137,15 +146,23 @@ public final class StepValidator {
             int in = inMat[i];
             int out = outMat[i];
             // BEFORE conserved under the cell's INPUT species; AFTER under its OUTPUT species. The two
-            // sums are decoupled. A fluid input credits its 'before' to its own species. A wetted REAL
-            // air cell (air in, fluid out) is adopted by the fluid: the kernel absorbs the air's resting
-            // mass (~1.2 kg) into the fluid, so we credit that air 'before' to the OUTPUT fluid species
-            // (NOT 0) -> donor + recipient balance under that fluid even as pools wet many air cells.
+            // sums are decoupled. A fluid input credits its 'before' to its own species. Real air interacts
+            // with a fluid in two SYMMETRIC ways that both must balance the fluid's dual index:
+            //   WETTING (absorb): air-in / fluid-out — the kernel adopts the air's resting mass (~1.2 kg)
+            //     INTO the fluid, so the air is gone; we credit that air 'before' to the OUTPUT fluid
+            //     species (handled below) and the cell's fluid 'after' lands in that fluid's sumAfter.
+            //   SWAP (displace): fluid-in / air-out — the native fall pass swaps a falling liquid with the
+            //     real-air cell below; the donor's fluid sank and the displaced air (~1.2 kg) RISES into it,
+            //     so the donor now holds air, not fluid. Its fluid 'before' is credited to the fluid's
+            //     sumBefore (the fluid-in branch), and to balance we must credit the donor's OUTPUT air
+            //     'after' (~1.2 kg) to that SAME fluid's sumAfter (the new air-out branch below). Without
+            //     it, sumBefore over-counts the displaced air by ~1.2 kg per swap (the air it absorb-credits
+            //     at the below cell never reappears in sumAfter) and a large swap pool false-rejects.
             if (in != 0 && lut.get(in).fluid()) {
                 sumBefore[in] += before[i];
             } else if (in != 0 && lut.get(in).air() && out != 0 && lut.get(out).fluid()) {
-                // Fluid fell/wet INTO a real air cell and absorbed its mass (kernel adopts air): credit the
-                // air cell's input mass to the fluid it became so before/after balance for that species.
+                // WETTING: fluid fell/wet INTO a real air cell and absorbed its mass (kernel adopts air):
+                // credit the air cell's input mass to the fluid it became so before/after balance.
                 sumBefore[out] += before[i];
             }
             if (out != 0 && lut.get(out).fluid()) {
@@ -157,6 +174,12 @@ public final class StepValidator {
                     return false;
                 }
                 sumAfter[out] += after[i];
+            } else if (in != 0 && lut.get(in).fluid() && out != 0 && lut.get(out).air()) {
+                // SWAP donor: fluid-in / air-out. The input fluid was displaced down and this cell now holds
+                // the risen air, so credit the OUTPUT air mass to the INPUT fluid species' sumAfter — the
+                // symmetric counterpart to the wetting absorb-credit above. No bound check: this cell holds
+                // air now, not a capped fluid.
+                sumAfter[in] += after[i];
             }
         }
         double tol = (double) cellEps * after.length;
