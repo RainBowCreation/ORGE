@@ -22,6 +22,7 @@ import net.rainbowcreation.orge.material.MaterialJsonLoader;
 import net.rainbowcreation.orge.phase.MinecraftFluidReconciler;
 import net.rainbowcreation.orge.phase.MinecraftPhaseChanger;
 import net.rainbowcreation.orge.scheduler.ExecutorStepRunner;
+import net.rainbowcreation.orge.scheduler.ActiveSet;
 import net.rainbowcreation.orge.scheduler.CellMaterialTracker;
 import net.rainbowcreation.orge.scheduler.MinecraftThermalWorld;
 import net.rainbowcreation.orge.scheduler.Scheduler;
@@ -144,8 +145,12 @@ public final class Orge {
         // whose block changed (bucket fluid, /setblock) — the §5 store keeps no material. Pruned per
         // column on chunk unload so it tracks only loaded sections.
         CellMaterialTracker cellMaterials = new CellMaterialTracker();
-        SECTION_STORES.setColumnUnloadListener(cellMaterials::forgetColumn);
-        thermalWorld = new MinecraftThermalWorld(SECTION_STORES, cellMaterials);
+        ActiveSet activeSet = new ActiveSet();
+        SECTION_STORES.setColumnUnloadListener((dim, cx, cz) -> {
+            cellMaterials.forgetColumn(dim, cx, cz);
+            activeSet.forgetColumn(dim, cx, cz);
+        });
+        thermalWorld = new MinecraftThermalWorld(SECTION_STORES, cellMaterials, activeSet);
         phaseChanger = new MinecraftPhaseChanger(SECTION_STORES);
         fluidReconciler = new MinecraftFluidReconciler(SECTION_STORES);
         Worker serverWorker = new Worker(
@@ -165,6 +170,7 @@ public final class Orge {
             phaseChanger.unbindServer();
             fluidReconciler.unbindServer();
             cellMaterials.clear();
+            activeSet.clear();
             stepRunner.shutdown();
         });
         // Bind the conduction clock to Minecraft's game-tick clock: skip stepping while the world

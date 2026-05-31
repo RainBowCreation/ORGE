@@ -38,16 +38,24 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     private final SectionStoreManager stores;
     private final CellMaterialTracker cellMaterials;
+    private final ActiveSet activeSet;
     private volatile MinecraftServer server;
 
-    public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials) {
+    public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials,
+                                 ActiveSet activeSet) {
         this.stores = stores;
         this.cellMaterials = cellMaterials;
+        this.activeSet = activeSet;
     }
 
     /** Convenience for headless write-back tests that never call {@link #snapshot}. */
     public MinecraftThermalWorld(SectionStoreManager stores) {
-        this(stores, new CellMaterialTracker());
+        this(stores, new CellMaterialTracker(), new ActiveSet());
+    }
+
+    /** The wake sink the loader event hooks push into (DESIGN §10 Decision 11). */
+    public WakeSink wakeSink() {
+        return activeSet;
     }
 
     /** Bind the running server (on SERVER_STARTED); unbind on stop. */
@@ -81,7 +89,13 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             Set<SubchunkKey> union = SphereUnion.expand(anchors, range);
             addForcedSections(level, union);
 
-            for (SubchunkKey key : union) {
+            // §10 Decision 11: step only the ACTIVE SET within range. A never-seen section is
+            // admitted active (new-in-range); a fully-asleep section is dropped here so a calm
+            // ocean stops re-simulating. activeWithin both filters and records new-in-range keys;
+            // the rest of the loop body (geometry, temps, mass, halo, entries.add) is unchanged.
+            List<SubchunkKey> active = activeSet.activeWithin(dim, new ArrayList<>(union));
+
+            for (SubchunkKey key : active) {
                 LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
                 if (chunk == null) {
                     continue;
@@ -132,6 +146,21 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         float[] massDst = data.massArray();
         System.arraycopy(result.mass(), 0, massDst, 0, SectionData.CELLS);
         store.put(entry.key(), data);
+    }
+
+    /**
+     * Feed a section's per-step settle deltas into the active set (DESIGN §10 Decision 11). A
+     * negative delta means that pass did not run this cycle (skip its countdown), so a coincident
+     * conduction tick still counts the flow pass and vice versa.
+     */
+    @Override
+    public void noteSettle(BatchEntry entry, float maxMassDelta, float maxTempDelta) {
+        if (maxMassDelta >= 0f) {
+            activeSet.noteFlowDelta(entry.dimension(), entry.key(), maxMassDelta);
+        }
+        if (maxTempDelta >= 0f) {
+            activeSet.noteThermalDelta(entry.dimension(), entry.key(), maxTempDelta);
+        }
     }
 
     /**

@@ -35,4 +35,13 @@ public interface ThermalWorld {
      * snapshot is skipped.
      */
     void writeBack(BatchEntry entry, StepResult result);
+
+    /**
+     * Record a section's per-step settle deltas (DESIGN §10 Decision 11). Called from the writeback
+     * loop with the max |Δmass| (advection) / max |ΔT| (conduction) over the section's 4096 cells, so
+     * a quiet section counts down toward dormancy. {@code maxMassDelta < 0} means "no advection this
+     * cycle" (skip the flow countdown); likewise {@code maxTempDelta < 0} skips thermal. Default no-op
+     * for headless test worlds.
+     */
+    default void noteSettle(BatchEntry entry, float maxMassDelta, float maxTempDelta) { }
 }

@@ -310,6 +310,12 @@ public final class Scheduler {
                     }
                 }
                 world.writeBack(entry, new StepResult(cleanT, cleanM, r.material()));
+                // §10 Decision 11: piggyback the settle reduction on this loop (near-free, one
+                // max-reduction per array). On a coincident tick conduction's ΔT is already folded
+                // into cleanT, so report both deltas; otherwise the flow delta only.
+                float maxMassDelta = maxAbsDelta(cleanM, entry.task().mass());
+                float maxTempDelta = conduction ? maxAbsDelta(cleanT, entry.task().temperature()) : -1f;
+                world.noteSettle(entry, maxMassDelta, maxTempDelta);
                 if (conduction) {
                     // Coincident tick: conduction's within-cell exchange is already reflected in
                     // cleanT (advection stepped the post-conduction field), so phase change runs
@@ -320,9 +326,21 @@ public final class Scheduler {
             } else {
                 // Conduction-only cycle: mass does not move, carry the snapshot mass through.
                 world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
+                world.noteSettle(entry, -1f, maxAbsDelta(cleanT, entry.task().temperature()));
                 phaseChanger.applyPhaseChanges(entry);
             }
         }
+    }
+
+    /** Max absolute per-cell difference of two equal-length arrays (the settle reduction). */
+    private static float maxAbsDelta(float[] a, float[] b) {
+        float m = 0f;
+        int n = Math.min(a.length, b.length);
+        for (int i = 0; i < n; i++) {
+            float d = Math.abs(a[i] - b[i]);
+            if (d > m) m = d;
+        }
+        return m;
     }
 
     private void toIdle() {
