@@ -52,4 +52,14 @@ public interface ThermalWorld {
      * snapshotted). Default no-op for headless test worlds.
      */
     default void wakeNeighbourFlow(Identifier dim, SubchunkKey neighbour) { }
+
+    /**
+     * Record the material each cell's just-persisted mass now belongs to (DESIGN §10 follow-on).
+     * Called from the writeback loop AFTER a successful advection writeBack with the engine's output
+     * species ({@code outMat}, may be null for stub/back-compat) and the batch {@code lut}. The live
+     * impl updates its CellMaterialTracker so the NEXT snapshot's MaterialChangeReseed treats
+     * engine-driven fluid placements (the reconciler turning a wetted air cell into water) as
+     * already-known and reseeds only genuine external edits. Default no-op for headless test worlds.
+     */
+    default void recordCellMaterials(BatchEntry entry, char[] outMat, java.util.List<Material> lut) { }
 }

@@ -3,6 +3,7 @@ package net.rainbowcreation.orge.scheduler;
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
+import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.AmbientProvider;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,6 +24,30 @@ import static org.junit.jupiter.api.Assertions.*;
 class MinecraftThermalWorldTest {
 
     private static final Identifier DIM = Identifier.fromNamespaceAndPath("minecraft", "overworld");
+
+    private static final Identifier ORGE_VOID = Identifier.fromNamespaceAndPath("orge", "void");
+    private static final Identifier ORGE_AIR = Identifier.fromNamespaceAndPath("orge", "air");
+    private static final Identifier ORGE_WATER = Identifier.fromNamespaceAndPath("orge", "water");
+
+    private static final char VOID_IX = 0;
+    private static final char AIR_IX = 1;
+    private static final char WATER_IX = 2;
+
+    private static Material fluid(Identifier id, float defaultMass) {
+        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
+                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null,
+                Float.NaN, false, true);
+    }
+
+    private static Material nonFluid(Identifier id, float defaultMass) {
+        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
+                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+    }
+
+    /** LUT: void=0, air=1, water=2 (the indices used by the recordCellMaterials tests). */
+    private static List<Material> recordLut() {
+        return List.of(MaterialLut.VOID, nonFluid(ORGE_AIR, 1.2f), fluid(ORGE_WATER, 1000f));
+    }
 
     private static SectionStoreManager loadedManager(Path dir) {
         SectionStoreManager mgr = new SectionStoreManager();
@@ -95,5 +121,58 @@ class MinecraftThermalWorldTest {
                 "a section holding a genuine gradient must stay FULL");
         assertEquals(350f, data.temperatureAt(0), 1e-4f);
         assertEquals(300f, data.temperatureAt(1), 1e-4f);
+    }
+
+    /** D is an input air cell the engine wetted (outMat[D]=water). The recorded signature must be
+     *  the engine OUTPUT species (water) — so the reconciler's matching water placement next
+     *  snapshot is recognised and NOT reseeded — not the pre-step input block (air). */
+    @Test
+    void recordCellMaterialsRecordsEngineOutputSpeciesNotInputBlock(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        CellMaterialTracker tracker = new CellMaterialTracker();
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr, tracker, new ActiveSet());
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        int D = 100;
+        char[] inMat = new char[SectionData.CELLS];
+        Arrays.fill(inMat, AIR_IX); // all cells are air in the pre-step world
+        StepTask task = new StepTask(key, inMat,
+                new float[SectionData.CELLS], new float[SectionData.CELLS], null);
+        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
+
+        char[] outMat = new char[SectionData.CELLS]; // engine produced nothing...
+        outMat[D] = WATER_IX;                        // ...except it wetted D to water.
+
+        world.recordCellMaterials(entry, outMat, recordLut());
+
+        Identifier[] prior = tracker.prior(DIM, key);
+        assertNotNull(prior, "signature recorded");
+        assertEquals(ORGE_WATER, prior[D], "D records the engine OUTPUT species (water), not input air");
+    }
+
+    /** An untouched air cell (outMat[E]=0) records the WORLD material (orge:air, from input matIx),
+     *  never the index-0 orge:void sentinel. */
+    @Test
+    void recordCellMaterialsFallsBackToWorldMaterialForUntouchedAirCells(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        CellMaterialTracker tracker = new CellMaterialTracker();
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr, tracker, new ActiveSet());
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        int E = 200;
+        char[] inMat = new char[SectionData.CELLS];
+        Arrays.fill(inMat, AIR_IX);
+        StepTask task = new StepTask(key, inMat,
+                new float[SectionData.CELLS], new float[SectionData.CELLS], null);
+        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
+
+        char[] outMat = new char[SectionData.CELLS]; // outMat[E] == 0: engine deposited nothing at E
+
+        world.recordCellMaterials(entry, outMat, recordLut());
+
+        Identifier[] prior = tracker.prior(DIM, key);
+        assertNotNull(prior, "signature recorded");
+        assertEquals(ORGE_AIR, prior[E], "untouched air cell records orge:air (input), not orge:void");
+        assertNotEquals(ORGE_VOID, prior[E], "must not record the index-0 void sentinel");
     }
 }

@@ -78,10 +78,16 @@ class SchedulerMassTest {
         Batch batch;
         final List<float[]> writes = new ArrayList<>();
         final List<float[]> massWrites = new ArrayList<>();
+        int recordCount;
+        final List<char[]> recordedOutMat = new ArrayList<>();
         @Override public Batch snapshot(int range) { return batch; }
         @Override public void writeBack(BatchEntry entry, StepResult r) {
             writes.add(r.temperature());
             massWrites.add(r.mass());
+        }
+        @Override public void recordCellMaterials(BatchEntry entry, char[] outMat, List<Material> lut) {
+            recordCount++;
+            recordedOutMat.add(outMat);
         }
     }
 
@@ -205,5 +211,63 @@ class SchedulerMassTest {
         for (int i = 0; i < 6; i++) badS.onServerTick();
         assertEquals(0, badWorld.writes.size(), "non-conserving advection result rejected (held previous)");
         assertEquals(0, badReconciler.count, "no reconcile for a held (rejected) section");
+    }
+
+    /** An engine that conserves mass and emits an output species array (matIx echoed) so the
+     *  scheduler can forward result.material() to recordCellMaterials. */
+    private static final class SpeciesEngine implements OrgeEngine {
+        @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
+            List<StepResult> out = new ArrayList<>(tasks.size());
+            for (StepTask t : tasks) {
+                out.add(new StepResult(t.temperature().clone(), t.mass().clone(),
+                        t.matIx().clone())); // echo input species: conserved, non-null material()
+            }
+            return out;
+        }
+        @Override public double lastStepMillis() { return 1.0; }
+    }
+
+    @Test
+    void conservedAdvectionRecordsCellMaterialsWithEngineOutput() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = fluidBatch(290f);
+        Scheduler s = new Scheduler(new SpeciesEngine(), world, runner, worker(),
+                net.rainbowcreation.orge.phase.PhaseChanger.NOOP, new CountingReconciler());
+        // tick 5 submits the advection-only step; tick 6 services + writes it back.
+        for (int i = 0; i < 6; i++) s.onServerTick();
+
+        assertEquals(1, world.writes.size(), "advection-only step wrote back once");
+        assertEquals(1, world.recordCount, "recordCellMaterials called once for the written section");
+        char[] recorded = world.recordedOutMat.get(0);
+        assertNotNull(recorded, "engine output species forwarded to recordCellMaterials");
+        // SpeciesEngine echoes the input matIx (all water index 1), so the recorded outMat is water.
+        assertEquals((char) 1, recorded[0], "recordCellMaterials got result.material() (engine output species)");
+    }
+
+    @Test
+    void heldAdvectionDoesNotRecordCellMaterials() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = fluidBatch(290f);
+        // Non-conserving engine: fabricates mass -> §9 holds the section (no write-back).
+        OrgeEngine fabricatingEngine = new OrgeEngine() {
+            @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
+                List<StepResult> out = new ArrayList<>(tasks.size());
+                for (StepTask t : tasks) {
+                    float[] mass = t.mass().clone();
+                    mass[1] += 500f; // fabricate mass -> violates conservation
+                    out.add(new StepResult(t.temperature().clone(), mass, t.matIx().clone()));
+                }
+                return out;
+            }
+            @Override public double lastStepMillis() { return 1.0; }
+        };
+        Scheduler s = new Scheduler(fabricatingEngine, world, runner, worker(),
+                net.rainbowcreation.orge.phase.PhaseChanger.NOOP, new CountingReconciler());
+        for (int i = 0; i < 6; i++) s.onServerTick();
+
+        assertEquals(0, world.writes.size(), "held section is not written back");
+        assertEquals(0, world.recordCount, "held (rejected) section does not record cell materials");
     }
 }

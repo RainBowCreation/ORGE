@@ -114,12 +114,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 // §10 follow-on: a cell whose block changed material since last cycle (bucket fluid,
                 // /setblock, piston) still carries the OLD block's persisted temp/mass (a formerly-air
                 // cell stored 1.2 kg + ambient). Refresh those stale cells from the new material's
-                // defaults, then record this cycle's live materials so the next snapshot can detect
-                // the next change. record reuses the prior array when nothing changed (no allocation).
+                // defaults. The signature this compares against was recorded at the LAST write-back
+                // from the engine's OUTPUT species (recordCellMaterials), so the reconciler's own
+                // fluid placements are already-known and only genuine external edits reseed.
                 Identifier[] priorMat = cellMaterials.prior(dim, key);
                 MaterialChangeReseed.apply(priorMat, geo.matIx(), lut.materials(), temps, mass,
                         biomeAmbientK(level, key));
-                cellMaterials.record(dim, key, liveMaterialIds(geo.matIx(), lut.materials(), priorMat));
                 NeighborHalo halo = buildHalo(level, dim, key, lut, mats);
                 entries.add(new BatchEntry(dim, key,
                         new StepTask(key, geo.matIx(), mass, temps, halo)));
@@ -173,6 +173,26 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     @Override
     public void wakeNeighbourFlow(Identifier dim, SubchunkKey neighbour) {
         activeSet.wakeFlowSection(dim, neighbour);
+    }
+
+    /**
+     * Record the engine's OUTPUT species as the signature for this section's just-persisted mass
+     * (DESIGN §10 follow-on; the reseed-misfire fix). Per cell the recorded species is the engine
+     * output when present ({@code outMat[i] != 0}), else the cell's input/world material — so an
+     * untouched air cell records {@code orge:air}, never the index-0 {@code orge:void} sentinel. This
+     * makes the NEXT snapshot's {@link MaterialChangeReseed} treat the reconciler's matching fluid
+     * placement as already-known (no reseed → mass is conserved) while still reseeding genuine
+     * external edits. Reuses the prior array verbatim when the signature is unchanged (no allocation).
+     */
+    @Override
+    public void recordCellMaterials(BatchEntry entry, char[] outMat, List<Material> lut) {
+        char[] inMat = entry.task().matIx();
+        char[] effective = new char[inMat.length];
+        for (int i = 0; i < inMat.length; i++) {
+            effective[i] = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i] : inMat[i];
+        }
+        Identifier[] prior = cellMaterials.prior(entry.dimension(), entry.key());
+        cellMaterials.record(entry.dimension(), entry.key(), liveMaterialIds(effective, lut, prior));
     }
 
     /**

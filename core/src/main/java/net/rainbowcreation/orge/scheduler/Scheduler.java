@@ -311,6 +311,12 @@ public final class Scheduler {
                     }
                 }
                 world.writeBack(entry, new StepResult(cleanT, cleanM, r.material()));
+                // §10 follow-on (reseed-misfire fix): record the engine's OUTPUT species as the
+                // signature for this section's just-persisted mass. The NEXT snapshot's
+                // MaterialChangeReseed then sees the reconciler's matching fluid placement as
+                // already-known (no reseed → conservation) and reseeds only genuine external edits.
+                // Runs only on the conserved path — a held (§9-rejected) section `continue`d above.
+                world.recordCellMaterials(entry, r.material(), pendingMaterials);
                 // §10 Decision 11: piggyback the settle reduction on this loop (near-free, one
                 // max-reduction per array). On a coincident tick conduction's ΔT is already folded
                 // into cleanT, so report both deltas; otherwise the flow delta only.
