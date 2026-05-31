@@ -1,5 +1,6 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.material.Material;
 
 import java.util.List;
@@ -40,7 +41,11 @@ public final class CrossSectionFluidLogic {
      *
      * @param changedA    per-column flag: true when a cell in the UPPER (A) plane was mutated
      * @param changedB    per-column flag: true when a cell in the LOWER (B) plane was mutated
-     * @param massBefore  total fluid+air mass across both planes BEFORE any mutation
+     * @param massBefore  total fluid+air mass across both planes BEFORE any mutation.
+     *                    The sums are fluid+air only and will be equal to {@code massAfter}
+     *                    after any correct swap/deposit because this class conserves BY
+     *                    CONSTRUCTION — useful for external budgeting/sanity checks, not
+     *                    an independent proof of correctness.
      * @param massAfter   total fluid+air mass across both planes AFTER all mutations
      */
     public record SeamResult(boolean[] changedA, boolean[] changedB,
@@ -63,13 +68,17 @@ public final class CrossSectionFluidLogic {
             float[] massB, float[] tempB, char[] spB,
             List<Material> lut) {
 
-        boolean[] changedA = new boolean[256];
-        boolean[] changedB = new boolean[256];
+        if (massA.length != NeighborHalo.FACE_CELLS || massB.length != NeighborHalo.FACE_CELLS)
+            throw new IllegalArgumentException(
+                    "seam plane arrays must be length " + NeighborHalo.FACE_CELLS);
+
+        boolean[] changedA = new boolean[NeighborHalo.FACE_CELLS];
+        boolean[] changedB = new boolean[NeighborHalo.FACE_CELLS];
 
         // Compute massBefore: sum mass of every fluid-or-air cell in both planes
         double massBefore = sumFluidAirMass(massA, spA, massB, spB, lut);
 
-        for (int c = 0; c < 256; c++) {
+        for (int c = 0; c < NeighborHalo.FACE_CELLS; c++) {
             char spDonor = spA[c];
 
             // --- Donor guard ---
@@ -78,8 +87,14 @@ public final class CrossSectionFluidLogic {
             Material donor = lut.get(spDonor);
             if (!donor.fluid() || donor.gas()) continue;
             if (massA[c] <= ADV_EPS) continue;
+            // Explicit non-finite guard: documents intent and catches NaN temp even
+            // when NaN mass has already been filtered by the ADV_EPS check above.
+            if (!Float.isFinite(massA[c]) || !Float.isFinite(tempA[c])) continue;
 
             char spReceiver = spB[c];
+
+            // --- Receiver guard: skip corrupt receiver cells ---
+            if (!Float.isFinite(massB[c]) || !Float.isFinite(tempB[c])) continue;
 
             // --- Case 1: SWAP — receiver is real air ---
             if (spReceiver != 0 && lut.get(spReceiver).air() && massB[c] > ADV_EPS) {
@@ -110,9 +125,12 @@ public final class CrossSectionFluidLogic {
                 float dm = Math.min(massA[c], cap);
                 if (dm <= ADV_EPS) continue;  // transfer too small to matter
 
-                // Enthalpy-mix the receiving cell's temperature
+                // Enthalpy-mix the receiving cell's temperature only when the result
+                // is positive (guards against divide-by-zero on corrupt input).
                 float newMassB = massB[c] + dm;
-                tempB[c] = (massB[c] * tempB[c] + dm * tempA[c]) / newMassB;
+                if (newMassB > 0f) {
+                    tempB[c] = (massB[c] * tempB[c] + dm * tempA[c]) / newMassB;
+                }
                 massB[c] = newMassB;
 
                 massA[c] -= dm;
@@ -143,7 +161,7 @@ public final class CrossSectionFluidLogic {
             float[] massB, char[] spB,
             List<Material> lut) {
         double sum = 0.0;
-        for (int c = 0; c < 256; c++) {
+        for (int c = 0; c < NeighborHalo.FACE_CELLS; c++) {
             if (spA[c] != 0) {
                 Material m = lut.get(spA[c]);
                 if (m.fluid() || m.air()) sum += massA[c];

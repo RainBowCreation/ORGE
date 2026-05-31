@@ -467,6 +467,76 @@ class CrossSectionFluidLogicTest {
         assertEquals(r.massBefore(), r.massAfter(), 1e-3);
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  (i) Non-finite guard: NaN donor or NaN receiver is skipped          */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * I1 regression: corrupt (NaN) input must never propagate NaN into any output array.
+     * Three columns are set up:
+     *   col 10 — NaN tempA over real air → donor guard must skip it
+     *   col 20 — good water donor over NaN massB → receiver guard must skip it
+     *   col 30 — NaN massA (water species) over real air → donor non-finite guard skips it
+     * All other columns are left as VOID/0.  No output array may contain NaN after the call.
+     */
+    @Test
+    void nonFiniteInputIsSkippedWithoutNaNPropagation() {
+        List<Material> lut = buildLut();
+
+        float[] massA = masses(256);  float[] tempA = temps(256);  char[] spA = species(256);
+        float[] massB = masses(256);  float[] tempB = temps(256);  char[] spB = species(256);
+
+        // col 10: NaN temp on donor → donor guard should skip
+        massA[10] = 500f;          tempA[10] = Float.NaN;  spA[10] = WATER;
+        massB[10] = 1.2f;          tempB[10] = 300f;       spB[10] = AIR;
+
+        // col 20: valid donor over receiver with NaN mass → receiver guard should skip
+        massA[20] = 500f;          tempA[20] = 300f;       spA[20] = WATER;
+        massB[20] = Float.NaN;     tempB[20] = 300f;       spB[20] = WATER;
+
+        // col 30: NaN mass on donor (despite species=WATER, NaN > ADV_EPS is false, but
+        //         the explicit isFinite guard still fires and skips it cleanly)
+        massA[30] = Float.NaN;     tempA[30] = 300f;       spA[30] = WATER;
+        massB[30] = 1.2f;          tempB[30] = 300f;       spB[30] = AIR;
+
+        // Should not throw; should not write NaN anywhere
+        CrossSectionFluidLogic.SeamResult r =
+                CrossSectionFluidLogic.settleVerticalSeam(massA, tempA, spA, massB, tempB, spB, lut);
+
+        // Verify the guard prevented NaN from spreading to OTHER cells (not the corrupt ones).
+        // We check all 256 outputs on each side, skipping only the cells we deliberately
+        // corrupted as inputs (since those are not mutated, they remain NaN by design).
+        for (int c = 0; c < 256; c++) {
+            if (c != 10 && c != 30) {  // col 10 tempA, col 30 massA were set NaN as inputs
+                assertFalse(Float.isNaN(massA[c]),
+                        "massA[" + c + "] must not be NaN after call");
+            }
+            if (c != 10) {  // col 10 tempA was set NaN as input
+                assertFalse(Float.isNaN(tempA[c]),
+                        "tempA[" + c + "] must not be NaN after call");
+            }
+            if (c != 20) {  // col 20 massB was set NaN as input
+                assertFalse(Float.isNaN(massB[c]),
+                        "massB[" + c + "] must not be NaN after call");
+                assertFalse(Float.isNaN(tempB[c]),
+                        "tempB[" + c + "] must not be NaN after call");
+            }
+        }
+
+        // The corrupt columns must not have been mutated by the logic
+        assertFalse(r.changedA()[10], "col10 (NaN tempA donor) must not be flagged changed");
+        assertFalse(r.changedB()[10], "col10 receiver must not be flagged changed");
+        assertEquals(1.2f, massB[10], 1e-6f, "col10 air receiver must be unchanged");
+
+        assertFalse(r.changedA()[20], "col20 (NaN massB receiver) must not be flagged changed");
+        assertFalse(r.changedB()[20], "col20 receiver must not be flagged changed");
+        assertEquals(500f, massA[20], 1e-6f, "col20 donor must be unchanged");
+
+        assertFalse(r.changedA()[30], "col30 (NaN massA donor) must not be flagged changed");
+        assertFalse(r.changedB()[30], "col30 receiver must not be flagged changed");
+        assertEquals(1.2f, massB[30], 1e-6f, "col30 air receiver must be unchanged");
+    }
+
     @Test
     void lavaOverSameLavaDeposit() {
         List<Material> lut = buildLut();
