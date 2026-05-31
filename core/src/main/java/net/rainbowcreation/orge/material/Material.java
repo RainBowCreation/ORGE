@@ -45,7 +45,7 @@ public record Material(
      * Physical state of a material; informs engine flow/buoyancy (DESIGN spec §1.2).
      * {@code GAS} is a flowing phase too — see {@link #fluid()}.
      */
-    public enum State { SOLID, FLUID, GAS, ENTITY }
+    public enum State { SOLID, FLUID, GAS, ENTITY, AIR }
 
     /**
      * Per-cell capacity cap (kg). Stored 0 means "unset" → falls back to {@link #defaultMass()}
@@ -126,6 +126,15 @@ public record Material(
     /** Derived: is this material a gas phase (buoyancy / cross-species rules)? */
     public boolean gas() {
         return state == State.GAS;
+    }
+
+    /**
+     * Derived: is this material first-class air ({@link State#AIR})? Air is NON-fluid
+     * and NON-gas — it is the empty phase fluids may flow into, so the engine can later
+     * be told which material is "in-game air".
+     */
+    public boolean air() {
+        return state == State.AIR;
     }
     // TODO(phase: materials): builder + validate non-negative constants.
 }

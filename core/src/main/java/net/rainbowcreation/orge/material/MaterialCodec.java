@@ -32,7 +32,7 @@ import java.util.Optional;
  *     {@code viscosity} → 0, {@code molar_mass} → 0,
  *     {@code max_temp} → +∞, {@code min_temp} → -∞,
  *     {@code default_temperature} → NaN (absent), {@code pinned} → false,
- *     {@code state} → {@code "solid"} (one of solid/fluid/gas/entity),
+ *     {@code state} → {@code "solid"} (one of solid/fluid/gas/entity/air),
  *     {@code min_flow_mass} → 0, {@code max_mass} → 0 (= default_mass)</li>
  *   <li><b>Optional nullable ids:</b>
  *     {@code max_target}, {@code min_target}, {@code representative_block} → null</li>
