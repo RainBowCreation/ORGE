@@ -269,97 +269,136 @@ public final class Scheduler {
         boolean advection = pendingAdvection;
         float fullMassBound = pendingFullMassBound;
         int n = Math.min(results.size(), pendingEntries.size());
+
+        if (advection) {
+            writeBackAdvectionBatch(results, n, conduction, fullMassBound);
+            return;
+        }
+
         for (int i = 0; i < n; i++) {
             ThermalWorld.BatchEntry entry = pendingEntries.get(i);
             StepResult r = results.get(i);
             float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature());
+            // Conduction-only cycle: mass does not move, carry the snapshot mass through.
+            world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
+            // Keep the material signature fresh even on a hypothetical conduction-only cycle (none are
+            // submitted today, but the advection cadence is audit-tunable): conduction changes no species,
+            // so the input/world materials are authoritative. Passing null outMat falls back to them.
+            world.recordCellMaterials(entry, null, pendingMaterials);
+            world.noteSettle(entry, -1f, maxAbsDelta(cleanT, entry.task().temperature()));
+            phaseChanger.applyPhaseChanges(entry);
+        }
+    }
 
-            if (advection) {
-                // Advection cycle (and the advection half of a coincident tick): mass moved, so
-                // validate Σmass and write T + mass; a non-conserving result holds previous mass.
-                float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);
-                char[] outMat = r.material();
-                if (outMat != null) {
-                    // Preserve any over-cap parcel (a §7/engine boil deposit) that cleanMass would
-                    // otherwise clamp to fullMassBound and destroy (Decision 12 landmine). Key on the
-                    // cell being over its OWN output-species cap — robust across the multi-step relaxation,
-                    // not just the flip step (a boiled steam cell stays steam while it relaxes).
-                    for (int c = 0; c < cleanM.length; c++) {
-                        int s = outMat[c];
-                        if (s != 0 && pendingMaterials.get(s).fluid()
-                                && Float.isFinite(r.mass()[c]) && r.mass()[c] >= 0f
-                                && r.mass()[c] > pendingMaterials.get(s).maxMass()) {
-                            cleanM[c] = r.mass()[c]; // boil-volume: keep the over-cap deposit unclamped
-                        }
-                    }
-                    if (!StepValidator.massConservedPerSpecies(cleanM, entry.task().mass(),
-                            entry.task().matIx(), outMat, pendingMaterials)) {
-                        LOGGER.warn("[ORGE] advection mass not conserved (per-species) for {}; holding previous mass",
-                                entry.key());
-                        // Hold previous: skip write-back (and reconcile) for this entry. On a
-                        // coincident tick conduction's heat is folded into the advection T, so we do
-                        // NOT separately write T here — holding the whole entry is the safe choice.
-                        continue;
-                    }
-                } else {
-                    // No engine species (stub/back-compat): fall back to the total-fluid gate.
-                    if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound,
-                            entry.task().matIx(), pendingMaterials)) {
-                        LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
-                                entry.key());
-                        continue;
-                    }
-                }
-                world.writeBack(entry, new StepResult(cleanT, cleanM, r.material()));
-                // §10 follow-on (reseed-misfire fix): record the engine's OUTPUT species as the
-                // signature for this section's just-persisted mass. The NEXT snapshot's
-                // MaterialChangeReseed then sees the reconciler's matching fluid placement as
-                // already-known (no reseed → conservation) and reseeds only genuine external edits.
-                // Runs only on the conserved path — a held (§9-rejected) section `continue`d above.
-                world.recordCellMaterials(entry, r.material(), pendingMaterials);
-                // §10 Decision 11: piggyback the settle reduction on this loop (near-free, one
-                // max-reduction per array). On a coincident tick conduction's ΔT is already folded
-                // into cleanT, so report both deltas; otherwise the flow delta only.
-                float maxMassDelta = maxAbsDelta(cleanM, entry.task().mass());
-                float maxTempDelta = conduction ? maxAbsDelta(cleanT, entry.task().temperature()) : -1f;
-                world.noteSettle(entry, maxMassDelta, maxTempDelta);
-                // §10 Decision 11 trigger (c): if mass crossed any of the six boundary faces this step,
-                // wake the adjacent section's flow pass so flow propagates into a dormant border instead
-                // of stopping dead. Reads only the six 16×16 boundary planes (cheap, no extra grid pass)
-                // off the data already in hand (snapshot mass vs post-step mass). A held entry never
-                // reaches here (the §9 gate `continue`d above), so it correctly wakes no neighbour.
-                float[] inMass = entry.task().mass();
-                boolean negX = faceMoved(inMass, cleanM, Face.NEG_X);
-                boolean posX = faceMoved(inMass, cleanM, Face.POS_X);
-                boolean negY = faceMoved(inMass, cleanM, Face.NEG_Y);
-                boolean posY = faceMoved(inMass, cleanM, Face.POS_Y);
-                boolean negZ = faceMoved(inMass, cleanM, Face.NEG_Z);
-                boolean posZ = faceMoved(inMass, cleanM, Face.POS_Z);
-                if (negX || posX || negY || posY || negZ || posZ) {
-                    for (SubchunkKey nb : SeamFluxWake.neighboursToWake(entry.key(),
-                            negX, posX, negY, posY, negZ, posZ)) {
-                        world.wakeNeighbourFlow(entry.dimension(), nb);
+    /**
+     * Advection write-back at BATCH granularity (DESIGN §10 cross-section): validate-then-write. The
+     * §9 mass-conservation decision is made ONCE over the whole co-stepped batch, because a cross-seam
+     * transfer between two co-stepped sections cancels in the batch sum (the donor section's after-sum
+     * drops below its before-sum, the recipient's rises, and the two cancel). A per-section gate would
+     * false-reject such a fall; the batch gate accepts it while still rejecting genuine fabrication.
+     *
+     * <p>PASS 1: for each result compute {@code cleanT}/{@code cleanM} (preserving the over-cap boil
+     * parcel) and run the per-cell BOUND ({@link StepValidator#cellsWithinBound}, or the legacy total-
+     * fluid gate when the engine emits no species); a bound-illegal entry is HELD individually (skipped,
+     * not added to the batch). Bound-clean entries feed a {@link StepValidator.SpeciesMassLedger} and are
+     * stashed for PASS 2. PASS 2: if the ledger is NOT conserved, HOLD the WHOLE batch's mass (no write-
+     * back this cycle — the safe choice on a coincident tick, where conduction's heat is folded into the
+     * advection T); otherwise write each stashed entry back exactly as the old conserved path did
+     * (writeBack → recordCellMaterials → noteSettle → faceMoved-wake → coincident phaseChanger →
+     * reconcile), in batch order. Side effects and ordering are unchanged; only the conservation DECISION
+     * moves from per-entry to batch-level, and write-back now happens AFTER it.</p>
+     */
+    private void writeBackAdvectionBatch(List<StepResult> results, int n, boolean conduction, float fullMassBound) {
+        // One stashed, bound-clean entry pending the batch conservation verdict.
+        record Pending(ThermalWorld.BatchEntry entry, StepResult result, float[] cleanT, float[] cleanM) {}
+        List<Pending> stash = new java.util.ArrayList<>(n);
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+
+        for (int i = 0; i < n; i++) {
+            ThermalWorld.BatchEntry entry = pendingEntries.get(i);
+            StepResult r = results.get(i);
+            float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature());
+            float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);
+            char[] outMat = r.material();
+            if (outMat != null) {
+                // Preserve any over-cap parcel (a §7/engine boil deposit) that cleanMass would otherwise
+                // clamp to fullMassBound and destroy (Decision 12 landmine). Key on the cell being over its
+                // OWN output-species cap — robust across the multi-step relaxation, not just the flip step.
+                for (int c = 0; c < cleanM.length; c++) {
+                    int s = outMat[c];
+                    if (s != 0 && pendingMaterials.get(s).fluid()
+                            && Float.isFinite(r.mass()[c]) && r.mass()[c] >= 0f
+                            && r.mass()[c] > pendingMaterials.get(s).maxMass()) {
+                        cleanM[c] = r.mass()[c]; // boil-volume: keep the over-cap deposit unclamped
                     }
                 }
-                if (conduction) {
-                    // Coincident tick: conduction's within-cell exchange is already reflected in
-                    // cleanT (advection stepped the post-conduction field), so phase change runs
-                    // on the freshly written section.
-                    phaseChanger.applyPhaseChanges(entry);
+                // PASS-1 bound check (per section/cell): an illegally non-finite/over-cap cell holds THIS
+                // entry alone (skip it, don't add to the batch). The CONSERVATION decision is deferred to
+                // the batch ledger below.
+                if (!StepValidator.cellsWithinBound(cleanM, outMat, pendingMaterials)) {
+                    LOGGER.warn("[ORGE] advection cell over per-species bound for {}; holding previous mass",
+                            entry.key());
+                    continue;
                 }
-                fluidReconciler.reconcile(entry, r.material(), pendingMaterials);
+                ledger.add(cleanM, entry.task().mass(), entry.task().matIx(), outMat, pendingMaterials);
             } else {
-                // Conduction-only cycle: mass does not move, carry the snapshot mass through.
-                world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
-                // Keep the material signature fresh even on a hypothetical conduction-only cycle (none are
-                // submitted today, but the advection cadence is audit-tunable): conduction changes no species,
-                // so the input/world materials are authoritative. Passing null outMat falls back to them.
-                world.recordCellMaterials(entry, null, pendingMaterials);
-                world.noteSettle(entry, -1f, maxAbsDelta(cleanT, entry.task().temperature()));
-                phaseChanger.applyPhaseChanges(entry);
+                // No engine species (stub/back-compat): keep the legacy per-entry total-fluid gate, which
+                // folds bound + conservation together. A non-conserving legacy entry holds individually.
+                if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound,
+                        entry.task().matIx(), pendingMaterials)) {
+                    LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
+                            entry.key());
+                    continue;
+                }
             }
+            stash.add(new Pending(entry, r, cleanT, cleanM));
         }
 
+        // PASS 2: batch-level conservation decision. A non-conserving batch holds ALL of its mass.
+        if (!ledger.conserved()) {
+            LOGGER.warn("[ORGE] advection batch mass not conserved (per-species); holding batch mass");
+            return;
+        }
+
+        for (Pending p : stash) {
+            ThermalWorld.BatchEntry entry = p.entry();
+            StepResult r = p.result();
+            float[] cleanT = p.cleanT();
+            float[] cleanM = p.cleanM();
+            world.writeBack(entry, new StepResult(cleanT, cleanM, r.material()));
+            // §10 follow-on (reseed-misfire fix): record the engine's OUTPUT species as the signature for
+            // this section's just-persisted mass. The NEXT snapshot's MaterialChangeReseed then sees the
+            // reconciler's matching fluid placement as already-known (no reseed → conservation) and reseeds
+            // only genuine external edits. Runs only on the conserved-batch path.
+            world.recordCellMaterials(entry, r.material(), pendingMaterials);
+            // §10 Decision 11: piggyback the settle reduction (near-free, one max-reduction per array). On a
+            // coincident tick conduction's ΔT is already folded into cleanT, so report both deltas.
+            float maxMassDelta = maxAbsDelta(cleanM, entry.task().mass());
+            float maxTempDelta = conduction ? maxAbsDelta(cleanT, entry.task().temperature()) : -1f;
+            world.noteSettle(entry, maxMassDelta, maxTempDelta);
+            // §10 Decision 11 trigger (c): if mass crossed any of the six boundary faces this step, wake the
+            // adjacent section's flow pass so flow propagates into a dormant border instead of stopping dead.
+            float[] inMass = entry.task().mass();
+            boolean negX = faceMoved(inMass, cleanM, Face.NEG_X);
+            boolean posX = faceMoved(inMass, cleanM, Face.POS_X);
+            boolean negY = faceMoved(inMass, cleanM, Face.NEG_Y);
+            boolean posY = faceMoved(inMass, cleanM, Face.POS_Y);
+            boolean negZ = faceMoved(inMass, cleanM, Face.NEG_Z);
+            boolean posZ = faceMoved(inMass, cleanM, Face.POS_Z);
+            if (negX || posX || negY || posY || negZ || posZ) {
+                for (SubchunkKey nb : SeamFluxWake.neighboursToWake(entry.key(),
+                        negX, posX, negY, posY, negZ, posZ)) {
+                    world.wakeNeighbourFlow(entry.dimension(), nb);
+                }
+            }
+            if (conduction) {
+                // Coincident tick: conduction's within-cell exchange is already reflected in cleanT
+                // (advection stepped the post-conduction field), so phase change runs on the freshly
+                // written section.
+                phaseChanger.applyPhaseChanges(entry);
+            }
+            fluidReconciler.reconcile(entry, r.material(), pendingMaterials);
+        }
     }
 
     /** Max absolute per-cell difference of two equal-length arrays (the settle reduction). */

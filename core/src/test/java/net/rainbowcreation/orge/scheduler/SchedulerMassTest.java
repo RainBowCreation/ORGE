@@ -255,6 +255,98 @@ class SchedulerMassTest {
                 "recordCellMaterials got the exact result.material() instance, not task.matIx()");
     }
 
+    /** A two-section fluid batch: each section is a full top cell (1000 kg) over empty cells. */
+    private static ThermalWorld.Batch twoSectionBatch(float temp) {
+        StepTask a = fluidTaskAt(new SubchunkKey(0, 0, 0), temp);
+        StepTask b = fluidTaskAt(new SubchunkKey(0, 1, 0), temp);
+        Identifier dim = Identifier.fromNamespaceAndPath("minecraft", "overworld");
+        return new ThermalWorld.Batch(
+                List.of(new ThermalWorld.BatchEntry(dim, a.key(), a),
+                        new ThermalWorld.BatchEntry(dim, b.key(), b)),
+                List.of(MaterialLut.VOID, WATER));
+    }
+
+    private static StepTask fluidTaskAt(SubchunkKey key, float temp) {
+        float[] t = new float[SectionData.CELLS]; java.util.Arrays.fill(t, temp);
+        char[] m = new char[SectionData.CELLS]; java.util.Arrays.fill(m, (char) 1);
+        float[] mass = new float[SectionData.CELLS]; mass[0] = 1000f;
+        NeighborHalo halo = HaloAssembler.assemble(null, null, null, null, null, null);
+        return new StepTask(key, m, mass, t, halo);
+    }
+
+    @Test
+    void crossSeamBatchUnbalancedPerSectionButBalancedAsBatchIsWrittenBack() {
+        // Section A's full cell falls ACROSS the seam into section B: A loses 1000 kg, B gains 1000 kg.
+        // Per section neither conserves (A short 1000, B long 1000), but the BATCH sum cancels, so the
+        // validate-then-write batch gate must accept BOTH sections and write both back.
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = twoSectionBatch(290f);
+        CountingReconciler reconciler = new CountingReconciler();
+        // NB: section B putting 2000 kg in one cell would trip the per-cell BOUND (cap 1000). Land the
+        // gained mass in a SECOND (empty) cell so the bound passes and only the per-section CONSERVATION
+        // is what would have rejected — which is exactly what the batch ledger must rescue.
+        OrgeEngine engine = new OrgeEngine() {
+            @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
+                List<StepResult> out = new ArrayList<>(tasks.size());
+                for (int i = 0; i < tasks.size(); i++) {
+                    StepTask t = tasks.get(i);
+                    float[] mass = t.mass().clone();
+                    if (i == 0) {
+                        mass[0] = 0f;               // A loses its 1000 kg across the seam
+                    } else {
+                        mass[1] = 1000f;            // B gains 1000 kg in an adjacent (empty) cell
+                    }
+                    out.add(new StepResult(t.temperature().clone(), mass, t.matIx().clone()));
+                }
+                return out;
+            }
+            @Override public double lastStepMillis() { return 1.0; }
+        };
+        Scheduler s = new Scheduler(engine, world, runner, worker(),
+                net.rainbowcreation.orge.phase.PhaseChanger.NOOP, reconciler);
+        for (int i = 0; i < 6; i++) s.onServerTick();
+
+        assertEquals(2, world.writes.size(), "both sections written back (batch conserved)");
+        assertEquals(2, reconciler.count, "both sections reconciled");
+        // A's total mass dropped to 0, B's rose to 2000 (1000 original + 1000 gained).
+        double sumA = 0, sumB = 0;
+        for (float v : world.massWrites.get(0)) sumA += v;
+        for (float v : world.massWrites.get(1)) sumB += v;
+        assertEquals(0.0, sumA, 1e-3, "section A drained across the seam");
+        assertEquals(2000.0, sumB, 1e-3, "section B received the cross-seam mass");
+    }
+
+    @Test
+    void batchWithRealFabricationHoldsAllSections() {
+        // Section A conserves perfectly; section B fabricates 800 kg with no donor. The batch sum is
+        // long by 800 kg -> the whole batch is held: NEITHER section's mass is written back.
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = twoSectionBatch(290f);
+        CountingReconciler reconciler = new CountingReconciler();
+        OrgeEngine engine = new OrgeEngine() {
+            @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
+                List<StepResult> out = new ArrayList<>(tasks.size());
+                for (int i = 0; i < tasks.size(); i++) {
+                    StepTask t = tasks.get(i);
+                    float[] mass = t.mass().clone();
+                    if (i == 1) mass[1] = 800f;     // B invents 800 kg (no donor) in an empty cell
+                    out.add(new StepResult(t.temperature().clone(), mass, t.matIx().clone()));
+                }
+                return out;
+            }
+            @Override public double lastStepMillis() { return 1.0; }
+        };
+        Scheduler s = new Scheduler(engine, world, runner, worker(),
+                net.rainbowcreation.orge.phase.PhaseChanger.NOOP, reconciler);
+        for (int i = 0; i < 6; i++) s.onServerTick();
+
+        assertEquals(0, world.writes.size(), "fabricating batch held: no section written back");
+        assertEquals(0, reconciler.count, "no reconcile for a held batch");
+        assertEquals(0, world.recordCount, "no cell-material record for a held batch");
+    }
+
     @Test
     void heldAdvectionDoesNotRecordCellMaterials() {
         FakeRunner runner = new FakeRunner();

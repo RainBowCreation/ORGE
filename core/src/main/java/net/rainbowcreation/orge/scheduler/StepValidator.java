@@ -137,56 +137,136 @@ public final class StepValidator {
     public static boolean massConservedPerSpecies(float[] after, float[] before,
                                                   char[] inMat, char[] outMat,
                                                   List<Material> lut) {
+        SpeciesMassLedger ledger = new SpeciesMassLedger();
+        if (!ledger.add(after, before, inMat, outMat, lut)) return false;
+        return ledger.conserved();
+    }
+
+    /**
+     * §9 per-cell BOUND-only check (no conservation): true iff every <b>fluid-output</b> cell is finite
+     * and within {@code [−ε, maxMass(outMat[i]) + ε]}, with the single documented exemption — a cell
+     * already <b>over its own output-species cap</b> ({@code after[i] > maxMass(outMat[i])}) is the
+     * transient §7/engine boil deposit (Decision 12 boil-volume) the advection pass relaxes over the
+     * next steps, so it skips the upper bound (the lower/negative bound is never relaxed). Air/void
+     * (index 0) and solid output cells are not advection masses and are ignored. This is exactly the
+     * bound that {@link SpeciesMassLedger#add} folds into the per-cell pass, lifted out standalone so
+     * the Scheduler can reject a single section's illegally-shaped cells while deferring the
+     * CONSERVATION decision to a batch-level {@link SpeciesMassLedger}.
+     *
+     * @param after  engine mass output (length N)
+     * @param outMat per-cell OUTPUT species (the engine's {@code material()}); index into {@code lut}
+     * @param lut    batch material table (index 0 = {@link MaterialLut#VOID})
+     */
+    public static boolean cellsWithinBound(float[] after, char[] outMat, List<Material> lut) {
         float cellEps = MASS_EPSILON_PER_CELL;
-        int speciesCount = lut.size();
-        double[] sumBefore = new double[speciesCount];
-        double[] sumAfter = new double[speciesCount];
         for (int i = 0; i < after.length; i++) {
             if (!Float.isFinite(after[i])) return false;
-            int in = inMat[i];
             int out = outMat[i];
-            // BEFORE conserved under the cell's INPUT species; AFTER under its OUTPUT species. The two
-            // sums are decoupled. A fluid input credits its 'before' to its own species. Real air interacts
-            // with a fluid in two SYMMETRIC ways that both must balance the fluid's dual index:
-            //   WETTING (absorb): air-in / fluid-out — the kernel adopts the air's resting mass (~1.2 kg)
-            //     INTO the fluid, so the air is gone; we credit that air 'before' to the OUTPUT fluid
-            //     species (handled below) and the cell's fluid 'after' lands in that fluid's sumAfter.
-            //   SWAP (displace): fluid-in / air-out — the native fall pass swaps a falling liquid with the
-            //     real-air cell below; the donor's fluid sank and the displaced air (~1.2 kg) RISES into it,
-            //     so the donor now holds air, not fluid. Its fluid 'before' is credited to the fluid's
-            //     sumBefore (the fluid-in branch), and to balance we must credit the donor's OUTPUT air
-            //     'after' (~1.2 kg) to that SAME fluid's sumAfter (the new air-out branch below). Without
-            //     it, sumBefore over-counts the displaced air by ~1.2 kg per swap (the air it absorb-credits
-            //     at the below cell never reappears in sumAfter) and a large swap pool false-rejects.
-            if (in != 0 && lut.get(in).fluid()) {
-                sumBefore[in] += before[i];
-            } else if (in != 0 && lut.get(in).air() && out != 0 && lut.get(out).fluid()) {
-                // WETTING: fluid fell/wet INTO a real air cell and absorbed its mass (kernel adopts air):
-                // credit the air cell's input mass to the fluid it became so before/after balance.
-                sumBefore[out] += before[i];
-            }
             if (out != 0 && lut.get(out).fluid()) {
-                float bound = lut.get(out).maxMass(); // per-species cap (canonical accessor: 0 -> defaultMass)
-                // BOUND on the output species, exempting a cell already OVER its own cap (a transient
-                // §7/engine boil deposit relaxing over the next steps). The conservation sum below is
-                // NEVER exempted, so the exemption can hide an over-cap parcel but never invented mass.
+                float bound = lut.get(out).maxMass();
                 if (!(after[i] > bound) && (after[i] < -cellEps || after[i] > bound + cellEps)) {
                     return false;
                 }
-                sumAfter[out] += after[i];
-            } else if (in != 0 && lut.get(in).fluid() && out != 0 && lut.get(out).air()) {
-                // SWAP donor: fluid-in / air-out. The input fluid was displaced down and this cell now holds
-                // the risen air, so credit the OUTPUT air mass to the INPUT fluid species' sumAfter — the
-                // symmetric counterpart to the wetting absorb-credit above. No bound check: this cell holds
-                // air now, not a capped fluid.
-                sumAfter[in] += after[i];
             }
         }
-        double tol = (double) cellEps * after.length;
-        for (int s = 1; s < speciesCount; s++) {
-            if (Math.abs(sumAfter[s] - sumBefore[s]) > tol) return false;
-        }
         return true;
+    }
+
+    /**
+     * Batch-level §9 per-species conservation accumulator (DESIGN §10 cross-section). Runs the SAME
+     * dual-index per-cell accounting as {@link #massConservedPerSpecies} (input species → sumBefore,
+     * output species → sumAfter, with the wetting air-in/fluid-out credit and the swap fluid-in/air-out
+     * credit), but accumulates across MANY co-stepped sections and validates ONCE at {@code ε·(Σ N)}.
+     * Cross-seam transfers between two co-stepped sections cancel in the batch sum, so a fall that moves
+     * a full cell from one section into the one below — which each per-section gate would false-reject —
+     * is accepted at batch scope while real fabrication (a gain with no matching donor anywhere in the
+     * batch) is still rejected.
+     *
+     * <p>{@link #add} also runs the per-cell BOUND (over-cap exemption included) for back-compat with
+     * {@link #massConservedPerSpecies}; it returns {@code false} on a non-finite or illegally-over-cap
+     * cell so a single-entry ledger reproduces the per-section verdict bit-for-bit. The Scheduler, which
+     * separates bound from conservation, uses {@link #cellsWithinBound} as PASS 1 and then adds only
+     * bound-clean entries here. The {@code lut} must be consistent across {@link #add} calls (the batch
+     * LUT); the species arrays grow to {@code lut.size()} as needed.</p>
+     */
+    public static final class SpeciesMassLedger {
+        private double[] sumBefore = new double[0];
+        private double[] sumAfter = new double[0];
+        private long totalCells;
+
+        /**
+         * Accumulate one section's per-cell dual-index sums into the ledger and run the per-cell bound.
+         * Returns {@code false} iff a cell is non-finite or illegally over its own output cap (matching
+         * {@link #massConservedPerSpecies}); the sums are still accumulated up to (not including) the
+         * offending cell only if it returns early, so callers that pre-screen with
+         * {@link #cellsWithinBound} should ignore the return and rely on bound-clean input.
+         */
+        public boolean add(float[] after, float[] before, char[] inMat, char[] outMat, List<Material> lut) {
+            grow(lut.size());
+            float cellEps = MASS_EPSILON_PER_CELL;
+            boolean bound = true;
+            for (int i = 0; i < after.length; i++) {
+                if (!Float.isFinite(after[i])) { bound = false; continue; }
+                int in = inMat[i];
+                int out = outMat[i];
+                // BEFORE conserved under the cell's INPUT species; AFTER under its OUTPUT species. The two
+                // sums are decoupled. A fluid input credits its 'before' to its own species. Real air interacts
+                // with a fluid in two SYMMETRIC ways that both must balance the fluid's dual index:
+                //   WETTING (absorb): air-in / fluid-out — the kernel adopts the air's resting mass (~1.2 kg)
+                //     INTO the fluid, so the air is gone; we credit that air 'before' to the OUTPUT fluid
+                //     species (handled below) and the cell's fluid 'after' lands in that fluid's sumAfter.
+                //   SWAP (displace): fluid-in / air-out — the native fall pass swaps a falling liquid with the
+                //     real-air cell below; the donor's fluid sank and the displaced air (~1.2 kg) RISES into it,
+                //     so the donor now holds air, not fluid. Its fluid 'before' is credited to the fluid's
+                //     sumBefore (the fluid-in branch), and to balance we must credit the donor's OUTPUT air
+                //     'after' (~1.2 kg) to that SAME fluid's sumAfter (the new air-out branch below). Without
+                //     it, sumBefore over-counts the displaced air by ~1.2 kg per swap (the air it absorb-credits
+                //     at the below cell never reappears in sumAfter) and a large swap pool false-rejects.
+                if (in != 0 && lut.get(in).fluid()) {
+                    sumBefore[in] += before[i];
+                } else if (in != 0 && lut.get(in).air() && out != 0 && lut.get(out).fluid()) {
+                    // WETTING: fluid fell/wet INTO a real air cell and absorbed its mass (kernel adopts air):
+                    // credit the air cell's input mass to the fluid it became so before/after balance.
+                    sumBefore[out] += before[i];
+                }
+                if (out != 0 && lut.get(out).fluid()) {
+                    float b = lut.get(out).maxMass(); // per-species cap (canonical accessor: 0 -> defaultMass)
+                    // BOUND on the output species, exempting a cell already OVER its own cap (a transient
+                    // §7/engine boil deposit relaxing over the next steps). The conservation sum is NEVER
+                    // exempted, so the exemption can hide an over-cap parcel but never invented mass.
+                    if (!(after[i] > b) && (after[i] < -cellEps || after[i] > b + cellEps)) {
+                        bound = false;
+                    }
+                    sumAfter[out] += after[i];
+                } else if (in != 0 && lut.get(in).fluid() && out != 0 && lut.get(out).air()) {
+                    // SWAP donor: fluid-in / air-out. The input fluid was displaced down and this cell now holds
+                    // the risen air, so credit the OUTPUT air mass to the INPUT fluid species' sumAfter — the
+                    // symmetric counterpart to the wetting absorb-credit above. No bound check: this cell holds
+                    // air now, not a capped fluid.
+                    sumAfter[in] += after[i];
+                }
+            }
+            totalCells += after.length;
+            return bound;
+        }
+
+        /**
+         * True iff every tracked fluid species is conserved within {@code ε · totalCells} (the same
+         * tolerance {@link #massConservedPerSpecies} applies per section, summed over the whole batch).
+         */
+        public boolean conserved() {
+            double tol = (double) MASS_EPSILON_PER_CELL * totalCells;
+            for (int s = 1; s < sumAfter.length; s++) {
+                if (Math.abs(sumAfter[s] - sumBefore[s]) > tol) return false;
+            }
+            return true;
+        }
+
+        private void grow(int speciesCount) {
+            if (sumAfter.length >= speciesCount) return;
+            sumAfter = java.util.Arrays.copyOf(sumAfter, speciesCount);
+            sumBefore = java.util.Arrays.copyOf(sumBefore, speciesCount);
+        }
     }
 
     /** Non-finite mass → 0; finite mass clamped to [0, fullMassBound]. Mirrors {@link #clean}. */

@@ -339,4 +339,169 @@ class StepValidatorMassTest {
         before[0] = 1000f; after[0] = 1200f; after[1] = -200f;
         assertFalse(StepValidator.massConserved(after, before, 1000f, matIx, lut()));
     }
+
+    // ---- Batch-level conservation ledger (cross-section seam transfers) ----
+
+    @Test
+    void ledgerAcceptsCrossSeamTransferThatPerSectionWouldReject() {
+        // Section A loses 800 kg water; Section B gains 800 kg water (a cross-seam fall). PER-SECTION
+        // each is non-conserving (A short by 800, B long by 800 — both far over ε·N ≈ 40.96), but the
+        // batch ledger sums BOTH sections and the transfer cancels -> conserved.
+        float[] beforeA = new float[4096]; float[] afterA = new float[4096];
+        float[] beforeB = new float[4096]; float[] afterB = new float[4096];
+        char[] inA = new char[4096]; java.util.Arrays.fill(inA, WATER_IX);
+        char[] outA = new char[4096]; java.util.Arrays.fill(outA, WATER_IX);
+        char[] inB = new char[4096]; java.util.Arrays.fill(inB, WATER_IX);
+        char[] outB = new char[4096]; java.util.Arrays.fill(outB, WATER_IX);
+        // A: a full 1000 kg column cell drains to 200 kg (lost 800 across the seam).
+        java.util.Arrays.fill(beforeA, 500f); java.util.Arrays.fill(afterA, 500f);
+        beforeA[0] = 1000f; afterA[0] = 200f;
+        // B: a 200 kg cell fills to 1000 kg (gained the 800).
+        java.util.Arrays.fill(beforeB, 500f); java.util.Arrays.fill(afterB, 500f);
+        beforeB[0] = 200f; afterB[0] = 1000f;
+
+        // Sanity: each section ALONE fails the per-section gate.
+        assertFalse(StepValidator.massConservedPerSpecies(afterA, beforeA, inA, outA, perSpeciesLut()),
+                "section A alone is short 800 kg");
+        assertFalse(StepValidator.massConservedPerSpecies(afterB, beforeB, inB, outB, perSpeciesLut()),
+                "section B alone is long 800 kg");
+
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(afterA, beforeA, inA, outA, perSpeciesLut());
+        ledger.add(afterB, beforeB, inB, outB, perSpeciesLut());
+        assertTrue(ledger.conserved(),
+                "batch ledger cancels the cross-seam transfer -> conserved");
+    }
+
+    @Test
+    void ledgerRejectsGenuineFabricationAcrossBatch() {
+        // Section B gains 800 kg water with NO matching donor anywhere in the batch -> fabrication.
+        float[] beforeA = new float[4096]; float[] afterA = new float[4096];
+        float[] beforeB = new float[4096]; float[] afterB = new float[4096];
+        char[] inA = new char[4096]; java.util.Arrays.fill(inA, WATER_IX);
+        char[] outA = new char[4096]; java.util.Arrays.fill(outA, WATER_IX);
+        char[] inB = new char[4096]; java.util.Arrays.fill(inB, WATER_IX);
+        char[] outB = new char[4096]; java.util.Arrays.fill(outB, WATER_IX);
+        // A: perfectly conserved on its own.
+        java.util.Arrays.fill(beforeA, 500f); java.util.Arrays.fill(afterA, 500f);
+        // B: a 200 kg cell jumps to 1000 kg, no donor.
+        java.util.Arrays.fill(beforeB, 500f); java.util.Arrays.fill(afterB, 500f);
+        beforeB[0] = 200f; afterB[0] = 1000f;
+
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(afterA, beforeA, inA, outA, perSpeciesLut());
+        ledger.add(afterB, beforeB, inB, outB, perSpeciesLut());
+        assertFalse(ledger.conserved(), "batch gains 800 kg from nowhere -> not conserved");
+    }
+
+    @Test
+    void singleEntryLedgerMatchesPerSectionVerdict() {
+        // Parity: a one-entry ledger gives the SAME verdict as massConservedPerSpecies across several
+        // cases (wetting, swap, drain/move, over-cap exemption, fabrication). The two must never diverge.
+        record Case(String name, float[] after, float[] before, char[] in, char[] out, boolean expect) {}
+        java.util.List<Case> cases = new java.util.ArrayList<>();
+
+        // (1) plain move (conserved)
+        {
+            float[] b = new float[4096]; float[] a = new float[4096];
+            char[] in = new char[4096]; java.util.Arrays.fill(in, WATER_IX);
+            char[] out = new char[4096]; java.util.Arrays.fill(out, WATER_IX);
+            java.util.Arrays.fill(b, 500f); java.util.Arrays.fill(a, 500f);
+            a[0] = 400f; a[1] = 600f;
+            cases.add(new Case("move", a, b, in, out, true));
+        }
+        // (2) wetting into real air (conserved)
+        {
+            final int wet = 100; final float dm = 5f; final float airMass = 1.2f;
+            float[] b = new float[4096]; float[] a = new float[4096];
+            char[] in = new char[4096]; java.util.Arrays.fill(in, AIR_IX);
+            char[] out = new char[4096]; java.util.Arrays.fill(out, AIR_IX);
+            java.util.Arrays.fill(b, airMass); java.util.Arrays.fill(a, airMass);
+            in[0] = WATER_IX; out[0] = WATER_IX; b[0] = 1000f; a[0] = 1000f - wet * dm;
+            for (int i = 1; i <= wet; i++) { in[i] = AIR_IX; out[i] = WATER_IX; a[i] = airMass + dm; }
+            cases.add(new Case("wetting", a, b, in, out, true));
+        }
+        // (3) displacement swap (conserved)
+        {
+            final int swaps = 100; final float airMass = 1.2f;
+            float[] b = new float[4096]; float[] a = new float[4096];
+            char[] in = new char[4096]; char[] out = new char[4096];
+            for (int s = 0; s < swaps; s++) {
+                int x = 2 * s, y = 2 * s + 1;
+                in[x] = WATER_IX; out[x] = AIR_IX;   b[x] = 1000f;   a[x] = airMass;
+                in[y] = AIR_IX;   out[y] = WATER_IX; b[y] = airMass; a[y] = 1000f;
+            }
+            cases.add(new Case("swap", a, b, in, out, true));
+        }
+        // (4) over-cap boil parcel sheds to a steam neighbour (conserved, bound-exempt)
+        {
+            float[] b = new float[4096]; float[] a = new float[4096];
+            char[] in = new char[4096]; java.util.Arrays.fill(in, STEAM_IX);
+            char[] out = new char[4096]; java.util.Arrays.fill(out, STEAM_IX);
+            b[0] = 1000f; a[0] = 999.6f; b[1] = 0.6f; a[1] = 1.0f;
+            java.util.Arrays.fill(b, 2, 4096, 0.6f); java.util.Arrays.fill(a, 2, 4096, 0.6f);
+            cases.add(new Case("overcap", a, b, in, out, true));
+        }
+        // (5) fabrication (rejected)
+        {
+            float[] b = new float[4096]; float[] a = new float[4096];
+            char[] in = new char[4096]; java.util.Arrays.fill(in, WATER_IX);
+            char[] out = new char[4096]; java.util.Arrays.fill(out, WATER_IX);
+            java.util.Arrays.fill(b, 500f); java.util.Arrays.fill(a, 500f);
+            a[0] = 1000f;
+            cases.add(new Case("fabrication", a, b, in, out, false));
+        }
+
+        for (Case c : cases) {
+            boolean perSection = StepValidator.massConservedPerSpecies(
+                    c.after(), c.before(), c.in(), c.out(), perSpeciesLut());
+            StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+            ledger.add(c.after(), c.before(), c.in(), c.out(), perSpeciesLut());
+            boolean batch = ledger.conserved();
+            assertEquals(c.expect(), perSection, "per-section verdict for " + c.name());
+            assertEquals(perSection, batch, "single-entry ledger parity for " + c.name());
+        }
+    }
+
+    // ---- Standalone per-cell bound check ----
+
+    @Test
+    void cellsWithinBoundRejectsIllegalOverCapButAllowsBoilParcel() {
+        // The bound exemption is purely "over its own cap" (the transient boil parcel), so any over-cap
+        // fluid cell is allowed. What the bound MUST still reject is a non-finite cell and a negative
+        // cell (the lower bound is never relaxed by the over-cap exemption).
+        char[] out = new char[4096]; java.util.Arrays.fill(out, STEAM_IX);
+
+        // (a) a clean field at/under cap -> within bound.
+        float[] ok = new float[4096]; java.util.Arrays.fill(ok, 0.6f);
+        assertTrue(StepValidator.cellsWithinBound(ok, out, perSpeciesLut()));
+
+        // (b) the boil over-cap parcel (1000 kg, way over 0.6) -> exempt, allowed.
+        float[] boil = new float[4096]; java.util.Arrays.fill(boil, 0.6f);
+        boil[0] = 1000f;
+        assertTrue(StepValidator.cellsWithinBound(boil, out, perSpeciesLut()),
+                "over-cap boil parcel is the documented exemption");
+
+        // (c) a non-finite cell -> rejected.
+        float[] nan = new float[4096]; java.util.Arrays.fill(nan, 0.6f);
+        nan[0] = Float.NaN;
+        assertFalse(StepValidator.cellsWithinBound(nan, out, perSpeciesLut()),
+                "non-finite cell rejected");
+
+        // (d) a negative cell -> rejected (lower bound never relaxed by the over-cap exemption).
+        float[] neg = new float[4096]; java.util.Arrays.fill(neg, 0.6f);
+        neg[0] = -5f;
+        assertFalse(StepValidator.cellsWithinBound(neg, out, perSpeciesLut()),
+                "negative mass rejected");
+    }
+
+    @Test
+    void cellsWithinBoundIgnoresNonFluidOutputCells() {
+        // cellsWithinBound only bounds FLUID-output cells. An air (non-fluid) output cell carrying an
+        // absurd mass is not an advection mass and must not trip the bound.
+        char[] out = new char[4096]; java.util.Arrays.fill(out, AIR_IX);
+        float[] m = new float[4096]; java.util.Arrays.fill(m, 9_999_999f);
+        assertTrue(StepValidator.cellsWithinBound(m, out, perSpeciesLut()),
+                "non-fluid (air) output cells are not bound-checked");
+    }
 }
