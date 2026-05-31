@@ -142,6 +142,9 @@ class SchedulerSeamWiringTest {
         assertEquals(receiver, call.key());
         assertSame(species, call.species(), "the touched section's species array is forwarded");
         assertSame(world.batch.lut(), call.lut(), "the batch LUT is forwarded as outLut");
+        // The batch has 1 entry; the per-entry reconcile overload must fire exactly once,
+        // confirming the two overloads are exercised distinctly.
+        assertEquals(1, reconciler.entryReconciles, "per-entry reconcile overload fired for the one batch entry");
     }
 
     @Test
@@ -161,9 +164,13 @@ class SchedulerSeamWiringTest {
         for (int i = 0; i < 6; i++) s.onServerTick();
 
         assertEquals(1, world.settleCalls);
+        assertSame(world.batch.entries(), world.lastEntries, "seam pass got the pending entries");
+        assertSame(world.batch.lut(), world.lastLut, "seam pass got the batch LUT");
         assertEquals(2, reconciler.seamCalls.size(), "one reconcile per touched section");
         assertEquals(a, reconciler.seamCalls.get(0).key());
         assertEquals(b, reconciler.seamCalls.get(1).key());
+        // 1 batch entry → 1 per-entry reconcile; 2 seam-touched sections → 2 overload calls (counted separately).
+        assertEquals(1, reconciler.entryReconciles, "per-entry reconcile fired once for the one batch entry");
     }
 
     @Test

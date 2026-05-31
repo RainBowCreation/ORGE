@@ -36,7 +36,8 @@ public interface ThermalWorld {
      * never falls through. Called AFTER the engine writeback loop with this step's entries and LUT;
      * mutates the §5 SectionStore + the CellMaterialTracker (so the next snapshot's reseed treats the
      * transfer as already-known) and wakes the receiver's flow pass. Returns the touched sections for
-     * downstream re-render marking. Default no-op for headless test worlds.
+     * downstream re-render marking. <b>Must return a non-null list</b> (empty for no-op / no
+     * transfer); implementations must never return null. Default no-op for headless test worlds.
      */
     default List<TouchedSection> settleCrossSectionSeams(List<BatchEntry> entries, List<Material> lut) {
         return java.util.List.of();

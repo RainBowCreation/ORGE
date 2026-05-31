@@ -369,7 +369,8 @@ public final class Scheduler {
         if (advection) {
             List<ThermalWorld.TouchedSection> touched =
                     world.settleCrossSectionSeams(pendingEntries, pendingMaterials);
-            for (ThermalWorld.TouchedSection t : touched) {
+            List<ThermalWorld.TouchedSection> safeList = touched != null ? touched : List.of();
+            for (ThermalWorld.TouchedSection t : safeList) {
                 fluidReconciler.reconcile(t.dim(), t.key(), t.species(), pendingMaterials);
             }
         }
