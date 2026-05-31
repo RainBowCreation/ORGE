@@ -286,7 +286,7 @@ public final class Scheduler {
                     // NOT separately write T here — holding the whole entry is the safe choice.
                     continue;
                 }
-                world.writeBack(entry, new StepResult(cleanT, cleanM));
+                world.writeBack(entry, new StepResult(cleanT, cleanM, r.material()));
                 if (conduction) {
                     // Coincident tick: conduction's within-cell exchange is already reflected in
                     // cleanT (advection stepped the post-conduction field), so phase change runs
