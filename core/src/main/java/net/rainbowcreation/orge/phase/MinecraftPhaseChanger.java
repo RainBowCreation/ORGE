@@ -70,10 +70,13 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         }
         SectionData data = store.get(key);
 
-        // Read temps without forcing a UNIFORM→FULL promotion (temperatureAt works for both forms).
+        // Read temps + mass without forcing a UNIFORM→FULL promotion (the *At accessors work for
+        // both forms). Mass gates the phase rule so drained/empty cells never transition (Bug B).
         float[] temps = new float[SectionData.CELLS];
+        float[] mass = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
             temps[i] = data.temperatureAt(i);
+            mass[i] = data.massAt(i);
         }
 
         ActiveMaterials.State mats = ActiveMaterials.current();
@@ -83,7 +86,7 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         // Materials are read from PRE-SWAP blocks; the re-pin set is computed before swapping
         // so a surviving source still reads as its source material.
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(
-                temps, cellMat, BuiltInRegistries.BLOCK::containsKey);
+                temps, mass, cellMat, BuiltInRegistries.BLOCK::containsKey);
         List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cellMat, plan);
 
         int ox = key.cx() << 4;
