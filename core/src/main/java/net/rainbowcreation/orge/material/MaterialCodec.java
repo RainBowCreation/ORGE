@@ -30,7 +30,8 @@ import java.util.Optional;
  *   <li><b>Optional with defaults:</b>
  *     {@code viscosity} → 0, {@code molar_mass} → 0,
  *     {@code boiling_point} → +∞, {@code freezing_point} → -∞,
- *     {@code default_temperature} → NaN (absent), {@code pinned} → false, {@code fluid} → false</li>
+ *     {@code default_temperature} → NaN (absent), {@code pinned} → false, {@code fluid} → false,
+ *     {@code min_flow_mass} → 0, {@code max_mass} → 0 (= default_mass), {@code gas} → false</li>
  *   <li><b>Optional nullable ids:</b>
  *     {@code boiling_target}, {@code freezing_target}, {@code representative_block} → null</li>
  * </ul>
@@ -56,15 +57,18 @@ public final class MaterialCodec {
             Optional<Identifier> representativeBlock,
             float defaultTemperature,
             boolean pinned,
-            boolean fluid
+            boolean fluid,
+            float minFlowMass,
+            float maxMass,
+            boolean gas
     ) {}
 
     // -------------------------------------------------------------------------
-    // Internal codec for the body (12 fields, no id)
+    // Internal codec for the body (16 fields, no id)
     // -------------------------------------------------------------------------
 
     /**
-     * DFU codec for the 12 JSON body fields. The material id is NOT part of
+     * DFU codec for the 16 JSON body fields. The material id is NOT part of
      * this codec — it must be supplied externally via {@link #fromJson}.
      */
     private static final Codec<BodyData> BODY_CODEC = RecordCodecBuilder.create(instance ->
@@ -94,7 +98,13 @@ public final class MaterialCodec {
                     Codec.BOOL.optionalFieldOf("pinned", false)
                             .forGetter(BodyData::pinned),
                     Codec.BOOL.optionalFieldOf("fluid", false)
-                            .forGetter(BodyData::fluid)
+                            .forGetter(BodyData::fluid),
+                    Codec.FLOAT.optionalFieldOf("min_flow_mass", 0f)
+                            .forGetter(BodyData::minFlowMass),
+                    Codec.FLOAT.optionalFieldOf("max_mass", 0f)
+                            .forGetter(BodyData::maxMass),
+                    Codec.BOOL.optionalFieldOf("gas", false)
+                            .forGetter(BodyData::gas)
             ).apply(instance, BodyData::new)
     );
 
@@ -121,6 +131,11 @@ public final class MaterialCodec {
             throw new IllegalArgumentException(
                     "material " + id + ": pinned=true requires default_temperature");
         }
+        if (bd.gas() && !(bd.minFlowMass() > 0f)) {
+            throw new IllegalArgumentException(
+                    "material " + id + ": gas=true requires min_flow_mass > 0 (crash-guard: a gas cell "
+                            + "must never have zero density)");
+        }
         return new Material(
                 id,
                 bd.thermalConductivity(),
@@ -135,7 +150,10 @@ public final class MaterialCodec {
                 bd.representativeBlock().orElse(null),
                 bd.defaultTemperature(),
                 bd.pinned(),
-                bd.fluid()
+                bd.fluid(),
+                bd.minFlowMass(),
+                bd.maxMass(),
+                bd.gas()
         );
     }
 }
