@@ -63,6 +63,11 @@ class CrossSectionCascadeNativeTest {
 
     private static int sidx(int x, int y, int z) { return x + 16 * y + 256 * z; }
 
+    // Seam-plane cell indices (16*16 = 256 cells per Y-layer):
+    //   upper section's FLOOR plane  is y=0  -> sidx(x,0,z)  = x + 256*z
+    //   lower section's CEILING plane is y=15 -> sidx(x,15,z) = x + 240 + 256*z
+    // The seam pass bleeds the upper floor (y=0) down into the lower ceiling (y=15).
+
     // --- Materials (mirror AuditScenarioTest helpers) -------------------------------------------
     // water: fluid, defaultMass 1000, floor 125, cap 1000.
     private static Material water() {
@@ -203,6 +208,10 @@ class CrossSectionCascadeNativeTest {
         final int K = 40;
         for (int cycle = 0; cycle < K; cycle++) {
             // (1) Engine-step EACH section (upper then lower); write back to store + tracker.
+            //     The test steps the two sections SEQUENTIALLY rather than as a single batch step (as
+            //     production does). For these two DISTINCT, non-overlapping sections — each advecting
+            //     against its own read-only void halo — the two orderings are equivalent: neither
+            //     section's step reads the other's live cells, so the per-section results are identical.
             for (SubchunkKey key : new SubchunkKey[]{ upper, lower }) {
                 SectionData data = store.get(key);
                 char[]  matIx = speciesFromTracker(tracker.prior(DIM, key), lut);
@@ -233,6 +242,9 @@ class CrossSectionCascadeNativeTest {
 
             // (2) Cross-section seam pass: upper is a donor over lower; lower donates to unloaded
             //     (0,-1,0) -> harmlessly skipped.
+            // The zero-filled StepTask inside each BatchEntry is intentionally a stub: CrossSectionSeamPass.run
+            // reads only entry.dimension()/entry.key() from each entry (it pulls live cell state from the
+            // store, not the task), so the task's mat/mass/temp arrays are never consulted here.
             List<ThermalWorld.BatchEntry> entries = List.of(
                     new ThermalWorld.BatchEntry(DIM, upper,
                             new StepTask(upper, new char[SEC_N], new float[SEC_N], new float[SEC_N], null)),
@@ -263,6 +275,10 @@ class CrossSectionCascadeNativeTest {
         assertTrue(lowerWater > 1000.0,
                 "lower section must hold substantial water that crossed the seam, was " + lowerWater
                         + " kg over " + lowerWaterCells + " cells");
+        // Spatial spread: a real cascade lands in several lower cells; a single fat transfer must NOT
+        // satisfy the claim (>1000 kg could be one cell), so require >= 4 distinct water cells.
+        assertTrue(lowerWaterCells >= 4,
+                "the cascade must spread across >= 4 distinct lower cells, was " + lowerWaterCells);
 
         // (b) UPPER's seeded water FOOTPRINT has drained: the seed cells are no longer full water.
         double upperSeedWater = 0;
@@ -285,8 +301,11 @@ class CrossSectionCascadeNativeTest {
         for (int i = 0; i < SEC_N; i++) {
             if (upSpecies[i] == WATER_IX) {
                 float m = upAfter.massAt(i);
-                assertFalse(m > 1e-3f && m < water.maxMass() * 0.1f,
-                        "no upper water cell may carry a tiny residue (0<mass<10% cap); cell " + i
+                // Forbidden window is 0 < mass < the FLOW FLOOR (minFlowMass = 125 kg), not 10% of
+                // cap (100 kg) — the 100–125 kg band would otherwise be a blind spot: a remnant
+                // sitting just below the flow floor never donates yet escapes the old bound.
+                assertFalse(m > 1e-3f && m < water.minFlowMass(),
+                        "no upper water cell may carry a sub-flow-floor residue (0<mass<minFlowMass); cell " + i
                                 + " held " + m + " kg");
             } else {
                 // a non-water upper cell must read as clean air (the swap upgraded it), never void.
@@ -298,11 +317,13 @@ class CrossSectionCascadeNativeTest {
         // (d) The receiver/lower key was woken at least once.
         assertTrue(waker.waked.contains(lower), "lower (receiver) must have been woken by the seam pass");
 
-        // --- Reseed-safety sub-assertion: a drained upper cell must NOT re-inflate to water. --------
-        // Find a drained upper seed cell: still water SPECIES (in-section drain keeps species) but
-        // emptied to ~0 kg. This is exactly the reseed-misfire candidate — a cell whose stored mass no
-        // longer matches a "full" block — yet the tracker species equals the store species, so
-        // MaterialChangeReseed.reseeds(...) is false and the cell is NOT re-inflated to 1000 kg.
+        // --- (e) No-residue / engine-drain-keeps-species check (NOT a reseed-discrimination proof). --
+        // The in-section fall drains a donor cell to ~0 kg while the ENGINE keeps its water species,
+        // so a fully-drained upper seed cell still reads as water species at ~0 kg. This confirms the
+        // engine drains cleanly. It is deliberately NOT framed as a tracker/reseed proof: the engine's
+        // own write-back already recorded WATER for this floor cell, so reseeds(prior=WATER, live=WATER)
+        // is trivially false here regardless of whether the seam pass touched the tracker — i.e. it is
+        // tautological as a reseed test. The DISCRIMINATING reseed proof is the LOWER-cell block below.
         int drainedCell = -1;
         for (int y = 0; y <= 3 && drainedCell < 0; y++)
             for (int x = 6; x <= 9 && drainedCell < 0; x++)
@@ -311,23 +332,43 @@ class CrossSectionCascadeNativeTest {
                     if (upSpecies[i] == WATER_IX && upAfter.massAt(i) < 1f) { drainedCell = i; break; }
                 }
         assertTrue(drainedCell >= 0, "expected at least one fully-drained (~0 kg) upper seed cell");
-        // The reseed predicate must NOT fire for this drained cell (tracker species == store species).
-        assertFalse(MaterialChangeReseed.reseeds(tracker.prior(DIM, upper)[drainedCell],
-                        lut.get(upSpecies[drainedCell])),
-                "reseeds(...) must be false for the drained cell (tracker matches store), so no re-inflation");
 
-        // Run MaterialChangeReseed exactly as snapshot() would: prior = tracker signature, matIx =
-        // the SAME tracker species (store and tracker agree post-cascade), so reseeds(...) is false.
-        float[] upTempsNow = new float[SEC_N];
-        float[] upMassNow  = new float[SEC_N];
-        for (int i = 0; i < SEC_N; i++) { upTempsNow[i] = upAfter.temperatureAt(i); upMassNow[i] = upAfter.massAt(i); }
-        float massBeforeReseed = upMassNow[drainedCell];
-        MaterialChangeReseed.apply(tracker.prior(DIM, upper), upSpecies, lut, upTempsNow, upMassNow, 285f);
-        assertEquals(massBeforeReseed, upMassNow[drainedCell], 1e-3f,
-                "drained upper cell must NOT be re-inflated by the reseed (tracker matches store), was "
-                        + upMassNow[drainedCell]);
-        assertTrue(upMassNow[drainedCell] < 100f,
-                "drained cell must stay near air mass, not jump to water's 1000 kg, was "
-                        + upMassNow[drainedCell]);
+        // --- DISCRIMINATING reseed-safety proof on a SEAM-FILLED LOWER cell. -------------------------
+        // The real reseed-misfire candidate is a LOWER cell that the SEAM PASS (not the engine) filled
+        // with water: it was AIR when the engine stepped it, so the engine recorded AIR for it; only
+        // the seam pass turned it to water in BOTH the store AND the tracker. If the seam pass were to
+        // forget its receiver tracker.record(), the tracker would still hold AIR there while the store
+        // holds water — and the next snapshot's MaterialChangeReseed would see prior=AIR, live=water
+        // (a fluid), fire reseeds(), and re-inflate the partial delivery to water's default 1000 kg.
+        Identifier[] lowPrior = tracker.prior(DIM, lower);
+        char[] lowSpecies = speciesFromTracker(lowPrior, lut);          // store == tracker post-cascade
+        int seamFilledCell = -1;
+        for (int i = 0; i < SEC_N; i++) {
+            // Every lower cell STARTED as AIR, so any water cell here was placed by the seam pass.
+            if (lowSpecies[i] == WATER_IX && loAfter.massAt(i) > water.minFlowMass()) { seamFilledCell = i; break; }
+        }
+        assertTrue(seamFilledCell >= 0,
+                "expected a lower cell the seam pass filled with water above the flow floor");
+
+        // (i) The seam pass MUST have recorded the receiver's new water species in the tracker.
+        //     FAILS if CrossSectionSeamPass drops its tracker.record(dim, lower, ...) (tracker = AIR).
+        assertEquals(WATER, tracker.prior(DIM, lower)[seamFilledCell],
+                "seam pass must record the receiver's new water species in the tracker, else the next "
+                        + "snapshot's reseed re-inflates partial deliveries");
+
+        // (ii) Run MaterialChangeReseed exactly as snapshot() would on the LOWER section: prior = the
+        //      tracker signature, matIx = the lower section's live species, plus its temp/mass arrays.
+        //      Because the seam pass recorded WATER, prior==live==water -> reseeds() is false -> the
+        //      seam-filled cell's mass is UNCHANGED. Had the seam pass NOT recorded the tracker,
+        //      prior=AIR vs live=water(fluid) -> reseeds()=true -> apply() would inflate this cell to
+        //      water's default 1000 kg, and this assertion would fail. THIS is the discriminating proof.
+        float[] lowTempsNow = new float[SEC_N];
+        float[] lowMassNow  = new float[SEC_N];
+        for (int i = 0; i < SEC_N; i++) { lowTempsNow[i] = loAfter.temperatureAt(i); lowMassNow[i] = loAfter.massAt(i); }
+        float massBeforeReseed = lowMassNow[seamFilledCell];
+        MaterialChangeReseed.apply(lowPrior, lowSpecies, lut, lowTempsNow, lowMassNow, 285f);
+        assertEquals(massBeforeReseed, lowMassNow[seamFilledCell], 1e-3f,
+                "seam-filled lower cell must NOT be re-inflated by the reseed (tracker water == store "
+                        + "water), was " + lowMassNow[seamFilledCell]);
     }
 }
