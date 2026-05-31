@@ -3,5 +3,7 @@
   "heat_capacity": 1005,
   "default_mass": 1.2,
   "molar_mass": 0.029,
+  "min_flow_mass": 0.001,
+  "max_mass": 1000,
   "state": "air"
 }

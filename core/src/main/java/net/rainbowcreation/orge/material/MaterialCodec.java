@@ -143,6 +143,14 @@ public final class MaterialCodec {
                     "material " + id + ": state=gas requires min_flow_mass > 0 (crash-guard: a gas cell "
                             + "must never have zero density)");
         }
+        // §11 Phase A: air is now a finite, compressible, conserved gas. It needs the same
+        // well-defined donor floor as a tracked gas so the kernel never drains a cell to a
+        // zero-density (undefined) state.
+        if (bd.state() == Material.State.AIR && !(bd.minFlowMass() > 0f)) {
+            throw new IllegalArgumentException(
+                    "material " + id + ": state=air requires min_flow_mass > 0 (crash-guard: an air "
+                            + "cell is a finite gas and must never have zero density)");
+        }
         Identifier maxTarget = bd.maxTarget().orElse(null);
         if (maxTarget == null && Float.isFinite(bd.maxTemp())) {
             maxTarget = Identifier.fromNamespaceAndPath("minecraft", "air");
