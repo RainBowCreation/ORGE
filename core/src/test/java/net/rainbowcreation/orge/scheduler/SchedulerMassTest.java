@@ -213,14 +213,19 @@ class SchedulerMassTest {
         assertEquals(0, badReconciler.count, "no reconcile for a held (rejected) section");
     }
 
-    /** An engine that conserves mass and emits an output species array (matIx echoed) so the
-     *  scheduler can forward result.material() to recordCellMaterials. */
+    /** An engine that conserves mass and emits an output species array as a DISTINCT instance
+     *  (a fresh clone, NOT the task's matIx) so the scheduler test can prove by reference identity
+     *  that recordCellMaterials received result.material() and not entry.task().matIx(). */
     private static final class SpeciesEngine implements OrgeEngine {
+        /** The exact material() instance the last step returned, for assertSame in the test. */
+        char[] lastOutMat;
         @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
             List<StepResult> out = new ArrayList<>(tasks.size());
             for (StepTask t : tasks) {
+                char[] outMat = t.matIx().clone(); // same species values, but a DISTINCT instance
+                lastOutMat = outMat;
                 out.add(new StepResult(t.temperature().clone(), t.mass().clone(),
-                        t.matIx().clone())); // echo input species: conserved, non-null material()
+                        outMat)); // conserved, non-null material(), distinct from task.matIx()
             }
             return out;
         }
@@ -232,7 +237,8 @@ class SchedulerMassTest {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
         world.batch = fluidBatch(290f);
-        Scheduler s = new Scheduler(new SpeciesEngine(), world, runner, worker(),
+        SpeciesEngine engine = new SpeciesEngine();
+        Scheduler s = new Scheduler(engine, world, runner, worker(),
                 net.rainbowcreation.orge.phase.PhaseChanger.NOOP, new CountingReconciler());
         // tick 5 submits the advection-only step; tick 6 services + writes it back.
         for (int i = 0; i < 6; i++) s.onServerTick();
@@ -241,8 +247,12 @@ class SchedulerMassTest {
         assertEquals(1, world.recordCount, "recordCellMaterials called once for the written section");
         char[] recorded = world.recordedOutMat.get(0);
         assertNotNull(recorded, "engine output species forwarded to recordCellMaterials");
-        // SpeciesEngine echoes the input matIx (all water index 1), so the recorded outMat is water.
-        assertEquals((char) 1, recorded[0], "recordCellMaterials got result.material() (engine output species)");
+        // Reference identity proves the scheduler forwarded r.material() (the DISTINCT instance the
+        // engine returned), NOT entry.task().matIx(). SpeciesEngine returns a fresh clone holding the
+        // same species values, so an assertEquals on contents could not tell the two arrays apart —
+        // only assertSame pins that the exact material() array was forwarded.
+        assertSame(engine.lastOutMat, recorded,
+                "recordCellMaterials got the exact result.material() instance, not task.matIx()");
     }
 
     @Test

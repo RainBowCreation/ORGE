@@ -351,6 +351,10 @@ public final class Scheduler {
             } else {
                 // Conduction-only cycle: mass does not move, carry the snapshot mass through.
                 world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
+                // Keep the material signature fresh even on a hypothetical conduction-only cycle (none are
+                // submitted today, but the advection cadence is audit-tunable): conduction changes no species,
+                // so the input/world materials are authoritative. Passing null outMat falls back to them.
+                world.recordCellMaterials(entry, null, pendingMaterials);
                 world.noteSettle(entry, -1f, maxAbsDelta(cleanT, entry.task().temperature()));
                 phaseChanger.applyPhaseChanges(entry);
             }

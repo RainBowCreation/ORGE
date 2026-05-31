@@ -182,7 +182,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      * untouched air cell records {@code orge:air}, never the index-0 {@code orge:void} sentinel. This
      * makes the NEXT snapshot's {@link MaterialChangeReseed} treat the reconciler's matching fluid
      * placement as already-known (no reseed → mass is conserved) while still reseeding genuine
-     * external edits. Reuses the prior array verbatim when the signature is unchanged (no allocation).
+     * external edits. When the signature is unchanged the prior {@code Identifier[]} is reused
+     * verbatim, avoiding the 4096-ref signature re-allocation; the small per-cell {@code char[]}
+     * species scratch is still built each call.
      */
     @Override
     public void recordCellMaterials(BatchEntry entry, char[] outMat, List<Material> lut) {
