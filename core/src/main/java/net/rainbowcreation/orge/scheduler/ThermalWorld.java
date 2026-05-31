@@ -22,6 +22,27 @@ public interface ThermalWorld {
     record Batch(List<BatchEntry> entries, List<Material> lut) {}
 
     /**
+     * A section whose seam plane was mutated by the cross-section fall pass, carrying the
+     * post-transfer per-cell species ({@code char[]} into the batch LUT). A later step
+     * (FluidReconciler/Scheduler wiring) uses this to mark the changed columns for re-render
+     * — NOT this task. Length-{@code SectionData.CELLS} species array.
+     */
+    record TouchedSection(Identifier dim, SubchunkKey key, char[] species) {}
+
+    /**
+     * Settle fluid that piled on each section's floor (y=0) across the Y seam into the section
+     * directly below (DESIGN §10 Phase-2b / cross-section fall). The native engine steps each
+     * section against a read-only halo, so a donor section can never write its neighbour — fluid
+     * never falls through. Called AFTER the engine writeback loop with this step's entries and LUT;
+     * mutates the §5 SectionStore + the CellMaterialTracker (so the next snapshot's reseed treats the
+     * transfer as already-known) and wakes the receiver's flow pass. Returns the touched sections for
+     * downstream re-render marking. Default no-op for headless test worlds.
+     */
+    default List<TouchedSection> settleCrossSectionSeams(List<BatchEntry> entries, List<Material> lut) {
+        return java.util.List.of();
+    }
+
+    /**
      * Assemble this step's batch on the server thread: build the player-sphere (+ forced)
      * union at {@code range}, drop unloaded sections, and assemble each surviving section's
      * {@link StepTask} (geometry + a COPY of its temperatures + halo). Returns an empty batch
