@@ -200,8 +200,18 @@ public final class StepValidator {
          * {@link #massConservedPerSpecies}); the sums are still accumulated up to (not including) the
          * offending cell only if it returns early, so callers that pre-screen with
          * {@link #cellsWithinBound} should ignore the return and rely on bound-clean input.
+         *
+         * <p><b>Precondition:</b> all {@code add} calls on the same ledger instance MUST pass the same
+         * batch {@code lut} (or one that only GROWS — new species appended at the end). If a later call
+         * passes a {@code lut} that is SMALLER than the one used to initialise the internal species
+         * arrays, the ledger would silently mis-key species sums; this guard throws loudly instead.
          */
         public boolean add(float[] after, float[] before, char[] inMat, char[] outMat, List<Material> lut) {
+            if (sumAfter.length > 0 && lut.size() < sumAfter.length) {
+                throw new IllegalArgumentException(
+                        "SpeciesMassLedger: lut shrank across add() calls (was "
+                                + sumAfter.length + " species, got " + lut.size() + ")");
+            }
             grow(lut.size());
             float cellEps = MASS_EPSILON_PER_CELL;
             boolean bound = true;

@@ -80,6 +80,8 @@ class SchedulerMassTest {
         final List<float[]> massWrites = new ArrayList<>();
         int recordCount;
         final List<char[]> recordedOutMat = new ArrayList<>();
+        int settleCount;
+        int wakeCount;
         @Override public Batch snapshot(int range) { return batch; }
         @Override public void writeBack(BatchEntry entry, StepResult r) {
             writes.add(r.temperature());
@@ -88,6 +90,13 @@ class SchedulerMassTest {
         @Override public void recordCellMaterials(BatchEntry entry, char[] outMat, List<Material> lut) {
             recordCount++;
             recordedOutMat.add(outMat);
+        }
+        @Override public void noteSettle(BatchEntry entry, float maxMassDelta, float maxTempDelta) {
+            settleCount++;
+        }
+        @Override public void wakeNeighbourFlow(net.minecraft.resources.Identifier dim,
+                net.rainbowcreation.orge.section.SubchunkKey neighbour) {
+            wakeCount++;
         }
     }
 
@@ -345,6 +354,8 @@ class SchedulerMassTest {
         assertEquals(0, world.writes.size(), "fabricating batch held: no section written back");
         assertEquals(0, reconciler.count, "no reconcile for a held batch");
         assertEquals(0, world.recordCount, "no cell-material record for a held batch");
+        assertEquals(0, world.settleCount, "no noteSettle side effect for a held batch");
+        assertEquals(0, world.wakeCount, "no wakeNeighbourFlow side effect for a held batch");
     }
 
     @Test

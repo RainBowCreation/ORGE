@@ -302,11 +302,21 @@ public final class Scheduler {
      * fluid gate when the engine emits no species); a bound-illegal entry is HELD individually (skipped,
      * not added to the batch). Bound-clean entries feed a {@link StepValidator.SpeciesMassLedger} and are
      * stashed for PASS 2. PASS 2: if the ledger is NOT conserved, HOLD the WHOLE batch's mass (no write-
-     * back this cycle — the safe choice on a coincident tick, where conduction's heat is folded into the
-     * advection T); otherwise write each stashed entry back exactly as the old conserved path did
+     * back this cycle); otherwise write each stashed entry back exactly as the old conserved path did
      * (writeBack → recordCellMaterials → noteSettle → faceMoved-wake → coincident phaseChanger →
      * reconcile), in batch order. Side effects and ordering are unchanged; only the conservation DECISION
      * moves from per-entry to batch-level, and write-back now happens AFTER it.</p>
+     *
+     * <p><b>Held-batch coincident-tick semantics.</b> When the batch fails the conservation check, ALL
+     * stashed sections' mass AND temperature are discarded for this cycle — no write-back fires for any of
+     * them. On a <em>coincident tick</em> (conduction + advection together) this is especially important
+     * to understand: the advection task was built on the post-conduction temperature field (see
+     * {@link #withTemperatures}), so the conduction ΔT has already been folded into the advection
+     * {@code cleanT} that sits in the stash. Holding the batch therefore also discards that cycle's
+     * conduction temperature update for all stashed sections. This is the safe choice — the alternative
+     * (writing conduction T but not advection mass) would require un-folding conduction from the advection
+     * output, which is not possible without running conduction again. The prior per-entry hold had
+     * identical semantics; documenting it explicitly here so it is not a future surprise.</p>
      */
     private void writeBackAdvectionBatch(List<StepResult> results, int n, boolean conduction, float fullMassBound) {
         // One stashed, bound-clean entry pending the batch conservation verdict.
@@ -318,6 +328,10 @@ public final class Scheduler {
             ThermalWorld.BatchEntry entry = pendingEntries.get(i);
             StepResult r = results.get(i);
             float[] cleanT = StepValidator.clean(r.temperature(), entry.task().temperature());
+            // cleanMass clamps every cell to [0, fullMassBound] (the global max-defaultMass cap) as a
+            // baseline. The loop below then restores any per-species over-cap "boil-volume" cells whose
+            // own output-species cap is LOWER than fullMassBound: cleanMass would otherwise destroy a
+            // valid §7/engine boil deposit that the advection pass is still in the process of relieving.
             float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);
             char[] outMat = r.material();
             if (outMat != null) {
@@ -344,6 +358,10 @@ public final class Scheduler {
             } else {
                 // No engine species (stub/back-compat): keep the legacy per-entry total-fluid gate, which
                 // folds bound + conservation together. A non-conserving legacy entry holds individually.
+                // NOTE: legacy entries bypass the SpeciesMassLedger entirely and are still stashed for
+                // PASS 2 on the conserved path; an empty ledger's conserved() is trivially true, so a
+                // batch composed entirely of legacy (null-species) entries always reaches PASS 2 and
+                // writes back each individually-conserving entry — exactly the pre-batch behaviour.
                 if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound,
                         entry.task().matIx(), pendingMaterials)) {
                     LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
@@ -356,7 +374,8 @@ public final class Scheduler {
 
         // PASS 2: batch-level conservation decision. A non-conserving batch holds ALL of its mass.
         if (!ledger.conserved()) {
-            LOGGER.warn("[ORGE] advection batch mass not conserved (per-species); holding batch mass");
+            LOGGER.warn("[ORGE] advection batch mass not conserved (per-species); holding {} sections' mass",
+                    stash.size());
             return;
         }
 
