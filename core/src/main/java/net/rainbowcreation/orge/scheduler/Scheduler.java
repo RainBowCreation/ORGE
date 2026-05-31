@@ -293,7 +293,7 @@ public final class Scheduler {
                     // on the freshly written section.
                     phaseChanger.applyPhaseChanges(entry);
                 }
-                fluidReconciler.reconcile(entry);
+                fluidReconciler.reconcile(entry, r.material(), pendingMaterials);
             } else {
                 // Conduction-only cycle: mass does not move, carry the snapshot mass through.
                 world.writeBack(entry, new StepResult(cleanT, entry.task().mass()));
