@@ -60,8 +60,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         reconcile(entry.dimension(), entry.key(), outMaterial, outLut);
     }
 
-    @Override
-    public void reconcile(Identifier dim, SubchunkKey key, char[] outMaterial, List<Material> outLut) {
+    private void reconcile(Identifier dim, SubchunkKey key, char[] outMaterial, List<Material> outLut) {
         MinecraftServer srv = this.server;
         if (srv == null) {
             return;
@@ -79,9 +78,6 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             return;
         }
         SectionStore store = stores.store(dim);
-        // Column-isLoaded suffices; no extra hasSection needed because the seam pass only emits
-        // TouchedSections for sections it already confirmed are stored, so a loaded column will
-        // have the real section (not the ambient fallback).
         if (store == null || !store.isLoaded(key.cx(), key.cz())) {
             return;
         }

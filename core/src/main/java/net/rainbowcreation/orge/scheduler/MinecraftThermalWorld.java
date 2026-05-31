@@ -176,36 +176,6 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     }
 
     /**
-     * Settle each section's floor fluid across the Y seam into the section below it (DESIGN §10
-     * cross-section fall). Entries may span dimensions, so they are grouped per dimension and each
-     * group runs against that dimension's §5 store via the headless {@link CrossSectionSeamPass}.
-     * The pass mutates the store + {@link CellMaterialTracker} and wakes touched sections through
-     * {@link #wakeNeighbourFlow}. The fall is best-effort: if a receiver's stored species is absent
-     * from this batch's {@code lut} (e.g. a never-stepped neighbour), the pass maps it to void and
-     * makes no transfer that cycle — a "stuck" fall there is by design, not a bug.
-     */
-    @Override
-    public List<TouchedSection> settleCrossSectionSeams(List<BatchEntry> entries, List<Material> lut) {
-        if (entries.isEmpty()) {
-            return List.of();
-        }
-        java.util.Map<Identifier, List<BatchEntry>> byDim = new java.util.LinkedHashMap<>();
-        for (BatchEntry e : entries) {
-            byDim.computeIfAbsent(e.dimension(), k -> new ArrayList<>()).add(e);
-        }
-        List<TouchedSection> touched = new ArrayList<>();
-        for (java.util.Map.Entry<Identifier, List<BatchEntry>> grp : byDim.entrySet()) {
-            SectionStore store = stores.store(grp.getKey());
-            if (store == null) {
-                continue;
-            }
-            touched.addAll(CrossSectionSeamPass.run(
-                    store, cellMaterials, grp.getValue(), lut, this::wakeNeighbourFlow));
-        }
-        return touched;
-    }
-
-    /**
      * Record the engine's OUTPUT species as the signature for this section's just-persisted mass
      * (DESIGN §10 follow-on; the reseed-misfire fix). Per cell the recorded species is the engine
      * output when present ({@code outMat[i] != 0}), else the cell's input/world material — so an

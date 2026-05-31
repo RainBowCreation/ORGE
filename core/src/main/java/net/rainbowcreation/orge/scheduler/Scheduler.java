@@ -360,22 +360,6 @@ public final class Scheduler {
             }
         }
 
-        // §10 cross-section fall (Task 3 wiring): only on an advection cycle, settle fluid that
-        // piled on each section's floor across the Y seam into the section below, then re-render
-        // every section the seam pass mutated. The donor may be reconciled twice this cycle (full
-        // in the loop, drained here — idempotent); the RECEIVER, which may not be a batch entry at
-        // all, is rendered ONLY here. Reads the §5 store, not `results`, so a partial result set is
-        // fine — a §9-held donor (skipped its write-back above) simply settles its last-persisted
-        // floor, which is consistent with its tracker and idempotent. Never runs on a conduction-only
-        // cycle (mass does not move).
-        if (advection) {
-            List<ThermalWorld.TouchedSection> touched =
-                    world.settleCrossSectionSeams(pendingEntries, pendingMaterials);
-            List<ThermalWorld.TouchedSection> safeList = touched != null ? touched : List.of();
-            for (ThermalWorld.TouchedSection t : safeList) {
-                fluidReconciler.reconcile(t.dim(), t.key(), t.species(), pendingMaterials);
-            }
-        }
     }
 
     /** Max absolute per-cell difference of two equal-length arrays (the settle reduction). */
