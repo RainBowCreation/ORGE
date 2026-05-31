@@ -22,8 +22,9 @@ Drive the world's thermal cycle by injecting heat during the day and removing it
 - **No Seeding:** Because the Nether has a bedrock ceiling, it does not receive solar heat or lose heat to space. Its temperature is driven entirely by internal sources (lava, fire) and conduction.
 
 ## Implementation (Java Scheduler)
-- **Efficiency:** Reuses the "Top-Down Sampling" logic from the Rain Seeding design.
-- **Authority:** The Server performs the $\Delta T$ calculation once per second and updates the `SectionData` before the simulation step.
+- **Efficiency:** Reuses the "Top-Down Sampling" logic from the Mass Seeding design.
+- **Evaporation Integration:** During the Daytime Solar Seeding pass, the server can simultaneously check for surface water and apply **Evaporation** (mass loss) based on the local temperature. This merges two physical processes into a single efficient heightmap scan.
+- **Authority:** The Server performs the $\Delta T$ and mass loss calculations once per second and updates the `SectionData` before the simulation step.
 - **Physics:** Only the top-most solid/liquid block is affected (Option A). Heat then moves to the air or deeper ground naturally via the C++ conduction engine.
 
 ## Advantages
