@@ -10,7 +10,7 @@ Drive the world's thermal cycle by injecting heat during the day and removing it
 
 ### 1. The Overworld (Day/Night Cycle)
 - **Daytime:** Inject heat energy into the top-most solid/liquid block (identified via Heightmap).
-- **Nighttime:** Remove an equal amount of heat energy from the top-most block (simulating heat escaping into the atmosphere/space).
+- **Nighttime or Raining:** Remove an equal amount of heat energy from the top-most block (simulating heat escaping into the atmosphere/space).
 - **Formula:** $\Delta T = \frac{\text{Energy flux} \times \text{Time Step}}{\text{Mass} \times \text{Heat Capacity}}$
 - **Result:** Ground heats up in the sun and cools down under the stars.
 
