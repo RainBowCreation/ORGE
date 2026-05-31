@@ -137,10 +137,16 @@ public final class StepValidator {
             int in = inMat[i];
             int out = outMat[i];
             // BEFORE conserved under the cell's INPUT species; AFTER under its OUTPUT species. The two
-            // sums are decoupled, so a wetted air cell (air in, water out) does not count its 0 'before'
-            // under water yet contributes its 'after' to water -> donor + recipient balance under water.
+            // sums are decoupled. A fluid input credits its 'before' to its own species. A wetted REAL
+            // air cell (air in, fluid out) is adopted by the fluid: the kernel absorbs the air's resting
+            // mass (~1.2 kg) into the fluid, so we credit that air 'before' to the OUTPUT fluid species
+            // (NOT 0) -> donor + recipient balance under that fluid even as pools wet many air cells.
             if (in != 0 && lut.get(in).fluid()) {
                 sumBefore[in] += before[i];
+            } else if (in != 0 && lut.get(in).air() && out != 0 && lut.get(out).fluid()) {
+                // Fluid fell/wet INTO a real air cell and absorbed its mass (kernel adopts air): credit the
+                // air cell's input mass to the fluid it became so before/after balance for that species.
+                sumBefore[out] += before[i];
             }
             if (out != 0 && lut.get(out).fluid()) {
                 float bound = lut.get(out).maxMass(); // per-species cap (canonical accessor: 0 -> defaultMass)

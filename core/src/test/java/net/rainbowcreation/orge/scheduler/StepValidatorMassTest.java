@@ -14,6 +14,7 @@ class StepValidatorMassTest {
     private static final char SOLID_IX = 2;
     private static final char LAVA_IX = 3;
     private static final char STEAM_IX = 4;
+    private static final char AIR_IX = 5;
 
     private static Material water() {
         return new Material(Identifier.fromNamespaceAndPath("orge", "water"),
@@ -45,9 +46,17 @@ class StepValidatorMassTest {
                 null, null, null, Float.NaN, false, true, 0.6f, 0.6f, true);
     }
 
-    /** VOID=0, water=1, generic_solid=2, lava=3, steam=4. */
+    private static Material air() {
+        // Real orge:air: State.AIR (air()==true), NON-fluid, ~1.2 kg per cell. Built via the canonical
+        // 16-arg ctor so the State.AIR path is taken (the compat ctors only fold into FLUID/SOLID/GAS).
+        return new Material(Identifier.fromNamespaceAndPath("orge", "air"),
+                1f, 1f, 0f, 1.2f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
+                null, null, null, Float.NaN, false, Material.State.AIR, 0f, 0f);
+    }
+
+    /** VOID=0, water=1, generic_solid=2, lava=3, steam=4, air=5. */
     private static List<Material> perSpeciesLut() {
-        return List.of(MaterialLut.VOID, water(), genericSolid(), lava(), steam());
+        return List.of(MaterialLut.VOID, water(), genericSolid(), lava(), steam(), air());
     }
 
     @Test
@@ -111,6 +120,39 @@ class StepValidatorMassTest {
     }
 
     @Test
+    void wettingIntoRealAirIsConserved() {
+        // REGRESSION GUARD for the real-air wetting defect: with the real orge:air material a wetted
+        // cell's INPUT mass is ~1.2 kg (not 0). The kernel ADOPTS that air into the fluid (cell becomes
+        // water, absorbing the air's 1.2 kg + deposited dm; TOTAL mass conserved). §9 must credit that
+        // 1.2 kg air 'before' to the OUTPUT water species. A single donor sheds dm into each of 100 air
+        // cells. Old code (air 'before' dropped) left water sumAfter exceeding sumBefore by 100*1.2 =
+        // 120 kg, far over the ε·N ≈ 40.96 kg tolerance -> false reject (the in-game re-freeze).
+        final int wet = 100;
+        final float dm = 5f;          // water deposited into each wetted air cell
+        final float airMass = 1.2f;   // each air cell's adopted resting mass
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, AIR_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, AIR_IX);
+        // background: a flat air field (air in == air out, before==after==1.2) -> contributes to neither sum.
+        java.util.Arrays.fill(before, airMass);
+        java.util.Arrays.fill(after, airMass);
+        // donor water cell (index 0): full, sheds wet*dm kg into the wetted cells.
+        inMat[0] = WATER_IX; outMat[0] = WATER_IX;
+        before[0] = 1000f; after[0] = 1000f - wet * dm;
+        // wetted cells [1..wet]: air-in, water-out; each adopts 1.2 air + dm deposit.
+        for (int i = 1; i <= wet; i++) {
+            inMat[i] = AIR_IX;          // air in (before == 1.2)
+            outMat[i] = WATER_IX;       // water out (adopted)
+            after[i] = airMass + dm;    // adopted air mass + deposited water
+        }
+        // water sumBefore = donor 1000 + 100*1.2 (air credited to water) = 1120
+        // water sumAfter  = donor (1000-500) + 100*(1.2+5) = 500 + 620   = 1120  -> conserved.
+        // Without the air-credit, sumBefore stays 1000 while sumAfter is 1120 -> off by 120 kg
+        // (= 100 wetted cells * 1.2 air each), far over the ε·N ≈ 40.96 kg tolerance -> false reject.
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
     void densitySwapWithAirIsConserved() {
         // Steam below air rises (Plan-1 swap): lower cell steam(0.6) -> air(0), upper cell air(0) ->
         // steam(0.6). Dual-index: steam sumBefore = lower-in 0.6; steam sumAfter = upper-out 0.6. ✓
@@ -154,6 +196,22 @@ class StepValidatorMassTest {
         before[0] = 0.6f; after[0] = 1000.6f;   // over the 0.6 cap (bound-exempt) but +1000 invented
         java.util.Arrays.fill(before, 1, 4096, 0.6f);
         java.util.Arrays.fill(after, 1, 4096, 0.6f);
+        assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void waterToLavaMixWithNoAirStillRejected() {
+        // PROTECTION: the new air-credit branch fires ONLY for air-in/fluid-out. A genuine fluid->fluid
+        // relabel that invents mass (no air anywhere) must still be rejected. Water cells become lava-out
+        // and gain 100 kg from nowhere: lava sumAfter exceeds (its 0) sumBefore, water sumBefore exceeds
+        // its sumAfter -> both species off, far over ε·N -> false. (If the air-credit ever mis-fired on a
+        // non-air input, lava's before would be wrongly padded and could mask the invention.)
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, WATER_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, WATER_IX);
+        java.util.Arrays.fill(before, 500f); java.util.Arrays.fill(after, 500f);
+        outMat[0] = LAVA_IX;              // water-in, lava-out (NOT air-in) -> air-credit must NOT apply
+        after[0] = 600f;                  // lava cell invents 100 kg (no matching water loss)
         assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
     }
 
