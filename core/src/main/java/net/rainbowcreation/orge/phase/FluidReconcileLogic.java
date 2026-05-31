@@ -33,4 +33,14 @@ public final class FluidReconcileLogic {
         if (level > 7) return 7;
         return level;
     }
+
+    /**
+     * The reconcile <b>render bucket</b> for a level (Decision 13b throttle). A render level already
+     * partitions mass into discrete buckets ({@link #REMOVE}, 0, 1..7), so the bucket of a level is
+     * the level itself. The reconciler writes a block only when the new mass's bucket differs from
+     * the bucket the world block currently shows — mass can move within a bucket without a packet.
+     */
+    public static int levelBucket(int level) {
+        return level;
+    }
 }
