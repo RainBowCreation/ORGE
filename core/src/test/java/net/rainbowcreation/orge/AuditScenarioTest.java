@@ -253,8 +253,9 @@ class AuditScenarioTest {
      * The regression that would have caught the unwired air LUT: a water column above/beside REAL
      * air cells (a non-zero LUT material with {@code air()==true}). The freshly bundled, air-aware
      * .so must (a) move water mass DOWN/SIDEWAYS into the air cells (the air cells gain mass, the
-     * source loses it; finite pooling, no overflow) and (b) ADOPT those cells' output species to
-     * water. We also run the result through the §9 gate
+     * source loses it; finite pooling, no overflow) and (b) settle that water into the destination
+     * cells WITHOUT leaving a residue in cells it merely passed through (the Bug-A swap, not absorb).
+     * We also run the result through the §9 gate
      * ({@link StepValidator#massConservedPerSpecies}) to prove the engine air-sink and the §9
      * air-mass credit work together — the real in-game acceptance gate. If only matIx==0 void were a
      * sink (the OLD .so / unwired ABI), the non-zero air cells would stay empty and this fails.
@@ -351,12 +352,18 @@ class AuditScenarioTest {
         assertTrue(fullest <= water.maxMass() + 1e-2f,
                 "no cell may exceed water max_mass=" + water.maxMass() + ", fullest was " + fullest);
 
-        // (c) species ADOPTION: every real-air cell the water fell through / wet into became water
-        //     (idx 1) — the air cells were ADOPTED, not left as air (idx 2). This is the bug's tell:
-        //     with the OLD unwired .so the non-zero air cells stay air and water never enters them.
-        assertEquals(1, (int) matIx[airBelow], "air cell the fall transited must adopt water species");
+        // (c) SWAP (Bug A), updated from the OLD absorb expectation: with the displacement swap the
+        //     water does NOT leave a ~1.2 kg residue in the cells it merely passed THROUGH. A cell the
+        //     fall transited and then vacated holds NO residual mass (the OLD absorb left a 1.2 kg
+        //     relabelled residue that cascaded 1.2 -> 2.4 -> ...; the swap leaves it drained). Mass
+        //     instead lands in the destinations the water actually settled into.
+        assertEquals(0f, mass[airBelow], 1e-2f,
+                "a transited (then vacated) cell must carry NO water residue after the swap, was " + mass[airBelow]);
+        // the destinations the water settled into ARE water species and DO carry mass.
         assertEquals(1, (int) matIx[floorPool], "floor pool cell must be water species");
+        assertTrue(mass[floorPool] > 1f, "floor pool cell must carry settled water mass, was " + mass[floorPool]);
         assertEquals(1, (int) matIx[airSide],  "wetted air-side cell must adopt water species");
+        assertTrue(mass[airSide] > 1f, "wetted air-side cell must carry settled water mass, was " + mass[airSide]);
     }
 
     // A fluid lava (fluid=true) for the advection-merge audit. Distinct material index from water,
@@ -471,6 +478,108 @@ class AuditScenarioTest {
         // KEEP reconcile: per-material defaultMass — water fraction uses water's full mass.
         assertEquals(0, FluidReconcileLogic.levelForFraction(
                 FluidReconcileLogic.fraction(1000f, water.defaultMass())));
+    }
+
+    /**
+     * Bug A end-to-end on the production .so: a water cell sitting on top of a column of REAL air
+     * (a non-zero LUT material, {@code air()==true}, resting ~1.2 kg) must SINK by full-cell SWAP —
+     * the water drops one cell per advection step while the displaced air's ~1.2 kg RISES into the
+     * vacated cell. The decisive Bug-A tell is the column AFTER the water has passed: every transited
+     * cell must be AIR again (species air, ~1.2 kg) with <b>NO ~1.2 kg water residue and NO
+     * accumulating residue trail</b> — the OLD absorb kept a relabelled 1.2 kg in the donor that
+     * cascaded 1.2 -> 2.4 -> 3.6. We seal the shaft with solid stone walls (idx 3, not fluid/air/void)
+     * so the sunk water collects in a single full ~1000 kg floor cell instead of leveling sideways.
+     * Mass is checked total-conserved every step and §9 {@link StepValidator#massConservedPerSpecies}
+     * must return TRUE every step (the air-mass credit accepting the swap).
+     */
+    @Test
+    void waterSinksThroughRealAirColumnDisplacingAirNoResidueAndSection9Accepts() {
+        OrgeEngine eng = EngineFactory.create();
+        assumeTrue(eng instanceof NativeEngine,
+                "native liborge must load on linux-x64; got " + eng.getClass().getSimpleName());
+        NativeEngine e = (NativeEngine) eng;
+
+        Material water = water();   // LUT idx 1
+        Material air   = air();     // LUT idx 2: REAL air, air()==true, fluid()==false, 1.2 kg
+        assertTrue(water.fluid(), "water must be a fluid to advect");
+        assertTrue(air.air() && !air.fluid(), "air material must be air() and not fluid()");
+
+        char[]  matIx = new char[SEC_N];   // mostly void (idx 0)
+        float[] mass  = new float[SEC_N];
+        float[] temp  = new float[SEC_N];
+        Arrays.fill(temp, 300f);
+
+        // A narrow vertical shaft at x=8,z=8: REAL air (idx 2, 1.2 kg) at y=0..9 and ONE full water
+        // cell (1000 kg) on top at y=10. The air sits at a NON-ZERO LUT index so the kernel must
+        // consult the air LUT flag (not the matIx==0 void clause) to swap into it.
+        int AIRTOP = 9;            // highest real-air cell (water starts directly above it)
+        int WY     = 10;           // the falling water cell
+        for (int y = 0; y <= AIRTOP; y++) { int i = sidx(8, y, 8); matIx[i] = (char) 2; mass[i] = 1.2f; }
+        int wcell = sidx(8, WY, 8); matIx[wcell] = (char) 1; mass[wcell] = 1000f;
+
+        // Solid stone walls (idx 3: fluid()==false, air()==false -> a no-flow wall for spread) around
+        // the shaft so the sunk water cannot level sideways and instead fills a single full floor cell.
+        for (int y = 0; y <= WY; y++) {
+            for (int wall : new int[]{ sidx(7, y, 8), sidx(9, y, 8), sidx(8, y, 7), sidx(8, y, 9) }) {
+                matIx[wall] = (char) 3; mass[wall] = 2000f;
+            }
+        }
+        int floor = sidx(8, 0, 8);     // where the water must end up (full ~1000 kg)
+
+        List<Material> lut = List.of(
+                new Material(Identifier.fromNamespaceAndPath("orge", "void"),
+                        0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null),
+                new Material(WATER, 0.6f, 4186f, 0f, 1000f, 0.018f,
+                        373.15f, 273.15f, ORGE_STEAM, ICE, null,
+                        Float.NaN, false, Material.State.FLUID, 125f, 1000f),
+                air,
+                new Material(STONE, 1.0f, 840f, 0f, 2000f, 0f, 9999f, 0f, null, null, null));
+
+        final int K = 30;                       // advection steps (>= the 10-cell drop depth)
+        final float totalBefore = sum(mass);    // 1000 water + 10*1.2 air + 44 walls*2000
+
+        for (int it = 0; it < K; it++) {
+            char[]  inMat  = matIx.clone();
+            float[] before = mass.clone();
+            StepTask task = new StepTask(new SubchunkKey(0, 0, 0), matIx, mass, temp, voidHalo());
+            List<StepResult> out = e.step(List.of(task), lut,
+                    Scheduler.ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
+            mass = out.get(0).mass();
+            temp = out.get(0).temperature();
+            char[] outMat = out.get(0).material() != null ? out.get(0).material() : matIx;
+            matIx = outMat;
+            // total mass conserved every step
+            assertEquals(totalBefore, sum(mass), 1e-1f,
+                    "total mass must be conserved at step " + it);
+            // §9 accepts the swap (air-mass credit) every step — NOT weakened.
+            assertTrue(StepValidator.massConservedPerSpecies(mass, before, inMat, outMat, lut),
+                    "§9 massConservedPerSpecies must accept the air-displacement swap at step " + it);
+        }
+
+        // The water SANK to a single full cell at the floor (~1000 kg, species water).
+        assertEquals(1, (int) matIx[floor], "floor cell must be water species after sinking");
+        assertEquals(1000f, mass[floor], 1e-1f,
+                "the water must collect as a single full ~1000 kg cell at the floor, was " + mass[floor]);
+        // the original top water cell drained of water and is now occupied by the RISEN air (not 0,
+        // not water): the swap moved water down and air up, conserving the cell's occupancy.
+        assertEquals(2, (int) matIx[wcell],
+                "the original top water cell must now hold risen air, was mat " + (int) matIx[wcell]);
+
+        // Bug-A TELL: every cell the water passed through is AIR again (species 2, ~1.2 kg) — the air
+        // rose into the vacated cells. NO ~1.2 kg water residue, NO accumulating residue trail.
+        for (int y = 1; y <= WY; y++) {     // y=0 holds the water; y=1..10 must be the risen air
+            int i = sidx(8, y, 8);
+            assertEquals(2, (int) matIx[i],
+                    "transited cell y=" + y + " must be AIR again (displaced, no water residue), was mat " + (int) matIx[i]);
+            assertEquals(1.2f, mass[i], 1e-2f,
+                    "transited cell y=" + y + " must hold the air's ~1.2 kg (no accumulating residue), was " + mass[i]);
+        }
+
+        // and the whole section holds exactly one water cell of exactly 1000 kg (no residue anywhere).
+        float waterTotal = 0f; int waterCells = 0;
+        for (int i = 0; i < SEC_N; i++) if (matIx[i] == 1) { waterTotal += mass[i]; waterCells++; }
+        assertEquals(1, waterCells, "exactly one water cell may remain (no residue trail)");
+        assertEquals(1000f, waterTotal, 1e-1f, "all 1000 kg of water is conserved in that one cell");
     }
 
     @Test
