@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.NativeEngine;
 import net.rainbowcreation.orge.engine.NativeLoader;
@@ -12,6 +13,7 @@ import net.rainbowcreation.orge.phase.FluidReconcileLogic;
 import net.rainbowcreation.orge.phase.PhaseRule;
 import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import net.rainbowcreation.orge.scheduler.Scheduler;
+import net.rainbowcreation.orge.scheduler.StepValidator;
 import net.rainbowcreation.orge.section.SubchunkKey;
 import org.junit.jupiter.api.Test;
 import java.util.Arrays;
@@ -233,6 +235,128 @@ class AuditScenarioTest {
         assertEquals(FluidReconcileLogic.REMOVE, FluidReconcileLogic.levelForFraction(
                 FluidReconcileLogic.fraction(mass[top], water.defaultMass())),
                 "the drained top cell reconciles to REMOVE");
+    }
+
+    // ---- Air-sink regression (the in-game bug, headless) -----------------------------------
+
+    // First-class AIR material (State.AIR): air()==true, fluid()==false, resting mass ~1.2 kg.
+    // Placed at a NON-ZERO LUT index so the kernel must read the air LUT flag (NOT the matIx==0
+    // void clause) to treat it as a fall/spread/wet sink. This is the array the ABI now passes.
+    private static final Identifier AIR = Identifier.fromNamespaceAndPath("orge", "air");
+    private static Material air() {
+        return new Material(AIR, 0.026f, 1005f, 0f, 1.2f, 0.029f,
+                Float.POSITIVE_INFINITY, 0f, null, null, null,
+                Float.NaN, false, Material.State.AIR, 0f, 0f);
+    }
+
+    /**
+     * The regression that would have caught the unwired air LUT: a water column above/beside REAL
+     * air cells (a non-zero LUT material with {@code air()==true}). The freshly bundled, air-aware
+     * .so must (a) move water mass DOWN/SIDEWAYS into the air cells (the air cells gain mass, the
+     * source loses it; finite pooling, no overflow) and (b) ADOPT those cells' output species to
+     * water. We also run the result through the §9 gate
+     * ({@link StepValidator#massConservedPerSpecies}) to prove the engine air-sink and the §9
+     * air-mass credit work together — the real in-game acceptance gate. If only matIx==0 void were a
+     * sink (the OLD .so / unwired ABI), the non-zero air cells would stay empty and this fails.
+     */
+    @Test
+    void waterFallsAndWetsIntoRealAirAndSection9Accepts() {
+        OrgeEngine eng = EngineFactory.create();
+        assumeTrue(eng instanceof NativeEngine,
+                "native liborge must load on linux-x64; got " + eng.getClass().getSimpleName());
+        NativeEngine e = (NativeEngine) eng;
+
+        Material water = water();   // LUT idx 1: fluid, defaultMass 1000, floor 125 below
+        Material air   = air();     // LUT idx 2: REAL air, air()==true, fluid()==false, 1.2 kg
+        assertTrue(water.fluid(), "water must be a fluid to advect");
+        assertTrue(air.air() && !air.fluid(), "air material must be air() and not fluid()");
+
+        // Mirror the proven kernel air-sink scenario (ORGE-ENGINE tests/test_air_sink.cpp): the WHOLE
+        // section is REAL AIR (matIx 2, resting 1.2 kg) — the in-game ambient — so the air cells sit at
+        // a NON-ZERO LUT index, forcing the kernel to consult the air LUT flag (not the matIx==0 void
+        // clause). Then: a water column gives a FALL sink directly below, and a floor water cell gives
+        // a sideways WET sink (kernel fall is interior-only, so a yl==0 cell is "supported" and spreads).
+        char[]  matIx = new char[SEC_N];
+        float[] mass  = new float[SEC_N];
+        float[] temp  = new float[SEC_N];
+        Arrays.fill(temp, 300f);
+        Arrays.fill(matIx, (char) 2);             // every cell starts as REAL AIR
+        Arrays.fill(mass, 1.2f);                  // air resting mass
+
+        // FALL: a water column x=8,z=8 from y=11 (top) down to y=7. The whole air column beneath is a
+        // sink, so water falls all the way to the section floor (y=0) and pools there — the FALL path
+        // wets every air cell it transits (species adoption) and settles a finite pool at the floor.
+        int[] waterCol = {
+                sidx(8, 11, 8), sidx(8, 10, 8), sidx(8, 9, 8),
+                sidx(8, 8, 8),  sidx(8, 7, 8)
+        };
+        int airBelow = sidx(8, 6, 8);             // REAL air a fall cell transits -> wetted by the fall
+        int floorPool = sidx(8, 0, 8);            // section floor under the column -> water pools here
+        int top      = waterCol[0];
+        for (int c : waterCol) { matIx[c] = (char) 1; mass[c] = 1000f; }
+
+        // WET sideways: a SUPPORTED water cell on the section floor (yl==0), beside a real-air cell.
+        int floorSrc = sidx(4, 0, 4);             // on the floor => cannot fall => supported
+        int airSide  = sidx(5, 0, 4);             // REAL air to the +x side -> SPREAD sink
+        matIx[floorSrc] = (char) 1; mass[floorSrc] = 1000f;
+
+        // water (idx1): floor 125, cap 1000. air (idx2) at NON-ZERO index.
+        List<Material> lut = List.of(
+                new Material(Identifier.fromNamespaceAndPath("orge", "void"),
+                        0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null),
+                new Material(WATER, 0.6f, 4186f, 0f, 1000f, 0.018f,
+                        373.15f, 273.15f, ORGE_STEAM, ICE, null,
+                        Float.NaN, false, Material.State.FLUID, 125f, 1000f),
+                air);
+
+        float airSideBefore  = mass[airSide];     // 1.2
+        float waterIn = 5f * 1000f;               // total water mass seeded in the column
+
+        // Run several steps via the production native path; check the §9 gate every step.
+        for (int it = 0; it < 30; it++) {
+            char[]  inMat  = matIx.clone();
+            float[] before = mass.clone();
+            StepTask task = new StepTask(new SubchunkKey(0, 0, 0), matIx, mass, temp, voidHalo());
+            List<StepResult> out = e.step(List.of(task), lut,
+                    Scheduler.ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
+            mass = out.get(0).mass();
+            temp = out.get(0).temperature();
+            char[] outMat = out.get(0).material() != null ? out.get(0).material() : matIx;
+            matIx = outMat;
+            // §9 gate: with the air-mass credit, the air-sink step must be ACCEPTED.
+            assertTrue(StepValidator.massConservedPerSpecies(mass, before, inMat, outMat, lut),
+                    "§9 massConservedPerSpecies must accept the air-sink step at iteration " + it);
+        }
+
+        // Tally the water that actually moved through the air column down to the floor pool.
+        float floorWater = 0f;
+        for (int x = 0; x < 16; x++) for (int z = 0; z < 16; z++) {
+            int i = sidx(x, 0, z);
+            if (matIx[i] == 1) floorWater += mass[i];
+        }
+
+        // (a) FALL: the water column drained — its head fell THROUGH the real-air column to the floor.
+        assertEquals(0f, mass[top], 1e-2f, "top of the water column should have drained, was " + mass[top]);
+        assertTrue(mass[floorPool] > 1f,
+                "water must have fallen through the air column and pooled on the floor, was " + mass[floorPool]);
+        assertTrue(floorWater > 1000f,
+                "the bulk of the column's water must reach the floor pool, was " + floorWater + " of " + waterIn);
+        // (b) WET: the supported floor cell spread sideways into its air neighbour.
+        assertTrue(mass[airSide] > airSideBefore + 1f,
+                "air cell beside the floor source must gain water mass (sideways wet), was " + mass[airSide]);
+
+        // finite pooling: no cell exceeds water's cap.
+        float fullest = 0f;
+        for (int i = 0; i < SEC_N; i++) fullest = Math.max(fullest, mass[i]);
+        assertTrue(fullest <= water.maxMass() + 1e-2f,
+                "no cell may exceed water max_mass=" + water.maxMass() + ", fullest was " + fullest);
+
+        // (c) species ADOPTION: every real-air cell the water fell through / wet into became water
+        //     (idx 1) — the air cells were ADOPTED, not left as air (idx 2). This is the bug's tell:
+        //     with the OLD unwired .so the non-zero air cells stay air and water never enters them.
+        assertEquals(1, (int) matIx[airBelow], "air cell the fall transited must adopt water species");
+        assertEquals(1, (int) matIx[floorPool], "floor pool cell must be water species");
+        assertEquals(1, (int) matIx[airSide],  "wetted air-side cell must adopt water species");
     }
 
     // A fluid lava (fluid=true) for the advection-merge audit. Distinct material index from water,

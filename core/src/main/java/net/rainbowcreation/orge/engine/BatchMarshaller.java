@@ -34,7 +34,7 @@ final class BatchMarshaller {
                 float[] haloT, char[] haloMat, float[] haloMass,
                 float[] lutCond, float[] lutHeatCap,
                 float[] lutVisc, float[] lutFullMass, byte[] lutFluid,
-                float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, int matCount) {}
+                float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir, int matCount) {}
 
     static Flat flatten(List<StepTask> tasks, List<Material> lut) {
         int m = lut.size();
@@ -83,6 +83,7 @@ final class BatchMarshaller {
         float[] minFlow = new float[m];
         float[] maxMass = new float[m];
         byte[] gas = new byte[m];
+        byte[] air = new byte[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
@@ -93,12 +94,13 @@ final class BatchMarshaller {
             minFlow[i] = mat.minFlowMass();
             maxMass[i] = mat.maxMass();           // canonical accessor: 0 -> defaultMass
             gas[i] = mat.gas() ? (byte) 1 : (byte) 0;
+            air[i] = mat.air() ? (byte) 1 : (byte) 0;
         }
         // Index 0 is the VOID/ambient sentinel; label it with air's density so the kernel's
         // density swap (Plan-1) reads a meaningful "empty cell" density rather than 0.
         fullMass[0] = AIR_DENSITY;
         return new Flat(n, matIx, mass, tIn, haloT, haloMat, haloMass,
-                cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, m);
+                cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, air, m);
     }
 
     static List<float[]> slice(float[] tOut, int n) {
