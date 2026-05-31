@@ -101,6 +101,7 @@ public final class SectionStore {
             // serializing in the flush path, so sections the engine flattens back to uniform shrink
             // to UNIFORM on disk (the common case per DESIGN §5). Deferred until the engine/scheduler
             // is the producer of FULL sections, so it can be validated end-to-end.
+            demoteColumn(loaded.get(key)); // temporary
             region.saveColumn(cx, cz, loaded.get(key));
         }
         loaded.remove(key);
@@ -115,16 +116,26 @@ public final class SectionStore {
      */
     public void flushAll() {
         // TODO(phase: section-store): if a saveColumn throws mid-iteration, dirty isn't cleared; already-saved columns re-save next call (safe/idempotent, but churns). Acceptable for single-threaded v1.
-        // TODO(phase: section-store): call SectionData.demoteIfUniform() on each section before
-        // serializing in the flush path, so sections the engine flattens back to uniform shrink
-        // to UNIFORM on disk (the common case per DESIGN §5). Deferred until the engine/scheduler
-        // is the producer of FULL sections, so it can be validated end-to-end.
         for (long key : dirty) {
             int cx = (int) (key >> 32);
             int cz = (int) key;
+            demoteColumn(loaded.get(key));
             region.saveColumn(cx, cz, loaded.get(key));
         }
         dirty.clear();
+    }
+
+    /**
+     * Collapses every section in a column back to {@code UNIFORM} where the engine left all cells
+     * identical, before it is serialized. Sections holding a genuine gradient stay {@code FULL}
+     * (DESIGN §5 — UNIFORM is the common case far from any heat source). A {@code null} column
+     * (never happens for a dirty key) is tolerated as a no-op.
+     */
+    private static void demoteColumn(NavigableMap<Integer, SectionData> col) {
+        if (col == null) return;
+        for (SectionData section : col.values()) {
+            section.demoteIfUniform();
+        }
     }
 
     // -------------------------------------------------------------------------

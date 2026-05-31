@@ -145,6 +145,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         // back in result.mass()), so this stays the block-derived geometry mass when no flow ran.
         float[] massDst = data.massArray();
         System.arraycopy(result.mass(), 0, massDst, 0, SectionData.CELLS);
+        // writeBack force-promoted this section to FULL via the array accessors above. Collapse it
+        // straight back to UNIFORM when the engine left every cell identical (a settled/flat section),
+        // so FULL is not a one-way ratchet — observability (/orge get-live) and the on-disk form both
+        // reflect the section's true state. No-op (cheap scan, returns false) while a gradient remains.
+        data.demoteIfUniform();
         store.put(entry.key(), data);
     }
 

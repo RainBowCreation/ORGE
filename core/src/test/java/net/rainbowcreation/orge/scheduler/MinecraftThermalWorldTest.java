@@ -50,4 +50,50 @@ class MinecraftThermalWorldTest {
         assertEquals(1000f, data.massAt(0), 1e-4f, "engine mass must be persisted, not left at 0");
         assertEquals(1000f, data.massAt(SectionData.CELLS - 1), 1e-4f, "all cells carry their mass");
     }
+
+    @Test
+    void writeBackDemotesToUniformWhenEngineFlattensAllCells(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        float[] temps = new float[SectionData.CELLS];
+        Arrays.fill(temps, 300f);
+        float[] mass = new float[SectionData.CELLS];
+        Arrays.fill(mass, 1000f);
+        StepTask task = new StepTask(key, new char[SectionData.CELLS], mass, temps, null);
+        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
+
+        world.writeBack(entry, new StepResult(temps, mass));
+
+        SectionData data = mgr.store(DIM).get(key);
+        assertEquals(SectionData.Form.UNIFORM, data.form(),
+                "a section the engine flattened to a single value must collapse back to UNIFORM, "
+                        + "not ratchet at FULL forever");
+        assertEquals(300f, data.temperatureAt(0), 1e-4f, "uniform value preserved through demote");
+        assertEquals(1000f, data.massAt(0), 1e-4f, "uniform mass preserved through demote");
+    }
+
+    @Test
+    void writeBackStaysFullWhenAGradientRemains(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        float[] temps = new float[SectionData.CELLS];
+        Arrays.fill(temps, 300f);
+        temps[0] = 350f; // a real gradient — must NOT collapse
+        float[] mass = new float[SectionData.CELLS];
+        Arrays.fill(mass, 1000f);
+        StepTask task = new StepTask(key, new char[SectionData.CELLS], mass, temps, null);
+        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
+
+        world.writeBack(entry, new StepResult(temps, mass));
+
+        SectionData data = mgr.store(DIM).get(key);
+        assertEquals(SectionData.Form.FULL, data.form(),
+                "a section holding a genuine gradient must stay FULL");
+        assertEquals(350f, data.temperatureAt(0), 1e-4f);
+        assertEquals(300f, data.temperatureAt(1), 1e-4f);
+    }
 }

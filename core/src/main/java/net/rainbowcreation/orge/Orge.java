@@ -7,9 +7,11 @@ import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
+import net.rainbowcreation.orge.command.LiveStatus;
 import net.rainbowcreation.orge.command.OrgeCommandLogic;
 import net.rainbowcreation.orge.command.OrgeCommands;
 import net.rainbowcreation.orge.command.ReadRangeProvider;
+import net.rainbowcreation.orge.command.SectionStatusSource;
 import net.rainbowcreation.orge.command.ServerStoreReadSource;
 import net.rainbowcreation.orge.command.ServerStoreWriteSink;
 import net.minecraft.core.BlockPos;
@@ -227,7 +229,20 @@ public final class Orge {
                 List.of(new ServerStoreReadSource(SECTION_STORES)),
                 new ServerStoreWriteSink(SECTION_STORES, wake),
                 (ReadRangeProvider) () -> Scheduler.MAX_RANGE);
-        OrgeCommands orgeCommands = new OrgeCommands(commandLogic);
+        // get-live status: UNLOADED (column gone) -> AMBIENT (loaded, never simulated) -> DORMANT
+        // (settled, dropped from schedule) / ACTIVE (stepping). Closes over the store + active set,
+        // which the command layer has no other handle on. Server-thread only (get-live ticks there).
+        SectionStatusSource statusSource = (dim, key) -> {
+            net.rainbowcreation.orge.section.SectionStore store = SECTION_STORES.store(dim);
+            if (store == null || !store.isLoaded(key.cx(), key.cz())) {
+                return LiveStatus.UNLOADED;
+            }
+            if (!store.hasSection(key)) {
+                return LiveStatus.AMBIENT;
+            }
+            return activeSet.isAsleep(dim, key) ? LiveStatus.DORMANT : LiveStatus.ACTIVE;
+        };
+        OrgeCommands orgeCommands = new OrgeCommands(commandLogic, statusSource);
         CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) ->
                 orgeCommands.register(dispatcher));
         // /orge get-live paints each toggled player's crosshair cell to the action bar every tick.

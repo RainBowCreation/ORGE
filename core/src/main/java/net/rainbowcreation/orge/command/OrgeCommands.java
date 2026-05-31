@@ -45,6 +45,9 @@ public final class OrgeCommands {
 
     private final OrgeCommandLogic logic;
 
+    /** Resolves a section's load/sim {@link LiveStatus} for the get-live readout. */
+    private final SectionStatusSource status;
+
     /**
      * Players with {@code /orge get-live} toggled on. Each server tick their crosshair cell is
      * painted to the ACTION BAR (not chat) by {@link #tickLiveReadouts}. Server-thread confined
@@ -52,8 +55,9 @@ public final class OrgeCommands {
      */
     private final Set<UUID> liveReadout = new HashSet<>();
 
-    public OrgeCommands(OrgeCommandLogic logic) {
+    public OrgeCommands(OrgeCommandLogic logic, SectionStatusSource status) {
         this.logic = logic;
+        this.status = status;
     }
 
     public void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -154,22 +158,26 @@ public final class OrgeCommands {
     }
 
     /**
-     * The short live-readout line for one cell: {@code "<block>, <material>, <temp_k>:<mass>, <form>"}
-     * (e.g. {@code "minecraft:water, orge:water, 288.00:1000.0, FULL"}). No coords/dimension/labels —
-     * it rides the action bar, so it stays terse.
+     * The short live-readout line for one cell:
+     * {@code "<block>, <material>, <temp_k>:<mass>, <status>, <form>"}
+     * (e.g. {@code "minecraft:water, orge:water, 288.00:1000.0, DORMANT, FULL"}). {@code status} is the
+     * load/sim lifecycle ({@link LiveStatus}); {@code form} is the internal array packing. No
+     * coords/dimension/labels — it rides the action bar, so it stays terse.
      */
     private String liveLine(ServerLevel level, BlockPos p) {
         BlockState state = level.getBlockState(p);
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         Identifier matId = LiveMaterials.materialFor(state, ActiveMaterials.current()).id();
         CellAddress addr = CellAddress.of(p.getX(), p.getY(), p.getZ());
-        Optional<SectionView> v = logic.view(level.dimension().identifier(), addr.key());
+        Identifier dim = level.dimension().identifier();
+        LiveStatus st = status.statusOf(dim, addr.key());
+        Optional<SectionView> v = logic.view(dim, addr.key());
         if (v.isEmpty()) {
-            return String.format(Locale.ROOT, "%s, %s, (no data)", blockId, matId);
+            return String.format(Locale.ROOT, "%s, %s, (no data), %s", blockId, matId, st);
         }
         SectionView view = v.get();
-        return String.format(Locale.ROOT, "%s, %s, %.2f:%.1f, %s",
-                blockId, matId, view.tempAt(addr.cell()), view.massAt(addr.cell()), view.form());
+        return String.format(Locale.ROOT, "%s, %s, %.2f:%.1f, %s, %s",
+                blockId, matId, view.tempAt(addr.cell()), view.massAt(addr.cell()), st, view.form());
     }
 
     private static SubchunkKey sectionOf(Vec3 pos) {
