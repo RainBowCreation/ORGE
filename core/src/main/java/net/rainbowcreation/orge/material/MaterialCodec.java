@@ -7,6 +7,7 @@ import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.resources.Identifier;
 
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -29,19 +30,28 @@ import java.util.Optional;
  *   <li><b>Required:</b> {@code thermal_conductivity}, {@code heat_capacity}, {@code default_mass}</li>
  *   <li><b>Optional with defaults:</b>
  *     {@code viscosity} → 0, {@code molar_mass} → 0,
- *     {@code boiling_point} → +∞, {@code freezing_point} → -∞,
- *     {@code default_temperature} → NaN (absent), {@code pinned} → false, {@code fluid} → false,
- *     {@code min_flow_mass} → 0, {@code max_mass} → 0 (= default_mass), {@code gas} → false</li>
+ *     {@code max_temp} → +∞, {@code min_temp} → -∞,
+ *     {@code default_temperature} → NaN (absent), {@code pinned} → false,
+ *     {@code state} → {@code "solid"} (one of solid/fluid/gas/entity),
+ *     {@code min_flow_mass} → 0, {@code max_mass} → 0 (= default_mass)</li>
  *   <li><b>Optional nullable ids:</b>
- *     {@code boiling_target}, {@code freezing_target}, {@code representative_block} → null</li>
+ *     {@code max_target}, {@code min_target}, {@code representative_block} → null</li>
  * </ul>
  */
 public final class MaterialCodec {
 
     private MaterialCodec() {}
 
+    /** snake/lower-case string ⇆ {@link Material.State}; unknown names decode to a codec error. */
+    static final Codec<Material.State> STATE_CODEC = Codec.stringResolver(
+            s -> s.name().toLowerCase(Locale.ROOT),
+            s -> {
+                try { return Material.State.valueOf(s.toUpperCase(Locale.ROOT)); }
+                catch (IllegalArgumentException e) { return null; }
+            });
+
     // -------------------------------------------------------------------------
-    // Internal record: the 12 body fields (id is supplied separately by loader)
+    // Internal record: the body fields (id is supplied separately by loader)
     // -------------------------------------------------------------------------
 
     record BodyData(
@@ -50,17 +60,16 @@ public final class MaterialCodec {
             float viscosity,
             float defaultMass,
             float molarMass,
-            float boilingPoint,
-            float freezingPoint,
-            Optional<Identifier> boilingTarget,
-            Optional<Identifier> freezingTarget,
+            float maxTemp,
+            float minTemp,
+            Optional<Identifier> maxTarget,
+            Optional<Identifier> minTarget,
             Optional<Identifier> representativeBlock,
             float defaultTemperature,
             boolean pinned,
-            boolean fluid,
+            Material.State state,
             float minFlowMass,
-            float maxMass,
-            boolean gas
+            float maxMass
     ) {}
 
     // -------------------------------------------------------------------------
@@ -83,28 +92,26 @@ public final class MaterialCodec {
                             .forGetter(BodyData::defaultMass),
                     Codec.FLOAT.optionalFieldOf("molar_mass", 0f)
                             .forGetter(BodyData::molarMass),
-                    Codec.FLOAT.optionalFieldOf("boiling_point", Float.POSITIVE_INFINITY)
-                            .forGetter(BodyData::boilingPoint),
-                    Codec.FLOAT.optionalFieldOf("freezing_point", Float.NEGATIVE_INFINITY)
-                            .forGetter(BodyData::freezingPoint),
-                    Identifier.CODEC.optionalFieldOf("boiling_target")
-                            .forGetter(BodyData::boilingTarget),
-                    Identifier.CODEC.optionalFieldOf("freezing_target")
-                            .forGetter(BodyData::freezingTarget),
+                    Codec.FLOAT.optionalFieldOf("max_temp", Float.POSITIVE_INFINITY)
+                            .forGetter(BodyData::maxTemp),
+                    Codec.FLOAT.optionalFieldOf("min_temp", Float.NEGATIVE_INFINITY)
+                            .forGetter(BodyData::minTemp),
+                    Identifier.CODEC.optionalFieldOf("max_target")
+                            .forGetter(BodyData::maxTarget),
+                    Identifier.CODEC.optionalFieldOf("min_target")
+                            .forGetter(BodyData::minTarget),
                     Identifier.CODEC.optionalFieldOf("representative_block")
                             .forGetter(BodyData::representativeBlock),
                     Codec.FLOAT.optionalFieldOf("default_temperature", Float.NaN)
                             .forGetter(BodyData::defaultTemperature),
                     Codec.BOOL.optionalFieldOf("pinned", false)
                             .forGetter(BodyData::pinned),
-                    Codec.BOOL.optionalFieldOf("fluid", false)
-                            .forGetter(BodyData::fluid),
+                    STATE_CODEC.optionalFieldOf("state", Material.State.SOLID)
+                            .forGetter(BodyData::state),
                     Codec.FLOAT.optionalFieldOf("min_flow_mass", 0f)
                             .forGetter(BodyData::minFlowMass),
                     Codec.FLOAT.optionalFieldOf("max_mass", 0f)
-                            .forGetter(BodyData::maxMass),
-                    Codec.BOOL.optionalFieldOf("gas", false)
-                            .forGetter(BodyData::gas)
+                            .forGetter(BodyData::maxMass)
             ).apply(instance, BodyData::new)
     );
 
@@ -131,10 +138,14 @@ public final class MaterialCodec {
             throw new IllegalArgumentException(
                     "material " + id + ": pinned=true requires default_temperature");
         }
-        if (bd.gas() && !(bd.minFlowMass() > 0f)) {
+        if (bd.state() == Material.State.GAS && !(bd.minFlowMass() > 0f)) {
             throw new IllegalArgumentException(
-                    "material " + id + ": gas=true requires min_flow_mass > 0 (crash-guard: a gas cell "
+                    "material " + id + ": state=gas requires min_flow_mass > 0 (crash-guard: a gas cell "
                             + "must never have zero density)");
+        }
+        Identifier maxTarget = bd.maxTarget().orElse(null);
+        if (maxTarget == null && Float.isFinite(bd.maxTemp())) {
+            maxTarget = Identifier.fromNamespaceAndPath("minecraft", "air");
         }
         return new Material(
                 id,
@@ -143,17 +154,16 @@ public final class MaterialCodec {
                 bd.viscosity(),
                 bd.defaultMass(),
                 bd.molarMass(),
-                bd.boilingPoint(),
-                bd.freezingPoint(),
-                bd.boilingTarget().orElse(null),
-                bd.freezingTarget().orElse(null),
+                bd.maxTemp(),
+                bd.minTemp(),
+                maxTarget,
+                bd.minTarget().orElse(null),
                 bd.representativeBlock().orElse(null),
                 bd.defaultTemperature(),
                 bd.pinned(),
-                bd.fluid(),
+                bd.state(),
                 bd.minFlowMass(),
-                bd.maxMass(),
-                bd.gas()
+                bd.maxMass()
         );
     }
 }

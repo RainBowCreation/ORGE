@@ -326,21 +326,21 @@ class MaterialDataTest {
         // water.json extra fields
         Material water = registry.get(id("orge:water")).get();
         assertEquals(Identifier.parse("minecraft:ice"),
-                water.freezingTarget(),
-                "water.freezingTarget should be minecraft:ice");
+                water.minTarget(),
+                "water.minTarget should be minecraft:ice");
         assertEquals(Identifier.parse("orge:steam"),
-                water.boilingTarget(),
-                "water.boilingTarget should be orge:steam");
-        assertEquals(273.15f, water.freezingPoint(), 0.01f,
-                "water.freezingPoint should be 273.15 K");
-        assertEquals(373.15f, water.boilingPoint(), 0.01f,
-                "water.boilingPoint should be 373.15 K");
+                water.maxTarget(),
+                "water.maxTarget should be orge:steam");
+        assertEquals(273.15f, water.minTemp(), 0.01f,
+                "water.minTemp should be 273.15 K");
+        assertEquals(373.15f, water.maxTemp(), 0.01f,
+                "water.maxTemp should be 373.15 K");
 
         // lava.json extra fields
         Material lava = registry.get(id("orge:lava")).get();
         assertEquals(Identifier.parse("minecraft:stone"),
-                lava.freezingTarget(),
-                "lava.freezingTarget should be minecraft:stone");
+                lava.minTarget(),
+                "lava.minTarget should be minecraft:stone");
 
         // Load and test default bindings
         String bindingsPath = "/data/orge/orge/bindings/default.json";

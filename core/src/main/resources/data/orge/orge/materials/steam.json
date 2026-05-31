@@ -3,11 +3,10 @@
   "heat_capacity": 2080,
   "default_mass": 0.6,
   "molar_mass": 0.018,
-  "fluid": true,
-  "gas": true,
+  "state": "gas",
   "min_flow_mass": 0.6,
   "max_mass": 0.6,
-  "freezing_point": 373.15,
-  "freezing_target": "minecraft:water",
+  "min_temp": 373.15,
+  "min_target": "minecraft:water",
   "representative_block": "orge:steam"
 }

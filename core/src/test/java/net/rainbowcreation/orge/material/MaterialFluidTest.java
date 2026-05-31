@@ -22,7 +22,7 @@ class MaterialFluidTest {
     void codecParsesFluidTrue() {
         String json = """
                 { "thermal_conductivity": 0.6, "heat_capacity": 4186, "default_mass": 1000,
-                  "viscosity": 0.001, "fluid": true }
+                  "viscosity": 0.001, "state": "fluid" }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertTrue(m.fluid());

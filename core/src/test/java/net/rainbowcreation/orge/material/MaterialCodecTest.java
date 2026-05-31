@@ -27,10 +27,10 @@ class MaterialCodecTest {
                   "viscosity": 0.001,
                   "default_mass": 2700.0,
                   "molar_mass": 0.060,
-                  "boiling_point": 3000.0,
-                  "freezing_point": 1600.0,
-                  "boiling_target": "orge:lava",
-                  "freezing_target": "orge:basalt",
+                  "max_temp": 3000.0,
+                  "min_temp": 1600.0,
+                  "max_target": "orge:lava",
+                  "min_target": "orge:basalt",
                   "representative_block": "minecraft:stone"
                 }
                 """;
@@ -44,10 +44,10 @@ class MaterialCodecTest {
         assertEquals(0.001f, m.viscosity(), 1e-5f);
         assertEquals(2700.0f, m.defaultMass(), 1e-5f);
         assertEquals(0.060f, m.molarMass(), 1e-5f);
-        assertEquals(3000.0f, m.boilingPoint(), 1e-5f);
-        assertEquals(1600.0f, m.freezingPoint(), 1e-5f);
-        assertEquals(Identifier.fromNamespaceAndPath("orge", "lava"), m.boilingTarget());
-        assertEquals(Identifier.fromNamespaceAndPath("orge", "basalt"), m.freezingTarget());
+        assertEquals(3000.0f, m.maxTemp(), 1e-5f);
+        assertEquals(1600.0f, m.minTemp(), 1e-5f);
+        assertEquals(Identifier.fromNamespaceAndPath("orge", "lava"), m.maxTarget());
+        assertEquals(Identifier.fromNamespaceAndPath("orge", "basalt"), m.minTarget());
         assertEquals(Identifier.fromNamespaceAndPath("minecraft", "stone"), m.representativeBlock());
     }
 
@@ -75,19 +75,19 @@ class MaterialCodecTest {
         // Optional fields — documented defaults
         assertEquals(0f, m.viscosity(), 1e-6f,        "viscosity default should be 0");
         assertEquals(0f, m.molarMass(), 1e-6f,        "molar_mass default should be 0");
-        assertTrue(Float.isInfinite(m.boilingPoint()) && m.boilingPoint() > 0,
-                "boiling_point default should be +Infinity");
-        assertTrue(Float.isInfinite(m.freezingPoint()) && m.freezingPoint() < 0,
-                "freezing_point default should be -Infinity");
+        assertTrue(Float.isInfinite(m.maxTemp()) && m.maxTemp() > 0,
+                "max_temp default should be +Infinity");
+        assertTrue(Float.isInfinite(m.minTemp()) && m.minTemp() < 0,
+                "min_temp default should be -Infinity");
 
         // Nullable id fields — absent means null
-        assertNull(m.boilingTarget(),       "boiling_target absent → null");
-        assertNull(m.freezingTarget(),      "freezing_target absent → null");
+        assertNull(m.maxTarget(),       "max_target absent → null");
+        assertNull(m.minTarget(),      "min_target absent → null");
         assertNull(m.representativeBlock(), "representative_block absent → null");
     }
 
     // -------------------------------------------------------------------------
-    // (c) Gas-like: has boiling_target but no freezing_target
+    // (c) Gas-like: has max_target but no min_target
     // -------------------------------------------------------------------------
     @Test
     void gasLikeJsonDecodesPartialTargets() {
@@ -96,21 +96,21 @@ class MaterialCodecTest {
                   "thermal_conductivity": 0.025,
                   "heat_capacity": 1005.0,
                   "default_mass": 1.2,
-                  "boiling_point": 373.15,
-                  "boiling_target": "orge:steam"
+                  "max_temp": 373.15,
+                  "max_target": "orge:steam"
                 }
                 """;
 
         Material m = MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json));
 
         assertNotNull(m);
-        assertEquals(Identifier.fromNamespaceAndPath("orge", "steam"), m.boilingTarget(),
-                "boiling_target should be orge:steam");
-        assertNull(m.freezingTarget(), "freezing_target absent → null");
-        assertEquals(373.15f, m.boilingPoint(), 0.01f);
-        // freezing_point not supplied → -Infinity default
-        assertTrue(Float.isInfinite(m.freezingPoint()) && m.freezingPoint() < 0,
-                "freezing_point default should be -Infinity");
+        assertEquals(Identifier.fromNamespaceAndPath("orge", "steam"), m.maxTarget(),
+                "max_target should be orge:steam");
+        assertNull(m.minTarget(), "min_target absent → null");
+        assertEquals(373.15f, m.maxTemp(), 0.01f);
+        // min_temp not supplied → -Infinity default
+        assertTrue(Float.isInfinite(m.minTemp()) && m.minTemp() < 0,
+                "min_temp default should be -Infinity");
     }
 
     // -------------------------------------------------------------------------

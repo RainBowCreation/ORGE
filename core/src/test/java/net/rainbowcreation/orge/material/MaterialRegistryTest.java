@@ -24,10 +24,10 @@ class MaterialRegistryTest {
                 0f,     // viscosity
                 2500f,  // defaultMass
                 0.06f,  // molarMass
-                Float.POSITIVE_INFINITY,  // boilingPoint
-                Float.NEGATIVE_INFINITY,  // freezingPoint
-                null,   // boilingTarget
-                null,   // freezingTarget
+                Float.POSITIVE_INFINITY,  // maxTemp
+                Float.NEGATIVE_INFINITY,  // minTemp
+                null,   // maxTarget
+                null,   // minTarget
                 null    // representativeBlock
         );
     }

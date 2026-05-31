@@ -3,7 +3,7 @@
   "heat_capacity": 2050,
   "default_mass": 917,
   "molar_mass": 0.018,
-  "boiling_point": 273.15,
-  "boiling_target": "minecraft:water",
+  "max_temp": 273.15,
+  "max_target": "minecraft:water",
   "representative_block": "minecraft:ice"
 }

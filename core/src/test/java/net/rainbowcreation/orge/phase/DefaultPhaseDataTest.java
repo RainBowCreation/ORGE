@@ -49,23 +49,23 @@ class DefaultPhaseDataTest {
     void steamMaterialCondensesBackToWater() {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material steam = reg.get(orge("steam")).orElseThrow();
-        assertEquals(373.15f, steam.freezingPoint(), 0.01f);
-        assertEquals(mc("water"), steam.freezingTarget(), "steam condenses back to water below 373.15 K");
+        assertEquals(373.15f, steam.minTemp(), 0.01f);
+        assertEquals(mc("water"), steam.minTarget(), "steam condenses back to water below 373.15 K");
     }
 
     @Test
     void iceMaterialMeltsBackToWater() {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material ice = reg.get(orge("ice")).orElseThrow();
-        assertEquals(273.15f, ice.boilingPoint(), 0.01f);
-        assertEquals(mc("water"), ice.boilingTarget(), "ice melts to water above 273.15 K");
+        assertEquals(273.15f, ice.maxTemp(), 0.01f);
+        assertEquals(mc("water"), ice.maxTarget(), "ice melts to water above 273.15 K");
     }
 
     @Test
     void waterBoilsToSteamAndFreezesToIce() {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material water = reg.get(orge("water")).orElseThrow();
-        assertEquals(orge("steam"), water.boilingTarget(), "water boils to the orge:steam block");
-        assertEquals(mc("ice"), water.freezingTarget(), "water freezes to minecraft:ice");
+        assertEquals(orge("steam"), water.maxTarget(), "water boils to the orge:steam block");
+        assertEquals(mc("ice"), water.minTarget(), "water freezes to minecraft:ice");
     }
 }

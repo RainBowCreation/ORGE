@@ -4,12 +4,12 @@
   "default_mass": 1000,
   "molar_mass": 0.018,
   "viscosity": 0.001,
-  "fluid": true,
+  "state": "fluid",
   "min_flow_mass": 125,
   "max_mass": 1000,
-  "freezing_point": 273.15,
-  "freezing_target": "minecraft:ice",
-  "boiling_point": 373.15,
-  "boiling_target": "orge:steam",
+  "min_temp": 273.15,
+  "min_target": "minecraft:ice",
+  "max_temp": 373.15,
+  "max_target": "orge:steam",
   "representative_block": "minecraft:water"
 }

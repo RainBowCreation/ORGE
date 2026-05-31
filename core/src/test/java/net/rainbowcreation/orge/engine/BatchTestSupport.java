@@ -16,7 +16,7 @@ final class BatchTestSupport {
 
     static Material material(String id, float cond, float heatCap, float defaultMass) {
         return new Material(Identifier.parse(id), cond, heatCap, /*viscosity*/0f, defaultMass,
-                /*molarMass*/0.05f, /*boiling*/9999f, /*freezing*/0f, null, null, null);
+                /*molarMass*/0.05f, /*maxTemp*/9999f, /*minTemp*/0f, null, null, null);
     }
 
     /** void (k=0) at index 0, a stable solid (k=100, heatCap=500) at index 1. */
@@ -51,7 +51,7 @@ final class BatchTestSupport {
                 material("orge:void", 0f, 0f, 0f),
                 new Material(Identifier.parse("orge:fluid"),
                         /*cond*/0f, /*heatCap*/1f, /*viscosity*/0.001f, /*defaultMass*/1000f,
-                        /*molarMass*/0.018f, /*boiling*/9999f, /*freezing*/0f,
+                        /*molarMass*/0.018f, /*maxTemp*/9999f, /*minTemp*/0f,
                         null, null, null, Float.NaN, /*pinned*/false, /*fluid*/true));
     }
 

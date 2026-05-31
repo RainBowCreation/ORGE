@@ -22,7 +22,7 @@ class MaterialThreeMassTest {
     void codecParsesThreeMassFields() {
         String json = """
                 { "thermal_conductivity": 0.6, "heat_capacity": 4186, "default_mass": 1000,
-                  "viscosity": 0.001, "fluid": true,
+                  "viscosity": 0.001, "state": "fluid",
                   "min_flow_mass": 125, "max_mass": 1000 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
@@ -35,7 +35,7 @@ class MaterialThreeMassTest {
     void codecParsesGasTrueAndDefaultsMaxMassToDefaultMass() {
         String json = """
                 { "thermal_conductivity": 0.025, "heat_capacity": 2080, "default_mass": 0.6,
-                  "fluid": true, "gas": true, "min_flow_mass": 0.6 }
+                  "state": "gas", "min_flow_mass": 0.6 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertTrue(m.gas());
