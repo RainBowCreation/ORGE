@@ -25,34 +25,39 @@ Open the existing SDL3 thermal visualizer as a **standalone window against the l
 | Interactivity | Read-only (navigation only) |
 | Launch | Command-triggered: `/orge view` spawns the viewer process on demand, reopenable |
 | Platform | Linux only — POSIX `shm_open`/`mmap`, g++/SDL3 |
-| Publish site | **Inside the off-thread JNI `orgeStep`** (Option A) — memcpy live temps to shm on the runner thread |
+| Publish site | **Java, in `writeBackResults` on the server thread** — single writer; only Java sees load/unload/dormancy |
 
-## 4. Why publish inside `orgeStep` (performance rationale)
+## 4. Why publish from Java (churn correctness + cost)
 
 Threading model (confirmed in `Scheduler.java`):
 
 - **Server (game) thread** runs `onServerTick` → `snapshot` → `writeBackResults`; all counted in the ~30 ms server-thread budget and the health throttle (`Scheduler.java:48,66,261`).
 - **Off-thread runner** runs *only* the native `orgeStep` via `runner.submit(...)` (`Scheduler.java:198`).
 
-The native step is the **only place that is both off the game thread and already holds every active section's new temperatures** (in `tOut`, hot in cache). Publishing there costs the server tick nothing. Publishing from Java (`writeBackResults`) would run on the server thread and eat the 50 ms tick budget — rejected.
+**Churn forces Java.** The loaded set refreshes every second — sections load and unload. Only Java sees this: `ThermalWorld.snapshot` does the loaded-union and **drops unloaded sections**; `ActiveSet` (the dormancy roster, "loader event hooks push wakes here", server-thread only) is mutated on chunk unload; `writeBack` skips sections that unloaded since snapshot. The native `orgeStep` sees only the **stepped batch** and **cannot distinguish "dormant" from "unloaded"** (both are simply "not in this batch"). A native-side publisher could therefore never reclaim unloaded slots → ghosts accumulate to `cap`. So membership ownership must live in Java.
 
-Cost when on: one ~few-MB `memcpy` at 1 Hz on a non-game thread → unmeasurable on TPS. Cost when off: the JNI never maps and never copies (flag-gated at init).
+**Cost is acceptable.** The per-publish payload is the **active batch's** result temps, already materialized on the server thread inside `writeBack`. memcpy of that into the shm is a few hundred KB–~1 MB → tens of µs to ~1 ms, once per second, flag-gated. Negligible against the 50 ms tick. Dormant sections keep their existing slot (no recopy). The earlier off-thread native option (Option A) saved ~1 ms/sec but cannot see unloads — to make it correct you would bolt a Java membership region onto it anyway (two writers, two regions, seqlock races). Not worth it.
+
+Cost when off: the publisher never maps the file and never copies (flag-gated at init).
 
 ## 5. Architecture / data path
 
 ```
-[server thread]  snapshot ─┐
-                            │  StepTask[] + coords + LUT  (BatchMarshaller.flatten)
-[runner thread]  orgeStep ──┤  compute → tOut
-                            └─► if liveView on: seqlock-write tOut+coords into shm  ◄── NEW
+[runner thread]  orgeStep  → tOut          (unchanged; no shm, no coords passthrough)
+[server thread]  writeBackResults
+                   ├─ world.writeBack(entry, result)        (existing)
+                   └─ if liveView on (≤1 Hz):
+                        ThermalViewPublisher.publish(...)    ◄── NEW
+                          • reconcile slot map vs loaded set (assign new / free unloaded)
+                          • seqlock-write header + active-batch temps + per-slot state into shm
                                         │
                               run/orge_live.mmap  (named, pre-sized, pre-faulted)
                                         │
 [separate process] live_view ──────────┘  mmap + seqlock-read → fill C++ World → sim_render (read-only)
 ```
 
-- `/orge view` (server thread, rare) → `ProcessBuilder` spawns `live_view`. Does not touch the hot path.
-- The shm region is created/mapped lazily on first `orgeStep` when the flag is on (once), or at lib load.
+- `/orge view` (server thread, rare) → `ProcessBuilder` spawns `live_view`. Fire-and-forget; does not touch the publish path.
+- The shm region is created/mapped lazily on first `publish` when the flag is on (once), via Java NIO `MappedByteBuffer`.
 
 ## 6. Shared-memory layout (`run/orge_live.mmap`)
 
@@ -72,56 +77,63 @@ Header (64 B, 64-byte aligned):
   f32   lastStepMs      // native step ms (debug header readout)
   // pad to 64 B
 
-SectionRecord[sectionCap]  (each: 4 + 16384 = 16388 B, then padded to 16448 for alignment):
+SectionRecord[sectionCap]  (each: 16 + 16384 = 16400 B, 16-byte aligned):
   i32   cx
   i32   sectionY
   i32   cz
-  i32   _pad
-  f32   temp[4096]      // SEC_N = 16*16*16, new temperatures (from tOut)
+  u8    state          // 0=EMPTY (free slot), 1=LOADED_ACTIVE, 2=LOADED_DORMANT
+  u8    _pad[3]
+  f32   temp[4096]     // SEC_N = 16*16*16, current temperatures
 ```
 
 - **Size:** ~16.4 KB/section. Default `sectionCap = 2048` → ~33 MB. Config-tunable.
-- **Temperature-only.** Viewer derives "loaded vs empty" from `sectionCount`/presence; color map is temperature-only (`temperatureToColor` already takes only temp).
+- **Temperature-only.** Color map is temperature-only (`temperatureToColor` takes only temp). The viewer renders every slot whose `state != EMPTY`; `state` distinguishes active vs dormant for an optional tint/badge.
+- **`state` semantics:** the publisher sets `EMPTY` on freed (unloaded) slots, `LOADED_DORMANT` for loaded-but-not-stepped sections (temps unchanged, slot retained), `LOADED_ACTIVE` for sections in the current batch (temps refreshed this frame). This is how churn stays correct — unloaded slots flip to `EMPTY` and stop rendering.
 - **Seqlock protocol:**
-  - Writer: `seq++` (now odd) → write header fields + records → `seq++` (now even). Plain stores; **no `msync`/`fsync`**.
-  - Reader: read `seq` (retry if odd) → copy fields → read `seq` again; if changed, retry. Never blocks the writer.
-- **UNIFORM sections:** by the time data reaches `orgeStep`, `BatchMarshaller.flatten` has already expanded every section to a full 4096-cell `tIn`/`tOut` array. The native publisher copies `tOut` directly — no UNIFORM special case native-side.
+  - Writer (Java): `seq++` (now odd) → write header + changed records → `seq++` (now even). Plain `MappedByteBuffer` stores; **no `force()`/`msync`**.
+  - Reader (C++): read `seq` (retry if odd) → copy fields → read `seq` again; if changed, retry. Never blocks the writer.
+- **UNIFORM sections:** `SectionData` may be `UNIFORM` (one temp for the whole section). The publisher expands it — fills all 4096 `temp[]` with `uniformTemperature()` — so the viewer needs no special case. (A future optimization could add a per-record uniform flag; not in v1.)
 
 ## 7. Dimension handling
 
-`SubchunkKey` carries `(cx, sectionY, cz)` — no dimension. v1 publishes a **single dimension's** sections (the engine's active world; default overworld). The `dim` header field records which. Multi-dimension is out of scope; if the engine runs multiple dims through one `orgeStep` batch, v1 tags all with the world's dim id and does not segregate. (Revisit only if multi-dim sim lands.)
+`SubchunkKey` carries `(cx, sectionY, cz)` — no dimension, but `ThermalWorld.BatchEntry` and `ActiveSet` are keyed by `Identifier dimension`, so the publisher knows each section's dim. v1 publishes a **single dimension** (configurable, default overworld): the publisher filters its reconcile to that dim and records it in the `dim` header field. Sections in other dims are ignored. Multi-dimension (segregated views / dim switching) is out of scope — revisit only if needed. The slot map and `EMPTY`-reclaim from §8 mean switching the configured dim mid-session would just churn all slots over; not wired in v1.
 
-## 8. Persistent union (membership model — locked)
+## 8. Membership model — Java-owned slot map (handles churn)
 
-Native sees only the **active batch** each step (Phase-2b dormancy → stepped set ⊂ loaded set; unloads never reported to native). To keep a usable thermal map rather than sections blinking out when they stop being stepped, the publisher maintains a **persistent union** within a session:
+`ThermalViewPublisher` owns a persistent `Map<SubchunkKey, Integer> slotOf` plus a free-slot list, both server-thread-confined (no locking). Each publish cadence it **reconciles** the slot map against the current loaded set:
 
-- A native-side `unordered_map<SubchunkKey, slot>` that **only grows** within a process session. First time a section appears in a batch, it claims the next free slot.
-- Each frame the publisher updates `temp[]` for the slots of the **current batch**; slots not in the batch keep their **last written temps**.
-- `sectionCount` = high-water count of distinct sections seen (number of claimed slots). The viewer renders all claimed slots `[0, sectionCount)`.
+1. **Membership source.** The loaded + dormancy state comes from `ActiveSet` (the roster mutated by loader hooks on load/unload, server thread) and the current batch entries. Active batch entries (with fresh result temps) are passed straight from `writeBackResults`.
+2. **Reconcile:**
+   - **New section** (loaded, no slot) → pop a free slot (or extend the high-water if none free), record `cx/cz/sectionY`, set state.
+   - **Active section** (in this batch) → write its result `temp[]`, state `LOADED_ACTIVE`.
+   - **Dormant section** (loaded, not in batch) → keep slot + temps, state `LOADED_DORMANT`.
+   - **Unloaded section** (had a slot, no longer loaded) → set record state `EMPTY`, return slot to the free list. **This is the churn fix.**
+3. **`sectionCount`** = high-water slot index + 1 (the scan bound). Freed slots are reused holes; the viewer scans `[0, sectionCount)` and **skips `EMPTY`**.
 
 Consequences:
 
-- **Thermal values:** correct. Dormant = settled = unchanged; persisted temps stay valid.
-- **Membership:** exact for loaded/dormant sections within a session. **Unloads are not reflected** (an unloaded section lingers with its last temps until the viewer/engine restarts) — accepted as cosmetic for a debug view; exact unload tracking (a Java-written table) is deferred (YAGNI).
-- `sectionCap` bounds the union; overflow → drop + one-time log (§10).
+- **Thermal values:** correct — active refreshed each cadence, dormant retain last (settled = unchanged).
+- **Membership:** correct under churn — loads claim slots, unloads free them, dormant stay visible. No ghost accumulation.
+- `sectionCap` bounds concurrent loaded sections; overflow → the new section is skipped + one-time log (§10). With slot reuse, only the *peak concurrent* loaded count must fit, not the session total.
 
 ## 9. Components & changes
 
-### 9.1 C++ / native
+> **No native/JNI changes.** `orge_jni.cpp`, `orge_kernel.hpp`, and the `orgeStep` signature are untouched. The bridge is entirely Java (publisher) + a new C++ *viewer* binary that only reads the shm.
 
-- **`orge_jni.cpp`** — extend `orgeStep` signature with an `int[] coords` param (3 ints/section: cx, sectionY, cz). After compute, if live-view enabled, call the publisher with `tOut` + `coords` + `n` + `lastStepMs`.
-- **`orge_live_shm.hpp`** (new) — SDL-free. Owns: lazy `shm` create/map/pre-fault, the section→slot map (persistent union), seqlock write of header+records, flag read (env `ORGE_LIVE_VIEW=1` or system-property bridged via a JNI init call). Pure POSIX. Keeps `orge_kernel.hpp` SDL-free guarantee intact.
+### 9.1 C++ / viewer (read side only)
+
 - **`sim_render.hpp`** — refactor view/nav functions to take `const World&` + a `RenderState&` instead of reaching into `SimServer`. Behavior unchanged for the existing tool.
-- **`live_view.cpp`** (new) — `mmap` `run/orge_live.mmap`, per frame seqlock-read into a reused `World` (`ensureChunk`, set `T_curr`, mark `sectionLoaded`, set `section_ms_last`), then run the shared `sim_render` loop. Disables SPACE-pause and paint; keeps WorldMap/ChunkView, WASD/arrows, enter/esc, color-scale, Q.
+- **`live_view.cpp`** (new) — `mmap` `run/orge_live.mmap` read-only, per frame seqlock-read into a reused `World`: for each non-`EMPTY` record, `ensureChunk(cx,cz)`, write `temp[]`→`T_curr` for that `sectionY`, mark `sectionLoaded[sectionY]`, optionally tint by `state`. Then run the shared `sim_render` loop. Disables SPACE-pause and paint; keeps WorldMap/ChunkView, WASD/arrows, enter/esc, color-scale, Q.
 - **`sim_server` tool** — updated to pass `server.world` into the refactored render functions. Still builds, still self-driven, unchanged behavior.
 - **Build** — `Makefile` (or extend the `main.cpp` g++ line) with two targets sharing `sim_render.hpp`: `sim_server` and `live_view`. Linux + SDL3 + SDL3_ttf.
 
-### 9.2 Java
+### 9.2 Java (write side)
 
-- **`BatchMarshaller`** — `flatten` also emits `int[] coords` (length `3n`) from each `StepTask.key()` (`cx, sectionY, cz`). Marginal server-thread cost.
-- **`NativeEngine`** — native method declaration updated to pass `coords` through to `orgeStep`.
-- **Config** — `orge.liveView.enabled` (default `false`) and `orge.liveView.sectionCap` (default 2048), plus viewer binary path (default `ORGE-ENGINE/build/live_view`). On enable, a JNI init call sets the native flag + maps the region; on disable, native never maps.
-- **`OrgeCommands`** — add `/orge view` literal: `ProcessBuilder` launches the viewer binary (path from config), inherits IO, non-blocking, fire-and-forget. If config flag is off, command fails with a clear message ("enable orge.liveView first"). Re-runnable.
+- **`ThermalViewPublisher`** (new) — owns the `MappedByteBuffer` over `run/orge_live.mmap`, the `Map<SubchunkKey,Integer> slotOf` + free-slot list, and the seqlock. API: `publish(activeEntries+results, loadedRoster, dormancyView, lastStepMs)`. Lazily creates + sizes + (optionally) pre-touches the file on first call. Does the §8 reconcile. Server-thread-confined, no locking.
+- **`Scheduler.writeBackResults`** — after the existing write-back loop, if live-view enabled and on the conduction cadence (~1 Hz), call `publisher.publish(...)` with the results it already holds + the loaded/dormancy roster (`ActiveSet`). One extra bounded memcpy; no new thread.
+- **Membership access** — expose the current loaded-in-range section set + dormancy flags to the publisher (from `ActiveSet`/`ThermalWorld`). Minimal read-only accessor; exact shape decided in the plan.
+- **Config** — `orge.liveView.enabled` (default `false`), `orge.liveView.sectionCap` (default 2048), `orge.liveView.binaryPath` (default `ORGE-ENGINE/build/live_view`). When disabled: publisher never maps, `writeBack` skips it → zero cost.
+- **`OrgeCommands`** — add `/orge view` literal: `ProcessBuilder` launches the viewer binary (path from config), inherits IO, non-blocking, fire-and-forget. If the flag is off, fail with a clear message ("enable orge.liveView first"). Re-runnable.
 
 ## 10. Failure modes
 
@@ -129,25 +141,28 @@ Consequences:
 |---|---|
 | Viewer launched, liveView off / file absent | Viewer prints "no live data (enable orge.liveView)", idles, retries `open` |
 | Game shuts down, file stale | `seq` stops advancing → viewer shows "stale" banner, holds last frame |
-| sectionCount would exceed cap | Native drops overflow sections, logs once |
+| Loaded sections exceed cap | Publisher skips the new section (no slot), logs once |
 | Torn frame (read during write) | Reader sees odd/changed `seq` → retries; never renders torn data |
 | Viewer crash | No effect on engine (separate process, one-way) |
+| Section unloads | Publisher flips its slot to `EMPTY`, frees it; viewer stops rendering it next frame |
 
 ## 11. Testing
 
-- **Java unit** — `BatchMarshaller.flatten` emits correct `coords` (cx, sectionY, cz per task, right order/length).
-- **C++ unit** (reuse `tests/` harness) — `orge_live_shm`:
-  - write known sections → mmap-read back → assert header + records + seqlock parity (even after publish).
-  - persistent-union slot map: a section reappearing keeps its slot; dormant section stays visible.
-  - torn-frame: simulate odd `seq` mid-read → reader rejects/retries.
-- **C++ unit** — `live_view` deserialize: hand-crafted region → assert `World` populated (`T_curr`, `sectionLoaded`, `section_ms_last`) including dim/coord placement.
-- **Manual** — enable flag, run game, `/orge view`, confirm thermal map matches `/orge get-live` readings; confirm server TPS unchanged with viewer on vs off.
+- **Java unit** — `ThermalViewPublisher`:
+  - publish known active sections → read the `MappedByteBuffer` back → assert header + records + seqlock parity (even after publish).
+  - churn: load A,B,C → unload B → assert B's slot flips `EMPTY` and is reused by a later load D; A,C retain slots/temps.
+  - dormancy: a loaded section absent from the batch stays `LOADED_DORMANT` with prior temps.
+  - UNIFORM section → all 4096 `temp[]` filled with the uniform value.
+  - cap overflow → new section skipped, others intact.
+- **C++ unit** (reuse `tests/` harness) — `live_view` deserialize: hand-crafted region → assert `World` populated (`T_curr`, `sectionLoaded`) from non-`EMPTY` records at the right `cx/cz/sectionY`; `EMPTY` records ignored; torn-frame (odd/changed `seq`) rejected/retried.
+- **Manual** — enable flag, run game, `/orge view`; walk to load/unload chunks and confirm sections appear/disappear live; confirm thermal map matches `/orge get-live` readings; confirm server TPS unchanged with viewer on vs off.
 
 ## 12. Performance rules (binding)
 
-1. Publish only on the **off-thread runner** (inside `orgeStep`); never the server thread.
-2. **No `msync`/`fsync`** on the publish path — plain memory stores, OS flushes lazily, reader reads page cache.
-3. **Map + pre-fault once** at init (touch all pages); never map or grow mid-step.
-4. **Throttle to conduction cadence (~1 Hz)**; skip advection sub-steps.
-5. **Seqlock, no mutex** — writer never blocks.
-6. **Flag-gated at init** — off → never map, never copy, zero cost.
+1. Publish on the **server thread inside `writeBackResults`**, reusing the result temps already in hand — one bounded memcpy of the **active batch only** (not the full loaded set).
+2. **No `MappedByteBuffer.force()`/`msync`** on the publish path — plain stores; OS flushes lazily, reader reads page cache.
+3. **Map + (optionally) pre-touch once** on first publish; never remap or grow mid-session (fixed `cap`).
+4. **Throttle to conduction cadence (~1 Hz)**; do not publish on advection sub-steps.
+5. **Seqlock, no mutex** — writer never blocks; reader retries.
+6. **Flag-gated** — disabled → publisher never maps, `writeBack` skips it, zero cost.
+7. Dormant sections are **not recopied** — only `state` may change; their `temp[]` stays as last written.
