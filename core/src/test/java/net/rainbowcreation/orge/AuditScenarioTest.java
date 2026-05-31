@@ -13,7 +13,6 @@ import net.rainbowcreation.orge.phase.PhaseRule;
 import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import net.rainbowcreation.orge.scheduler.Scheduler;
 import net.rainbowcreation.orge.section.SubchunkKey;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
@@ -134,17 +133,15 @@ class AuditScenarioTest {
      * A bounded fluid region in an otherwise-void section: a vertical column
      * (8,11,8)..(8,6,8) plus one horizontal neighbour (9,6,8) at the bottom row, so the kernel
      * can both FALL (down the column) and SPREAD (sideways into the neighbour). The upper cells
-     * start full (1000 kg each) and the bottom two start empty; that head of water settles into
-     * the bottom basin, filling a lower cell near to capacity. Everything else is void (matIx 0),
+     * start full (1000 kg each) and the bottom two start empty. Phase-2b: the floor-active .so now
+     * wets the head of water into the surrounding air, where it pools to a FINITE coverage — the
+     * deepest basin cell reaches the max_mass cap while the rest sit at/near the min_flow floor; no
+     * cell overflows the cap and the pool does not flood the plane. Everything else is void (matIx 0),
      * which acts as a no-flow wall — so this region cannot leak across the section boundary and
      * Σmass over the whole section stays conserved (the §9 invariant in action), unlike an
      * all-fluid 16³ section which leaks horizontally (Task-14 finding).
      */
     @Test
-    @Disabled("Plan-2: the engine now wets into air, but the min_flow_mass floor (LUT) and the air->fluid "
-            + "reconciler are deferred to Plan 2, so the Plan-1 .so thins water with no floor (degenerate "
-            + "intermediate). Re-enable and tighten to the finite-pooling end-state (near-full at the floor) "
-            + "in Plan 2 once the floor + reconciler are wired.")
     void waterFallsSpreadsAndReconciles() {
         NativeEngine e;
         try {
@@ -198,27 +195,44 @@ class AuditScenarioTest {
                     "Σmass must be conserved at iteration " + it);
         }
 
-        // a lower cell ended up holding mass (water fell down the column).
-        assertTrue(mass[bottom] > 0f, "bottom of column should hold settled mass, was " + mass[bottom]);
-        // a horizontal neighbour gained mass (water spread sideways).
-        assertTrue(mass[side] > 0f, "horizontal neighbour should have gained mass, was " + mass[side]);
-        // the original top cell drained (mass fell out of it).
-        assertTrue(mass[top] < 1000f, "top cell should have drained, was " + mass[top]);
-
-        // map the settled field through the pure reconcile logic (§10 Decision 9):
-        // the fullest settled cell renders as a full block (level 0)...
+        // --- Phase-2b finite-pooling end-state (was Phase-2a stacking) -----------------------
+        // Survey the whole bounded section: count occupied cells and find the fullest.
+        int occupied = 0;
         float fullest = 0f;
-        for (int c : column) fullest = Math.max(fullest, mass[c]);
-        fullest = Math.max(fullest, mass[side]);
-        assertTrue(fullest >= FluidReconcileLogic.FULL_FRACTION * water.defaultMass(),
-                "expected a near-full settled cell, fullest was " + fullest);
+        for (int i = 0; i < SEC_N; i++) {
+            if (mass[i] > 1e-6f) occupied++;
+            fullest = Math.max(fullest, mass[i]);
+        }
+
+        // (a) Phase-2b: water FELL out of the top cell — the head drained (was: top stayed full).
+        assertEquals(0f, mass[top], 1e-2f, "top cell should have fully drained, was " + mass[top]);
+        // (b) Phase-2b: water SPREAD into air past one cell — the bottom basin holds mass and the
+        //     horizontal neighbour gained mass (coverage is more than the single seed cell).
+        assertTrue(mass[bottom] > 0f, "bottom of column should hold settled mass, was " + mass[bottom]);
+        assertTrue(mass[side]   > 0f, "horizontal neighbour should have gained mass, was " + mass[side]);
+        assertTrue(occupied > 1, "water must wet into a finite pool (> 1 cell), occupied=" + occupied);
+        // (c) Phase-2b: occupancy is FINITE — a free pool spreads to a bounded coverage, not the
+        //     whole 4096-cell plane (the min_flow floor + max_mass cap keep it compact, measured 20).
+        assertTrue(occupied <= 64,
+                "free pool must stay finite (<= 64 cells), not flood the section, occupied=" + occupied);
+        // (d) Phase-2b: NO cell exceeds the per-cell capacity cap (max_mass); the deepest basin cell
+        //     pools to exactly the cap (was: the seed column "stacked full").
+        assertTrue(fullest <= water.maxMass() + 1e-2f,
+                "no cell may exceed max_mass=" + water.maxMass() + ", fullest was " + fullest);
+
+        // (e) Reconcile (§10 Decision 9): a basin cell at the cap renders as a full block (level 0)...
         assertEquals(0, FluidReconcileLogic.levelForFraction(
                 FluidReconcileLogic.fraction(fullest, water.defaultMass())),
-                "a near-full settled cell renders as level 0");
-        // ...and a never-fluid (empty) cell maps to REMOVE.
+                "the fullest basin cell renders as level 0");
+        // ...and a partially-filled pool cell at the floor reconciles to a VALID render level (0..7).
+        int floorLevel = FluidReconcileLogic.levelForFraction(
+                FluidReconcileLogic.fraction(mass[bottom], water.defaultMass()));
+        assertTrue(floorLevel >= 0 && floorLevel <= 7,
+                "a floor-filled pool cell reconciles to a valid level 0..7, was " + floorLevel);
+        // ...and a fully-drained cell (the emptied top) reconciles to REMOVE.
         assertEquals(FluidReconcileLogic.REMOVE, FluidReconcileLogic.levelForFraction(
-                FluidReconcileLogic.fraction(0f, water.defaultMass())),
-                "an emptied cell reconciles to REMOVE");
+                FluidReconcileLogic.fraction(mass[top], water.defaultMass())),
+                "the drained top cell reconciles to REMOVE");
     }
 
     // A fluid lava (fluid=true) for the advection-merge audit. Distinct material index from water,
@@ -230,10 +244,6 @@ class AuditScenarioTest {
     }
 
     @Test
-    @Disabled("Plan-2: the engine now wets fluid into air, but without the min_flow_mass floor (deferred to "
-            + "Plan 2) the lava cell drains into surrounding air (degenerate no-floor thinning). The no-MERGE "
-            + "invariant (water<->lava don't transfer, Decision 7) still holds; re-enable and tighten in Plan 2 "
-            + "once the floor + air->fluid reconciler are wired.")
     void waterNextToLavaStillSteamsAndMassesDoNotMerge() {
         // Drives the native kernel with adjacent water+lava fluid cells. Spec Decision 7: advection
         // only moves mass between SAME-material fluid cells, so water's mass never merges into the
@@ -283,30 +293,53 @@ class AuditScenarioTest {
                 water,
                 lava);
 
+        char[] outMat = matIx;
         for (int it = 0; it < 30; it++) {
             StepTask task = new StepTask(new SubchunkKey(0, 0, 0), matIx, mass, temp, voidHalo());
             List<StepResult> out = e.step(List.of(task), lut,
                     Scheduler.ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
             mass = out.get(0).mass();
             temp = out.get(0).temperature();
+            if (out.get(0).material() != null) { outMat = out.get(0).material(); matIx = outMat; }
             // total conservation holds every step (the symmetric guard never breaks it).
             assertEquals(totalIn, sum(mass), 1e-2f, "Σmass must be conserved at iteration " + it);
         }
 
-        // (1) the lava cell's mass is UNCHANGED by the adjacent water: no water merged across the
-        //     material boundary (and lava, being denser/empty-of-same-material-neighbours here, did
-        //     not gain water either). Same-material guard in action.
-        assertEquals(lavaMassIn, mass[lava2], 1e-2f,
-                "lava mass must not change from adjacent water (spec Decision 7), was " + mass[lava2]);
-        // (2) lava temperature stayed cold: no enthalpy crossed the boundary.
-        assertEquals(300f, temp[lava2], 1e-1f,
-                "lava temperature must stay unblended by water, was " + temp[lava2]);
-        // (3) all the water mass stayed within the water cells (none leaked into the lava cell).
-        float waterTotalOut = mass[wHi] + mass[wTop] + mass[wLo];
-        assertEquals(waterTotalIn, waterTotalOut, 1e-2f,
-                "all water mass must remain in water cells, was " + waterTotalOut);
-        // (4) same-material flow still happened: the empty water neighbour received from wHi.
-        assertTrue(mass[wLo] > 0f, "same-material empty water neighbour should have received, was " + mass[wLo]);
+        // Survey the field by OUTPUT species (Decision 7: one species per cell). Each fluid wets into
+        // its OWN adjacent air, so we track mass+occupancy per species across the whole section, not
+        // just the seed cells. A cell that ever held both species would prove a cross-material merge.
+        float waterSpeciesSum = 0f, lavaSpeciesSum = 0f;
+        float hottestLavaCell  = 0f;
+        for (int i = 0; i < SEC_N; i++) {
+            if (outMat[i] == 1) waterSpeciesSum += mass[i];                 // water species
+            if (outMat[i] == 2) {                                          // lava species
+                lavaSpeciesSum += mass[i];
+                if (mass[i] > 1e-6f) hottestLavaCell = Math.max(hottestLavaCell, temp[i]);
+            }
+        }
+
+        // --- Phase-2b finite-pooling end-state, NO cross-material merge (Decision 7) -----------
+        // (1) NO-MERGE: lava did not GAIN mass from the adjacent water. Lava now legitimately pools
+        //     into its OWN +x air (was: "lava mass exactly == 600 in one cell"), so we assert the
+        //     lava SPECIES total is conserved (<= initial + ε) — water never crossed into lava.
+        assertEquals(lavaMassIn, lavaSpeciesSum, 1e-1f,
+                "lava species mass must be conserved, none gained from water (Decision 7), was " + lavaSpeciesSum);
+        assertTrue(lavaSpeciesSum <= lavaMassIn + 1e-1f,
+                "lava must not GAIN mass from adjacent water, was " + lavaSpeciesSum);
+        // (2) NO-MERGE: every lava-species cell stayed COLD (~300 K) — the 1000 K water never blended
+        //     its enthalpy across the material boundary (was: single-cell lava2 temp == 300).
+        assertEquals(300f, hottestLavaCell, 1.0f,
+                "lava cells must stay unblended by hot water (no enthalpy merge), hottest was " + hottestLavaCell);
+        // (3) per-species conservation: ALL water mass stayed water (none leaked into lava cells).
+        assertEquals(waterTotalIn, waterSpeciesSum, 1e-1f,
+                "all water mass must remain water species, was " + waterSpeciesSum);
+        // (4) the lava SEED cell never holds water species (no merge into the boundary cell itself).
+        assertTrue(outMat[lava2] != 1,
+                "lava seed cell must never become water species, was " + (int) outMat[lava2]);
+        // (5) Phase-2b pooling actually happened: the water wet into air (more cells than the 2 seeds).
+        int waterOcc = 0;
+        for (int i = 0; i < SEC_N; i++) if (outMat[i] == 1 && mass[i] > 1e-6f) waterOcc++;
+        assertTrue(waterOcc > 1, "water must have spread into a finite pool (> 1 cell), occupied=" + waterOcc);
 
         // KEEP §7: a water cell heated above boiling still yields orge:steam via PhaseRule.
         Optional<Identifier> phaseTarget = PhaseRule.targetBlock(400f, water);
