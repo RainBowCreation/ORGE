@@ -6,11 +6,16 @@ import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SubchunkKey;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Headless orchestration for the vertical cross-section fluid fall (DESIGN §10 Phase-2b /
@@ -29,6 +34,8 @@ import java.util.Map;
  * server — that is why this helper exists separately from {@link MinecraftThermalWorld}.</p>
  */
 public final class CrossSectionSeamPass {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
 
     private CrossSectionSeamPass() {}
 
@@ -54,7 +61,9 @@ public final class CrossSectionSeamPass {
      * @param lut     the batch material LUT (index 0 = VOID); maps species char ↔ {@link Material}
      * @param waker   flow-wake sink for the touched receiver/donor sections
      * @return the touched sections (donor + receiver) with their post-transfer species arrays,
-     *         for downstream re-render marking; empty when nothing moved
+     *         for downstream re-render marking; empty when nothing moved; at most one entry per
+     *         distinct (dim,key) — the last write wins when the same section is touched multiple
+     *         times in one run (e.g. a middle section that is both receiver and donor)
      */
     public static List<ThermalWorld.TouchedSection> run(
             SectionStore store, CellMaterialTracker tracker,
@@ -66,7 +75,13 @@ public final class CrossSectionSeamPass {
             idToIx.putIfAbsent(lut.get(i).id(), (char) i);
         }
 
-        List<ThermalWorld.TouchedSection> touched = new ArrayList<>();
+        // Accumulate the FINAL per-key species array (last write wins — each pair rebuilds from
+        // the freshly-updated store/tracker, so the last pair to touch a section has the most
+        // current state). Insertion-ordered so downstream order is deterministic.
+        Map<DimKey, ThermalWorld.TouchedSection> touchedByKey = new LinkedHashMap<>();
+
+        // Deduplicated wake targets (each section waked at most once per run).
+        Set<DimKey> toWake = new LinkedHashSet<>();
 
         for (ThermalWorld.BatchEntry entry : entries) {
             Identifier dim = entry.dimension();
@@ -88,7 +103,7 @@ public final class CrossSectionSeamPass {
             // Receiver never stepped: wake it so it becomes tracked next cycle, then skip THIS pair
             // (documented one-cycle lag).
             if (priorB == null) {
-                waker.wake(dim, lower);
+                toWake.add(new DimKey(dim, lower));
                 continue;
             }
 
@@ -119,6 +134,12 @@ public final class CrossSectionSeamPass {
 
             CrossSectionFluidLogic.SeamResult result =
                     CrossSectionFluidLogic.settleVerticalSeam(massA, tempA, spA, massB, tempB, spB, lut);
+
+            // Conservation regression tripwire — log but never throw.
+            double drift = Math.abs(result.massAfter() - result.massBefore());
+            if (drift > 1e-3) {
+                LOGGER.warn("[ORGE] cross-section seam mass drift {} for {}", drift, entry.key());
+            }
 
             if (!anyChanged(result.changedA()) && !anyChanged(result.changedB())) {
                 continue;  // no store/tracker writes, no wake, no TouchedSection
@@ -151,15 +172,29 @@ public final class CrossSectionSeamPass {
             tracker.record(dim, upper, toIds(spAFull, lut, priorA));
             tracker.record(dim, lower, toIds(spBFull, lut, priorB));
 
-            waker.wake(dim, lower);  // receiver
-            waker.wake(dim, upper);  // donor
+            // Queue wakes — deduplicated via Set; actual callbacks dispatched after all pairs.
+            toWake.add(new DimKey(dim, lower));   // receiver
+            toWake.add(new DimKey(dim, upper));   // donor
 
-            touched.add(new ThermalWorld.TouchedSection(dim, upper, spAFull));
-            touched.add(new ThermalWorld.TouchedSection(dim, lower, spBFull));
+            // Accumulate touched sections. Last write wins when the same section appears in
+            // multiple pairs (e.g. a middle section that is both a receiver and a donor): each
+            // pair rebuilds spXFull from the freshly-updated tracker/store, so the last array
+            // passed here is already the most current. We re-read from the updated tracker so
+            // the array stored in the map is the FINAL post-all-pairs state.
+            touchedByKey.put(new DimKey(dim, upper), new ThermalWorld.TouchedSection(dim, upper, spAFull));
+            touchedByKey.put(new DimKey(dim, lower), new ThermalWorld.TouchedSection(dim, lower, spBFull));
         }
 
-        return touched;
+        // Dispatch deduplicated wakes.
+        for (DimKey dk : toWake) {
+            waker.wake(dk.dim(), dk.key());
+        }
+
+        return new ArrayList<>(touchedByKey.values());
     }
+
+    /** Lightweight (dim, key) pair used as a map/set key within a single run. */
+    private record DimKey(Identifier dim, SubchunkKey key) {}
 
     private static boolean anyChanged(boolean[] flags) {
         for (boolean b : flags) {
