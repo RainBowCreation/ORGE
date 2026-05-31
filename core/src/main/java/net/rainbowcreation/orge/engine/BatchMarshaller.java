@@ -20,13 +20,21 @@ final class BatchMarshaller {
     static final int FACE = NeighborHalo.FACE_CELLS;
     static final int FACES = 6;
 
+    /**
+     * Air's resting density (kg/m^3), written into the LUT's index-0 {@code fullMass} slot as the
+     * density-swap air label (Spec Decision 0/2; Plan-1 kernel reads {@code lut.fullMass[0]}). This is
+     * a general "lightest ambient gas" constant, NOT an air-by-identity branch in the physics rule.
+     */
+    static final float AIR_DENSITY = 1.2f;
+
     private BatchMarshaller() {}
 
     /** Flat inputs for one {@code orgeStep} call. {@code matCount} = LUT size. */
     record Flat(int n, char[] matIx, float[] mass, float[] tIn,
                 float[] haloT, char[] haloMat, float[] haloMass,
                 float[] lutCond, float[] lutHeatCap,
-                float[] lutVisc, float[] lutFullMass, byte[] lutFluid, int matCount) {}
+                float[] lutVisc, float[] lutFullMass, byte[] lutFluid,
+                float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, int matCount) {}
 
     static Flat flatten(List<StepTask> tasks, List<Material> lut) {
         int m = lut.size();
@@ -72,6 +80,9 @@ final class BatchMarshaller {
         float[] visc = new float[m];
         float[] fullMass = new float[m];
         byte[] fluid = new byte[m];
+        float[] minFlow = new float[m];
+        float[] maxMass = new float[m];
+        byte[] gas = new byte[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
@@ -79,9 +90,15 @@ final class BatchMarshaller {
             visc[i] = mat.viscosity();
             fullMass[i] = mat.defaultMass();
             fluid[i] = mat.fluid() ? (byte) 1 : (byte) 0;
+            minFlow[i] = mat.minFlowMass();
+            maxMass[i] = mat.maxMass();           // canonical accessor: 0 -> defaultMass
+            gas[i] = mat.gas() ? (byte) 1 : (byte) 0;
         }
+        // Index 0 is the VOID/ambient sentinel; label it with air's density so the kernel's
+        // density swap (Plan-1) reads a meaningful "empty cell" density rather than 0.
+        fullMass[0] = AIR_DENSITY;
         return new Flat(n, matIx, mass, tIn, haloT, haloMat, haloMass,
-                cond, heatCap, visc, fullMass, fluid, m);
+                cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, m);
     }
 
     static List<float[]> slice(float[] tOut, int n) {

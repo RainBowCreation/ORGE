@@ -31,6 +31,7 @@ public final class NativeEngine implements OrgeEngine {
             float[] haloT, char[] haloMat, float[] haloMass,
             float[] lutCond, float[] lutHeatCap, float[] lutVisc,
             float[] lutFullMass, byte[] lutFluid,
+            float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas,
             int passes, double dtSeconds,
             float[] tOut, float[] massOut, char[] matOut);
 
@@ -48,6 +49,7 @@ public final class NativeEngine implements OrgeEngine {
                 f.n(), f.matIx(), f.mass(), f.tIn(),
                 f.haloT(), f.haloMat(), f.haloMass(),
                 f.lutCond(), f.lutHeatCap(), f.lutVisc(), f.lutFullMass(), f.lutFluid(),
+                f.lutMinFlow(), f.lutMaxMass(), f.lutGas(),
                 passes, dtSeconds, tOut, massOut, matOut);
         List<float[]> t = BatchMarshaller.slice(tOut, f.n());
         List<float[]> m = BatchMarshaller.sliceMass(massOut, f.n());
