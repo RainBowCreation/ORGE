@@ -13,6 +13,7 @@ import java.util.List;
 public final class NativeEngine implements OrgeEngine {
 
     private double lastStepMillis = 0.0;
+    private final ScratchPool scratch = new ScratchPool();
 
     static {
         NativeLoader.load();
@@ -42,9 +43,10 @@ public final class NativeEngine implements OrgeEngine {
             return new ArrayList<>();
         }
         BatchMarshaller.Flat f = BatchMarshaller.flatten(tasks, lut);
-        float[] tOut    = new float[f.n() * BatchMarshaller.SEC_N];
-        float[] massOut = new float[f.n() * BatchMarshaller.SEC_N];
-        char[]  matOut  = new char[f.n() * BatchMarshaller.SEC_N];
+        int total = f.n() * BatchMarshaller.SEC_N;
+        float[] tOut    = scratch.temp(total);
+        float[] massOut = scratch.mass(total);
+        char[]  matOut  = scratch.material(total);
         lastStepMillis = orgeStep(
                 f.n(), f.matIx(), f.mass(), f.tIn(),
                 f.haloT(), f.haloMat(), f.haloMass(),
