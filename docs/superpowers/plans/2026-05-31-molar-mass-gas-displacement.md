@@ -55,34 +55,33 @@ behaviour, and the old native E2E (`AuditScenarioTest`) asserts the OLD air-disc
   "placeable fluid block" notion separate from the engine's "advects" notion if they should differ), then
   replaces/re-enables the native E2E with new-contract assertions.
 
-## Task M2 [MAIN] — JNI/bridge: pass a per-material `molar[]` array to the engine
-- Extend the native `step()` bridge + the Java side that marshals per-material arrays (cond/heatCap/visc/
-  fullMass/minFlow/maxMass/flags) to also pass **`molar[]`** (kg/mol, indexed by material). Stub/native
-  fallback both updated.
-- This is plumbing: the kernel will receive but not yet use it (until E-tasks). Keep the existing arrays
-  bit-for-bit; just add one.
-- TDD: bridge round-trip test — the LUT seen by a (test-double or real) engine step includes the molar
-  array with air=0.029; native fallback path still runs. `:core:test` green. Commit MAIN, push.
+## Task M2 [MAIN] — FOLDED INTO INT (JNI ABI change requires the .so rebuild)
+Passing a new per-material `molar[]` across JNI **grows the native `step()` ABI**. The Java native-method
+declaration must match the bundled `.so`'s exported signature, and the `.so` is only rebuilt at INT — so a
+standalone pre-INT M2 cannot be green (the old `.so` lacks the molar param; native-backed tests would fail
+linkage). Therefore the Java-side molar marshalling + the JNI-wrapper molar param are done **at INT**,
+together with the rebuild + the air flag-flip. The ENGINE-side `MatLUT.molar` field + parity-harness
+plumbing stays in **E1** (the C++ parity harness calls the kernel directly, not through JNI, so it needs no
+`.so` rebuild). Net: E1 adds the kernel field; INT wires Java→JNI→kernel and proves it on the rebuilt lib.
 
-## Task E1 [ENGINE] — `MatLUT.molar` + vacuum sentinel; remove the `lut.air` discard semantics
-Work branch `feat/molar-gas`. **Bit-identical kernel/sim_engine, same commit.**
+## Task E1 [ENGINE] — `MatLUT.molar` plumbing ONLY (unused field, trivially bit-identical)
+Work branch `feat/molar-gas`. **Bit-identical kernel/sim_engine, same commit. ZERO behaviour change.**
 - Add `const float* molar;` to `MatLUT` (both `orge_kernel.hpp` + `sim_engine.hpp`); wire it through the
-  call signature + the parity harness LUT builder. Unused by motion yet (plumbing parity).
-- **Replace the `lut.air` "empty/adopt" semantics** with the **vacuum** sentinel: a cell a fluid/gas may
-  move INTO is `matIx==0 OR massOut<=ADV_EPS_MASS` (vacuum) **OR** a strictly-lighter fluid (density rule,
-  E2). An air-FLAGGED material with real mass is **no longer** an "adopt-and-discard" target — it is a
-  real gas to be displaced. Keep gas/fluid flags.
-- For THIS task, keep behaviour otherwise identical except: where the old code adopted/discarded a
-  real-air cell on fall/wet, it must now treat that air as a lighter **fluid to displace** (route to the
-  swap/leveling path, not the absorb path). The headline parity case: water on a floor cell beside/above a
-  real-air cell → the air's mass is preserved (moved), not folded into water.
-- Parity: extend `advection_parity_test` — (a) a fluid moving into **vacuum** (0-mass) behaves as today;
-  (b) a fluid meeting a **real-air** cell preserves air mass (displaced, not consumed); `kernel ==
-  sim_engine` bit-identical; seam/interior mass conserved per species incl. air. `tests/run_tests.sh`
-  green. Commit on `feat/molar-gas`.
+  kernel call signature + the **parity-harness** LUT builder (give it the roster's molar values). The
+  kernel does NOT read it yet — pure ABI/field plumbing so E2/E3 (and Phase B) can use it without a later
+  signature churn.
+- **Do NOT touch the JNI wrapper** (`.cpp` Java↔kernel bridge) — the JNI molar param + Java marshalling are
+  done at INT with the `.so` rebuild (Task M2-folded). The C++ parity harness calls the kernel directly, so
+  E1 needs no `.so`/JNI change.
+- Parity: ALL existing `advection_parity_test` cases stay green and `kernel == sim_engine` bit-identical
+  (adding an unused field changes nothing). Add one trivial assertion that the molar array is wired
+  (e.g. the harness LUT exposes air molar 0.029). `tests/run_tests.sh` green. Commit on `feat/molar-gas`.
 
-## Task E2 [ENGINE] — liquid DISPLACES gas (the consumption fix), incl. compressible air
-**Bit-identical, same commit.**
+## Task E2 [ENGINE] — vacuum sentinel + liquid DISPLACES gas (the consumption fix), compressible air
+**Bit-identical kernel/sim_engine, same commit.** This is the core behaviour change.
+- **Redefine "empty" as VACUUM only:** a cell a fluid/gas may move INTO is `matIx==0 OR massOut<=ADV_EPS_MASS`
+  (vacuum) **OR** a strictly-lighter fluid (density rule). **Remove the `lut.air` "adopt-and-discard"**
+  path: an air-FLAGGED cell with real mass is no longer a discardable empty — it is a real gas to displace.
 - **Horizontal wetting (the bug):** when a supported liquid edge cell would spread into a cell holding a
   *lighter* fluid (air/gas), do a **density displacement**, not a relabel-and-add: the liquid occupies the
   cell and the lighter fluid is pushed out (its mass relocated to where the liquid came from / up via the
@@ -133,10 +132,18 @@ Work branch `feat/molar-gas`. **Bit-identical kernel/sim_engine, same commit.**
   after a step the neighbours' air has refilled it and **total air is conserved** (no air-from-nothing);
   the reseed guard does not fight the fill. `:core:test` green. Commit MAIN, push.
 
-## Task INT [MAIN+ENGINE] — integrate, rebuild .so, native E2E, both loaders
-- ENGINE: merge `feat/molar-gas` → `main`, push. Rebuild
-  `JAVA_HOME=/home/claude/jdk21 ./native/build_liborge.sh`; copy to MAIN
-  `core/src/main/resources/natives/linux-x64/liborge.so`; bump gitlink (`git add ORGE-ENGINE`).
+## Task INT [MAIN+ENGINE] — integrate, JNI molar, air flag-flip, rebuild .so, native E2E, both loaders
+- ENGINE: at the integration commit, add the **JNI-wrapper molar param** (the `.cpp` bridge builds
+  `MatLUT.molar` from a new incoming `jfloatArray`) so the rebuilt `.so` accepts molar. Merge
+  `feat/molar-gas` → `main`, push. Rebuild `JAVA_HOME=/home/claude/jdk21 ./native/build_liborge.sh`; copy
+  to MAIN `core/src/main/resources/natives/linux-x64/liborge.so`; bump gitlink (`git add ORGE-ENGINE`).
+- MAIN — **JNI molar marshalling (former M2):** extend the Java native-method declaration + the
+  per-material array marshalling (cond/heatCap/visc/fullMass/minFlow/maxMass/flags) to also pass
+  **`molar[]`** (air=0.029), matching the rebuilt `.so`; stub/native fallback both updated.
+- MAIN — **air flag-flip (former M1 deferral):** activate air as a participating engine fluid/gas for the
+  live path (decide `Material.fluid()/gas()` vs a `BatchMarshaller` `.air()`→LUT mapping; keep Java's
+  "placeable fluid block" notion separate from the engine's "advects" notion if they differ). Re-enable /
+  replace the `@Disable(TODO INT)` native air tests from M3 with the new-contract assertions.
 - MAIN: native-backed E2E (skips if no `.so`) driving the real scheduler path (snapshot + co-step → native
   step → per-species §9 incl. air → writeBack → reconcile). Assert, on the **rebuilt lib**:
   (a) **`1000 kg liquid → spread to N cells → total == 1000.0`** (the headline repro, N=2..6);
