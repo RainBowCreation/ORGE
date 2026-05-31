@@ -5,6 +5,8 @@
   "molar_mass": 0.060,
   "viscosity": 100,
   "fluid": true,
+  "min_flow_mass": 400,
+  "max_mass": 3100,
   "freezing_point": 1000,
   "freezing_target": "minecraft:stone",
   "representative_block": "minecraft:lava",

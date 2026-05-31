@@ -5,6 +5,8 @@
   "molar_mass": 0.018,
   "viscosity": 0.001,
   "fluid": true,
+  "min_flow_mass": 125,
+  "max_mass": 1000,
   "freezing_point": 273.15,
   "freezing_target": "minecraft:ice",
   "boiling_point": 373.15,
