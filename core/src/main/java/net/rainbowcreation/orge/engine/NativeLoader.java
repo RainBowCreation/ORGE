@@ -15,6 +15,8 @@ import java.util.Locale;
 public final class NativeLoader {
 
     private static volatile boolean loaded = false;
+    /** The classpath resource path the last {@link #load()} resolved for this platform (for diagnostics). */
+    private static volatile String resolvedResource = "(load not attempted)";
 
     private NativeLoader() {}
 
@@ -25,6 +27,7 @@ public final class NativeLoader {
         String arch = archToken(System.getProperty("os.arch"));
         String lib = libFileName(os);
         String resource = "/natives/" + os + "-" + arch + "/" + lib;
+        resolvedResource = resource;
         try (InputStream in = NativeLoader.class.getResourceAsStream(resource)) {
             if (in == null) {
                 throw new UnsatisfiedLinkError("no bundled native library at " + resource);
@@ -42,6 +45,9 @@ public final class NativeLoader {
     }
 
     public static boolean isLoaded() { return loaded; }
+
+    /** The {@code /natives/<os>-<arch>/<lib>} resource the last load attempt targeted (diagnostics). */
+    public static String resolvedResource() { return resolvedResource; }
 
     static String osToken(String osName) {
         String s = osName.toLowerCase(Locale.ROOT);
