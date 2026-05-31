@@ -18,8 +18,8 @@ public final class StubEngine implements OrgeEngine {
     public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds, int passes) {
         List<StepResult> out = new ArrayList<>(tasks.size());
         for (StepTask task : tasks) {
-            // Identity step: copy temperature and mass through untouched (no physics, passes ignored).
-            out.add(new StepResult(task.temperature().clone(), task.mass().clone()));
+            // Identity step: copy temperature, mass, and material through untouched (no physics, passes ignored).
+            out.add(new StepResult(task.temperature().clone(), task.mass().clone(), task.matIx().clone()));
         }
         lastStepMillis = 0.0;
         return out;
