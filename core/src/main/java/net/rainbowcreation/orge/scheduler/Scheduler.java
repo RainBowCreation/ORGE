@@ -277,14 +277,37 @@ public final class Scheduler {
                 // Advection cycle (and the advection half of a coincident tick): mass moved, so
                 // validate Σmass and write T + mass; a non-conserving result holds previous mass.
                 float[] cleanM = StepValidator.cleanMass(r.mass(), fullMassBound);
-                if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound,
-                        entry.task().matIx(), pendingMaterials)) {
-                    LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
-                            entry.key());
-                    // Hold previous: skip write-back (and reconcile) for this entry. On a
-                    // coincident tick conduction's heat is folded into the advection T, so we do
-                    // NOT separately write T here — holding the whole entry is the safe choice.
-                    continue;
+                char[] outMat = r.material();
+                if (outMat != null) {
+                    // Preserve any over-cap parcel (a §7/engine boil deposit) that cleanMass would
+                    // otherwise clamp to fullMassBound and destroy (Decision 12 landmine). Key on the
+                    // cell being over its OWN output-species cap — robust across the multi-step relaxation,
+                    // not just the flip step (a boiled steam cell stays steam while it relaxes).
+                    for (int c = 0; c < cleanM.length; c++) {
+                        int s = outMat[c];
+                        if (s != 0 && pendingMaterials.get(s).fluid()
+                                && Float.isFinite(r.mass()[c]) && r.mass()[c] >= 0f
+                                && r.mass()[c] > pendingMaterials.get(s).maxMass()) {
+                            cleanM[c] = r.mass()[c]; // boil-volume: keep the over-cap deposit unclamped
+                        }
+                    }
+                    if (!StepValidator.massConservedPerSpecies(cleanM, entry.task().mass(),
+                            entry.task().matIx(), outMat, pendingMaterials)) {
+                        LOGGER.warn("[ORGE] advection mass not conserved (per-species) for {}; holding previous mass",
+                                entry.key());
+                        // Hold previous: skip write-back (and reconcile) for this entry. On a
+                        // coincident tick conduction's heat is folded into the advection T, so we do
+                        // NOT separately write T here — holding the whole entry is the safe choice.
+                        continue;
+                    }
+                } else {
+                    // No engine species (stub/back-compat): fall back to the total-fluid gate.
+                    if (!StepValidator.massConserved(cleanM, entry.task().mass(), fullMassBound,
+                            entry.task().matIx(), pendingMaterials)) {
+                        LOGGER.warn("[ORGE] advection mass not conserved for {}; holding previous mass",
+                                entry.key());
+                        continue;
+                    }
                 }
                 world.writeBack(entry, new StepResult(cleanT, cleanM, r.material()));
                 if (conduction) {

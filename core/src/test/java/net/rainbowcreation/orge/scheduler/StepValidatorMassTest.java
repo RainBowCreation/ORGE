@@ -12,6 +12,8 @@ class StepValidatorMassTest {
 
     private static final char WATER_IX = 1;
     private static final char SOLID_IX = 2;
+    private static final char LAVA_IX = 3;
+    private static final char STEAM_IX = 4;
 
     private static Material water() {
         return new Material(Identifier.fromNamespaceAndPath("orge", "water"),
@@ -28,6 +30,131 @@ class StepValidatorMassTest {
     /** VOID=0, water=1, generic_solid=2. */
     private static List<Material> lut() {
         return List.of(MaterialLut.VOID, water(), genericSolid());
+    }
+
+    private static Material lava() {
+        // canonical 17-arg ctor: fluid=true, minFlow=400, maxMass=3100, gas=false
+        return new Material(Identifier.fromNamespaceAndPath("orge", "lava"),
+                1f, 1f, 0f, 3100f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
+                null, null, null, Float.NaN, false, true, 400f, 3100f, false);
+    }
+
+    private static Material steam() {
+        return new Material(Identifier.fromNamespaceAndPath("orge", "steam"),
+                1f, 1f, 0f, 0.6f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
+                null, null, null, Float.NaN, false, true, 0.6f, 0.6f, true);
+    }
+
+    /** VOID=0, water=1, generic_solid=2, lava=3, steam=4. */
+    private static List<Material> perSpeciesLut() {
+        return List.of(MaterialLut.VOID, water(), genericSolid(), lava(), steam());
+    }
+
+    @Test
+    void perSpeciesAcceptsEachSpeciesConserved() {
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, WATER_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, WATER_IX);
+        // water moves 100 kg cell0->cell1; both water in AND out -> conserved per species.
+        java.util.Arrays.fill(before, 500f); java.util.Arrays.fill(after, 500f);
+        after[0] = 400f; after[1] = 600f;
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void perSpeciesRejectsCrossSpeciesLeak() {
+        // Total mass conserved, but water lost 100 kg and lava gained 100 kg (a mislabeled drain).
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, WATER_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, WATER_IX);
+        outMat[0] = LAVA_IX;                // cell0 is lava after the (bogus) step
+        java.util.Arrays.fill(before, 500f); java.util.Arrays.fill(after, 500f);
+        after[0] = 600f; after[1] = 400f;   // lava sumAfter=600 vs sumBefore=0, water short by 100 -> fails
+        assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void perSpeciesBoundsEachCellByItsOwnNegativeFloor() {
+        // The per-cell bound on the OUTPUT species catches a NEGATIVE water cell (-200 kg): cell1 is
+        // water-out and -200 < -ε, so the bound rejects regardless of the batch max (the old scalar
+        // bound would also reject negatives, but the per-species bound is what guards each species'
+        // OWN [−ε, max] window). The over-cap exemption is over-cap-ONLY and never relaxes the lower
+        // (negative) bound, so a negative mass always fails.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, WATER_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, WATER_IX);
+        before[0] = 1000f; after[0] = 800f; after[1] = -200f; // cell1 negative -> bound fails
+        assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void wettingAnAirCellIsConserved() {
+        // REGRESSION GUARD for the wetting defect: a water cell (1000 kg) donates 125 kg into an
+        // adjacent AIR cell, which adopts the water species (air matIx 0 -> water). Dual-index sum:
+        // water sumBefore = donor 1000 (recipient was air -> not counted in sumBefore); water sumAfter
+        // = donor 875 + recipient 125 = 1000. Conserved -> gate returns true (the OLD output-indexed +
+        // species-change-exempt design rejected this and froze the spread).
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, WATER_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, WATER_IX);
+        // cell0 was air, becomes water (the wetted recipient); cell1 is the donor water.
+        inMat[0] = 0;            // air in
+        outMat[0] = WATER_IX;    // water out (wetted)
+        before[0] = 0f;          // air had no mass
+        after[0] = 125f;         // received 125 kg of water
+        before[1] = 1000f;       // donor full water
+        after[1] = 875f;         // donor gave 125 kg
+        // rest is a flat conserved water field (in==out==water, before==after)
+        java.util.Arrays.fill(before, 2, 4096, 500f);
+        java.util.Arrays.fill(after, 2, 4096, 500f);
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void densitySwapWithAirIsConserved() {
+        // Steam below air rises (Plan-1 swap): lower cell steam(0.6) -> air(0), upper cell air(0) ->
+        // steam(0.6). Dual-index: steam sumBefore = lower-in 0.6; steam sumAfter = upper-out 0.6. ✓
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; char[] outMat = new char[4096]; // all air (0) by default
+        int lo = 0, up = 1;
+        inMat[lo] = STEAM_IX; outMat[lo] = 0;        before[lo] = 0.6f; after[lo] = 0f;
+        inMat[up] = 0;        outMat[up] = STEAM_IX;  before[up] = 0f;   after[up] = 0.6f;
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void boilVolumeOverCapCellIsExemptFromTheBoundButCountedInTheSum() {
+        // A §7/engine boil left one steam cell holding 1000 kg (way over steam's 0.6 cap). It is exempt
+        // from the per-cell BOUND (over its own output cap) so it does not fail on the cap, AND it is
+        // still COUNTED in steam's conservation sum (never exempted from the sum). Here a neighbouring
+        // water cell lost exactly 1000 kg (the boil source on the input side, mislabeled as steam? no:
+        // model the realistic relaxation step where the over-cap steam stays steam in AND out and just
+        // sheds mass to a steam neighbour). steam sumBefore = 1000 + 0.6, sumAfter = 999.4 + 0.6+... we
+        // model the simplest conserved case: the over-cap cell sheds 0.4 to an adjacent steam cell.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, STEAM_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, STEAM_IX);
+        before[0] = 1000f; after[0] = 999.6f;  // over-cap steam, sheds 0.4 (still way over the 0.6 cap)
+        before[1] = 0.6f;  after[1] = 1.0f;     // neighbour steam gains 0.4 (also over the 0.6 cap)
+        java.util.Arrays.fill(before, 2, 4096, 0.6f);
+        java.util.Arrays.fill(after, 2, 4096, 0.6f);
+        // Both cell0 and cell1 are over the 0.6 cap -> exempt from the BOUND; the conservation sum
+        // (steam in == steam out, total unchanged) still passes -> gate returns true.
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void overCapCellThatInventsMassStillFails() {
+        // The bound exemption can NEVER hide invented mass: an over-cap steam cell that gains 1000 kg
+        // from nowhere (no matching loss anywhere) is exempt from the BOUND but the conservation sum
+        // (steam sumAfter exceeds sumBefore by 1000 kg, far over the ε·N ≈ 40.96 kg tolerance) rejects it.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, STEAM_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, STEAM_IX);
+        before[0] = 0.6f; after[0] = 1000.6f;   // over the 0.6 cap (bound-exempt) but +1000 invented
+        java.util.Arrays.fill(before, 1, 4096, 0.6f);
+        java.util.Arrays.fill(after, 1, 4096, 0.6f);
+        assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
     }
 
     @Test

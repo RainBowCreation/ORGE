@@ -93,6 +93,73 @@ public final class StepValidator {
         return Math.abs(sumA - sumB) <= cellEps * after.length;
     }
 
+    /**
+     * §9 per-species mass gate (Spec Decision 6/12, Phase-2b). One O(N) pass with a <b>dual-index</b>
+     * conservation sum: each cell's {@code before} mass is accumulated under its <b>input</b> species
+     * ({@code inMat[i]}) and its {@code after} mass under its <b>output</b> species ({@code outMat[i]}),
+     * each only when that species is a tracked fluid (index != 0 and {@code fluid()}). After the pass,
+     * every tracked fluid species must be conserved within {@code ε·N}. The conservation sum is
+     * <b>never exempted</b> — this is what makes it the real gate: it conserves correctly across
+     * wetting (donor water→water loses 125, recipient air→water gains 125, both under the water index →
+     * water sumBefore 1000 == sumAfter 875+125), full-cell density swaps with air (steam below air: the
+     * lower cell counts its input steam in sumBefore, the upper cell counts its output steam in sumAfter
+     * → 0.6 == 0.6), liquid sort swaps (each species conserved on its own dual index), and drains (the
+     * neighbours' after-sums under their own output species capture the donated mass), and it forbids
+     * mass invention (a water→air drain mislabeled as lava fails because lava's after-sum would exceed
+     * its before-sum while water's after-sum falls short).
+     *
+     * <p>Separately, each fluid cell is bounded on its <b>output</b> species,
+     * {@code after[i] ∈ [−ε, maxMass(outMat[i]) + ε]}. The ONLY exemption is from this BOUND: a cell
+     * already <b>over its own output-species cap</b> ({@code after[i] > maxMass(outMat[i])}) is a
+     * transient compressed parcel — a §7/engine boil deposit (Decision 12 boil-volume) that the
+     * advection pass relieves over the next steps — and skips the bound. The exemption key is
+     * "over cap", NOT "species changed this step": a boiled steam cell stays steam for the multiple
+     * steps it takes to relax, so a species-change key would stop exempting it after step 1 and freeze
+     * the still-relaxing over-cap steam. Exempting an over-cap cell from the bound is safe precisely
+     * because the dual-index conservation sum (never exempted) still prevents mass invention. Air/void
+     * (index 0) and solids are not advection masses and contribute to neither sum.
+     *
+     * @param after   engine mass output (length N)
+     * @param before  snapshot input mass (length N)
+     * @param inMat   per-cell INPUT species (the snapshot {@code matIx}); index into {@code lut}
+     * @param outMat  per-cell OUTPUT species (the engine's {@code material()}); index into {@code lut}
+     * @param lut     batch material table (index 0 = {@link MaterialLut#VOID})
+     */
+    public static boolean massConservedPerSpecies(float[] after, float[] before,
+                                                  char[] inMat, char[] outMat,
+                                                  List<Material> lut) {
+        float cellEps = MASS_EPSILON_PER_CELL;
+        int speciesCount = lut.size();
+        double[] sumBefore = new double[speciesCount];
+        double[] sumAfter = new double[speciesCount];
+        for (int i = 0; i < after.length; i++) {
+            if (!Float.isFinite(after[i])) return false;
+            int in = inMat[i];
+            int out = outMat[i];
+            // BEFORE conserved under the cell's INPUT species; AFTER under its OUTPUT species. The two
+            // sums are decoupled, so a wetted air cell (air in, water out) does not count its 0 'before'
+            // under water yet contributes its 'after' to water -> donor + recipient balance under water.
+            if (in != 0 && lut.get(in).fluid()) {
+                sumBefore[in] += before[i];
+            }
+            if (out != 0 && lut.get(out).fluid()) {
+                float bound = lut.get(out).maxMass(); // per-species cap (canonical accessor: 0 -> defaultMass)
+                // BOUND on the output species, exempting a cell already OVER its own cap (a transient
+                // §7/engine boil deposit relaxing over the next steps). The conservation sum below is
+                // NEVER exempted, so the exemption can hide an over-cap parcel but never invented mass.
+                if (!(after[i] > bound) && (after[i] < -cellEps || after[i] > bound + cellEps)) {
+                    return false;
+                }
+                sumAfter[out] += after[i];
+            }
+        }
+        double tol = (double) cellEps * after.length;
+        for (int s = 1; s < speciesCount; s++) {
+            if (Math.abs(sumAfter[s] - sumBefore[s]) > tol) return false;
+        }
+        return true;
+    }
+
     /** Non-finite mass → 0; finite mass clamped to [0, fullMassBound]. Mirrors {@link #clean}. */
     public static float[] cleanMass(float[] mass, float fullMassBound) {
         float[] out = new float[mass.length];
