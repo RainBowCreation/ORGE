@@ -44,4 +44,12 @@ public interface ThermalWorld {
      * for headless test worlds.
      */
     default void noteSettle(BatchEntry entry, float maxMassDelta, float maxTempDelta) { }
+
+    /**
+     * Wake the flow pass of a section adjacent to one that pushed mass across the shared seam
+     * (DESIGN §10 Decision 11 trigger (c)). Without this an active section that pushes fluid toward a
+     * dormant neighbour would see flow stop dead at the border (the dormant neighbour is never
+     * snapshotted). Default no-op for headless test worlds.
+     */
+    default void wakeNeighbourFlow(Identifier dim, SubchunkKey neighbour) { }
 }

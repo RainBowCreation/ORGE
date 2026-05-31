@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge.command;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.scheduler.WakeSink;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -19,9 +20,17 @@ import net.rainbowcreation.orge.section.SubchunkKey;
 public final class ServerStoreWriteSink implements ThermalWriteSink {
 
     private final SectionStoreManager stores;
+    /** Nullable: when set, a write wakes the section's relevant pass (DESIGN §10 Decision 11 trigger
+     *  (b)) so a {@code /orge set}/{@code fill} into a settled cell re-runs the simulation. */
+    private final WakeSink wake;
 
     public ServerStoreWriteSink(SectionStoreManager stores) {
+        this(stores, null);
+    }
+
+    public ServerStoreWriteSink(SectionStoreManager stores, WakeSink wake) {
         this.stores = stores;
+        this.wake = wake;
     }
 
     @Override
@@ -39,6 +48,7 @@ public final class ServerStoreWriteSink implements ThermalWriteSink {
         SectionData data = store.get(key);
         data.setTemperature(cell, kelvin);
         store.put(key, data);
+        if (wake != null) wake.wakeThermalSection(dimension, key); // a temp edit re-runs conduction
     }
 
     @Override
@@ -50,5 +60,6 @@ public final class ServerStoreWriteSink implements ThermalWriteSink {
         SectionData data = store.get(key);
         data.setMass(cell, kg);
         store.put(key, data);
+        if (wake != null) wake.wakeFlowSection(dimension, key); // a mass edit re-runs advection
     }
 }

@@ -6,6 +6,7 @@ import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
+import net.rainbowcreation.orge.section.SubchunkKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -316,6 +317,24 @@ public final class Scheduler {
                 float maxMassDelta = maxAbsDelta(cleanM, entry.task().mass());
                 float maxTempDelta = conduction ? maxAbsDelta(cleanT, entry.task().temperature()) : -1f;
                 world.noteSettle(entry, maxMassDelta, maxTempDelta);
+                // §10 Decision 11 trigger (c): if mass crossed any of the six boundary faces this step,
+                // wake the adjacent section's flow pass so flow propagates into a dormant border instead
+                // of stopping dead. Reads only the six 16×16 boundary planes (cheap, no extra grid pass)
+                // off the data already in hand (snapshot mass vs post-step mass). A held entry never
+                // reaches here (the §9 gate `continue`d above), so it correctly wakes no neighbour.
+                float[] inMass = entry.task().mass();
+                boolean negX = faceMoved(inMass, cleanM, Face.NEG_X);
+                boolean posX = faceMoved(inMass, cleanM, Face.POS_X);
+                boolean negY = faceMoved(inMass, cleanM, Face.NEG_Y);
+                boolean posY = faceMoved(inMass, cleanM, Face.POS_Y);
+                boolean negZ = faceMoved(inMass, cleanM, Face.NEG_Z);
+                boolean posZ = faceMoved(inMass, cleanM, Face.POS_Z);
+                if (negX || posX || negY || posY || negZ || posZ) {
+                    for (SubchunkKey nb : SeamFluxWake.neighboursToWake(entry.key(),
+                            negX, posX, negY, posY, negZ, posZ)) {
+                        world.wakeNeighbourFlow(entry.dimension(), nb);
+                    }
+                }
                 if (conduction) {
                     // Coincident tick: conduction's within-cell exchange is already reflected in
                     // cleanT (advection stepped the post-conduction field), so phase change runs
@@ -341,6 +360,40 @@ public final class Scheduler {
             if (d > m) m = d;
         }
         return m;
+    }
+
+    private enum Face { NEG_X, POS_X, NEG_Y, POS_Y, NEG_Z, POS_Z }
+
+    /** Cell layout matches the kernel: i = x + y*16 + z*256, SEC = 16. */
+    private static final int SEC = 16;
+
+    /** True if any cell on the given boundary plane changed mass beyond the settle epsilon. The
+     *  six planes are 16×16 cells each — this never touches the section's interior 4096 cells. */
+    private static boolean faceMoved(float[] before, float[] after, Face face) {
+        for (int a = 0; a < SEC; a++) {
+            for (int b = 0; b < SEC; b++) {
+                int i = faceIndex(face, a, b);
+                if (Math.abs(after[i] - before[i]) >= SettleCountdown.EPS_MASS) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static int faceIndex(Face face, int a, int b) {
+        return switch (face) {
+            case NEG_X -> idx(0, a, b);
+            case POS_X -> idx(SEC - 1, a, b);
+            case NEG_Y -> idx(a, 0, b);
+            case POS_Y -> idx(a, SEC - 1, b);
+            case NEG_Z -> idx(a, b, 0);
+            case POS_Z -> idx(a, b, SEC - 1);
+        };
+    }
+
+    private static int idx(int x, int y, int z) {
+        return x + y * SEC + z * SEC * SEC;
     }
 
     private void toIdle() {

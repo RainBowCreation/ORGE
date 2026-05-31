@@ -1,7 +1,10 @@
 package net.rainbowcreation.orge;
 
+import dev.architectury.event.EventResult;
+import dev.architectury.event.events.common.BlockEvent;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
+import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
 import net.rainbowcreation.orge.command.OrgeCommandLogic;
@@ -9,11 +12,14 @@ import net.rainbowcreation.orge.command.OrgeCommands;
 import net.rainbowcreation.orge.command.ReadRangeProvider;
 import net.rainbowcreation.orge.command.ServerStoreReadSource;
 import net.rainbowcreation.orge.command.ServerStoreWriteSink;
+import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.PackType;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.world.phys.BlockHitResult;
 import net.rainbowcreation.orge.block.ModBlocks;
 import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.fluid.VanillaFluidSuppressor;
@@ -26,7 +32,9 @@ import net.rainbowcreation.orge.scheduler.ActiveSet;
 import net.rainbowcreation.orge.scheduler.CellMaterialTracker;
 import net.rainbowcreation.orge.scheduler.MinecraftThermalWorld;
 import net.rainbowcreation.orge.scheduler.Scheduler;
+import net.rainbowcreation.orge.scheduler.WakeSink;
 import net.rainbowcreation.orge.scheduler.Worker;
+import net.rainbowcreation.orge.platform.WakePlatform;
 import net.rainbowcreation.orge.section.AmbientProvider;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SectionStorePlatform;
@@ -159,6 +167,37 @@ public final class Orge {
                 Scheduler.COMPUTE_BUDGET_MILLIS, Scheduler.ON_TIME_TICKS_TO_CLIMB);
         scheduler = new Scheduler(engine, thermalWorld, stepRunner, serverWorker, phaseChanger, fluidReconciler);
 
+        // §10 Decision 11 trigger (a): wake the owning section on any player block edit or bucket use.
+        // BlockEvent.PLACE/BREAK + PlayerEvent.FILL_BUCKET are COMMON Architectury events (one
+        // registration, both loaders). WakePlatform (ExpectPlatform) adds the low-level setBlock path
+        // (/setblock, pistons, programmatic edits) the common events don't cover. Server-side only;
+        // over-waking is harmless (the section just sees one extra settle step). Once a section is
+        // dormant it is no longer snapshotted, so the snapshot-diff cannot notice an edit — wake MUST
+        // be explicit, or a bucket-placed fluid sits frozen forever (a missed trigger = stale fluid).
+        WakeSink wake = thermalWorld.wakeSink();
+        BlockEvent.PLACE.register((level, pos, state, placer) -> {
+            if (level instanceof ServerLevel sl) {
+                wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
+            }
+            return EventResult.pass();
+        });
+        BlockEvent.BREAK.register((level, pos, state, player, xp) -> {
+            if (level instanceof ServerLevel sl) {
+                wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
+            }
+            return EventResult.pass();
+        });
+        PlayerEvent.FILL_BUCKET.register((player, level, stack, target) -> {
+            if (level instanceof ServerLevel sl && target instanceof BlockHitResult hit) {
+                BlockPos p = hit.getBlockPos();
+                wake.wakeBlock(sl.dimension().identifier(), p.getX(), p.getY(), p.getZ());
+            }
+            return InteractionResult.PASS;
+        });
+        // trigger (a), low-level: /setblock, datapack/command edits, pistons, dispenser/bucket
+        // placements, and the reconciler's own air→fluid writes (no Architectury common event).
+        WakePlatform.registerBlockChangeWake(wake);
+
         // DESIGN §7 — phase change reacts to the temps the scheduler writes back each second.
         LifecycleEvent.SERVER_STARTED.register(server -> {
             thermalWorld.bindServer(server);
@@ -181,9 +220,12 @@ public final class Orge {
         // DESIGN observability track (Topic A): /orge get|section|set|fill. Reads walk a
         // source chain (client cache -> server fallback; v1 = server only); writes are
         // server-authoritative and op-gated. One common Architectury event covers both loaders.
+        // §10 Decision 11 trigger (b), belt-and-suspenders: a /orge set/fill writes a temp/mass into
+        // a cell without a block change, so the source roster (derived fresh from blocks) wouldn't see
+        // it. Pass the wake sink so a temp write wakes the thermal pass and a mass write wakes flow.
         OrgeCommandLogic commandLogic = new OrgeCommandLogic(
                 List.of(new ServerStoreReadSource(SECTION_STORES)),
-                new ServerStoreWriteSink(SECTION_STORES),
+                new ServerStoreWriteSink(SECTION_STORES, wake),
                 (ReadRangeProvider) () -> Scheduler.MAX_RANGE);
         OrgeCommands orgeCommands = new OrgeCommands(commandLogic);
         CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) ->

@@ -163,6 +163,13 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         }
     }
 
+    /** Trigger (c): a neighbour pushed mass across our shared seam — revive its flow pass so it
+     *  re-enters the snapshot and accepts the incoming mass instead of stranding it at the border. */
+    @Override
+    public void wakeNeighbourFlow(Identifier dim, SubchunkKey neighbour) {
+        activeSet.wakeFlowSection(dim, neighbour);
+    }
+
     /**
      * Temperatures for one section: the stored gradient if the section has been simulated,
      * otherwise a per-cell seed (sources at their default_temperature, bulk at biome ambient).
