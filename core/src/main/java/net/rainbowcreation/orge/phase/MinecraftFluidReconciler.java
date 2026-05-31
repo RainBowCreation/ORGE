@@ -57,15 +57,19 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
     @Override
     public void reconcile(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut) {
+        reconcile(entry.dimension(), entry.key(), outMaterial, outLut);
+    }
+
+    @Override
+    public void reconcile(Identifier dim, SubchunkKey key, char[] outMaterial, List<Material> outLut) {
         MinecraftServer srv = this.server;
         if (srv == null) {
             return;
         }
-        ServerLevel level = levelFor(srv, entry.dimension());
+        ServerLevel level = levelFor(srv, dim);
         if (level == null) {
             return;
         }
-        SubchunkKey key = entry.key();
         LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
         if (chunk == null) {
             return; // unloaded since the snapshot
@@ -74,7 +78,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         if (section == null) {
             return;
         }
-        SectionStore store = stores.store(entry.dimension());
+        SectionStore store = stores.store(dim);
         if (store == null || !store.isLoaded(key.cx(), key.cz())) {
             return;
         }
