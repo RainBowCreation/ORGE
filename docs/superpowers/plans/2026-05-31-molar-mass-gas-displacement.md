@@ -24,18 +24,36 @@ compressible, **conserved** gas that liquid **displaces** (never consumes); brea
 
 ---
 
-## Task M1 [MAIN] — datapack + LUT: air becomes a compressible, advecting gas; thread molar mass
-Pure-Java + JSON, no engine behaviour change yet (plumbing + data).
+## Task M1 [MAIN] — datapack + crash-guard + molar reachability (PURE DATA/PLUMBING, zero behaviour change)
+Pure-Java + JSON, **no flag flip, no §9 change, no kernel/native change** — `:core:test` stays green
+trivially. (The `air→fluid/gas` ACTIVATION is deferred to the kernel/§9/INT tasks where behaviour actually
+changes — see the "Flag-flip sequencing" note below. Flipping `Material.fluid()/gas()` here would break the
+5 old-semantics tests that M3/E1/INT rework, which is why M1 must NOT touch the flags.)
 - `air.json`: add `"min_flow_mass": 0.001`, `"max_mass": 1000` (keep `default_mass 1.2`, `molar_mass 0.029`,
   `state "air"`).
 - `MaterialCodec`: extend the gas crash-guard so `state=air` also requires `min_flow_mass > 0`
   (mirror the `state=gas` guard); keep the existing `state=gas` guard.
-- `Material` / LUT export: ensure `state=air` ⇒ the material **participates in advection** (`lut.fluid=1`)
-  and is flagged **gas** for buoyancy (`lut.gas=1`); expose `molarMass` in whatever struct the JNI bridge
-  reads to build the per-material arrays. Do NOT yet change kernel behaviour.
+- Confirm `molarMass` is already a `Material` field reachable by the engine bridge (it is — M2 adds the
+  actual `molar[]` array). No code change needed for reachability.
+- Do **NOT** change `Material.fluid()`/`gas()`, `BatchMarshaller`, `StepValidator`, or any native test.
 - TDD: a unit test asserting the reloaded `air` material has `minFlow=0.001`, `maxMass=1000`,
-  `fluid=true`, `gas=true`, `molarMass=0.029`; the crash-guard rejects a `state=air` material with no
-  `min_flow_mass`. `:core:test` green. Commit MAIN, push.
+  `molarMass=0.029`, `state=air`; and the crash-guard rejects a `state=air` material with no
+  `min_flow_mass`. (Do NOT assert `fluid`/`gas` flags — those flip later.) `:core:test` green. Commit MAIN, push.
+
+### Flag-flip sequencing (resolves the M1/M3/E1 coupling)
+Activating air as an engine fluid/gas (`lut.fluid=1`/`gas=1` for air) changes both §9 routing and kernel
+behaviour, and the old native E2E (`AuditScenarioTest`) asserts the OLD air-discard against the bundled
+`.so`. So the activation is staged, NOT done in M1:
+- **E1–E3 (ENGINE)** develop the new kernel against the C++ parity harness, which builds its own
+  air-as-fluid/gas LUT — independent of the Java flags.
+- **M3 (MAIN)** reworks §9 to conserve air as a tracked species keyed on `.air()`/`.gas()` (NOT requiring
+  `Material.fluid()` to flip); updates the `StepValidator` tests to the new contract; and `@Disable`s the
+  OLD native air-discard assertions in `AuditScenarioTest` with a `TODO(INT)` (they test
+  soon-to-be-removed behaviour against the not-yet-rebuilt `.so`).
+- **INT** bundles the new `.so` AND flips air to a participating fluid/gas for the live path (decide at INT
+  whether that is `Material.fluid()/gas()` or a `BatchMarshaller` mapping from `.air()` — keep Java's
+  "placeable fluid block" notion separate from the engine's "advects" notion if they should differ), then
+  replaces/re-enables the native E2E with new-contract assertions.
 
 ## Task M2 [MAIN] — JNI/bridge: pass a per-material `molar[]` array to the engine
 - Extend the native `step()` bridge + the Java side that marshals per-material arrays (cond/heatCap/visc/
@@ -90,14 +108,19 @@ Work branch `feat/molar-gas`. **Bit-identical kernel/sim_engine, same commit.**
   `tests/run_tests.sh` green. Commit.
 
 ## Task M3 [MAIN] — §9 conserves air as a real species; co-step the gas column
-- `StepValidator`: air becomes a **tracked, conserved species** in the per-species ledger; **delete the
+- `StepValidator`: air becomes a **tracked, conserved species** in the per-species ledger, keyed on the
+  material's `.air()`/`.gas()` identity (NOT requiring `Material.fluid()` to be flipped); **delete the
   air-credit and the "air untracked" exemption**. Per-cell bound allows air up to its `max_mass` (1000).
   Vacuum (0/void) contributes 0 to every species sum. §7-transitioned cells stay exempt.
 - `SeamCoStep` / `MinecraftThermalWorld`: co-step the section **above** an active fluid/gas surface so
   rising/displaced gas has a loaded receiver across the Y seam (else strict conservation stalls flow).
-- TDD: a batch where liquid displaces air across a seam now PASSES per-species §9 (air conserved), where
-  before the air-credit would have masked a leak; a genuine fabrication still REJECTS; the gas column above
-  an active section is included in the co-step set. `:core:test` green. Commit MAIN, push.
+- **Old-semantics tests:** update the `StepValidator` mass tests to the new "air is a tracked species"
+  contract; `@Disable` the OLD native air-discard assertions in `AuditScenarioTest`
+  (`waterFallsAndWetsIntoRealAir…`, `waterSinksThroughRealAirColumn…`) with a `TODO(INT)` — they assert
+  soon-to-be-removed behaviour against the not-yet-rebuilt `.so`, and INT replaces them.
+- TDD: a synthetic batch where liquid displaces air across a seam now PASSES per-species §9 (air
+  conserved); a genuine fabrication still REJECTS; the gas column above an active section is included in the
+  co-step set. `:core:test` green. Commit MAIN, push.
 
 ## Task M4 [MAIN] — broken block → VACUUM (not air)
 - In the block-edit / reseed path (both loaders): when a block is removed to air/nothing, set the ORGE
