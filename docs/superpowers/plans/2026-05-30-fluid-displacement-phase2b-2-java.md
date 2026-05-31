@@ -4,7 +4,7 @@
 
 **Goal:** Make water **visibly** spread in-game now that Plan 1's engine moves mass into air and across species: carry the three-mass model (`min_flow_mass`, `max_mass`, `gas`) from material JSON into the native LUT (air's `fullMass = 1.2`), grow `MinecraftFluidReconciler` to **place** blocks into air cells (water/lava/steam) driven by `StepResult.material()` with a level-bucket throttle, and upgrade §9 to per-species conservation with a boil-volume exemption.
 
-**Architecture:** Plan 1 already landed the engine (`matOut` ABI, `StepResult.material()` returning `char[]`, density swap + wetting in the kernel) and the scheduler already threads `material()` through to the reconciler seam. This plan is **MAIN-only Java**. It does NOT touch C++/JNI. The material subsystem (§6) gains three data fields and the LUT builder (`BatchMarshaller.flatten`) populates the native arrays from them; the reconciler (§10) gains `air → fluid` placement keyed on the engine's reported species; §9 (`StepValidator`) gains a per-species, dual-indexed conservation pass (before by input species, after by output species, never exempted) plus an over-cap-only boil-volume exemption on the per-cell bound. Each piece is behind an existing pure seam and is unit-tested before wiring.
+**Architecture:** Plan 1 already landed the engine (`matOut` ABI, `StepResult.material()` returning `char[]`, density swap + wetting in the kernel) and the scheduler already threads `material()` through to the reconciler seam. This plan is **mostly MAIN Java with one cross-repo task**: Plan 1 left the JNI passing **neutral** `minFlow`/`maxMass`/`gas` locals (zero-floor, cap=`fullMass`, non-gas) with a TODO, so the real per-material flow floor never reaches the kernel and water would thin without bound. **Task 3 therefore includes an ENGINE/JNI change + `liborge.so` rebuild + a MAIN gitlink bump** (the same two-repo dance as Plan-1 Task 11) to grow the JNI signature to accept the three LUT input arrays; every other task is MAIN-only. The material subsystem (§6) gains three data fields and the LUT builder (`BatchMarshaller.flatten`) populates the native arrays from them; the reconciler (§10) gains `air → fluid` placement keyed on the engine's reported species; §9 (`StepValidator`) gains a per-species, dual-indexed conservation pass (before by input species, after by output species, never exempted) plus an over-cap-only boil-volume exemption on the per-cell bound. Each piece is behind an existing pure seam and is unit-tested before wiring.
 
 **Tech Stack:** Java 21, Architectury multiloader (MC 1.21.11, **Mojang mappings** — `Identifier` == `ResourceLocation`; `ServerPlayer.level()`; block placement `Block.UPDATE_CLIENTS`); Mojang DFU codecs (`com.mojang.serialization`); JUnit 5. Build env: `JAVA_HOME=/home/claude/jdk21`.
 
@@ -12,15 +12,16 @@
 
 ---
 
-## One repository — read this first
+## Two repositories — read this first
 
 | Repo | Path | `git add` from |
 |---|---|---|
 | **MAIN** | `/home/claude/ORGE` (branch `rebuild`) | run git from `/home/claude/ORGE` |
+| **ENGINE** | `/home/claude/ORGE/ORGE-ENGINE` (git submodule) | run git from `/home/claude/ORGE/ORGE-ENGINE` |
 
-Plan 2 is **MAIN-only**. There are **no ENGINE / C++ / JNI changes** in this plan — that was all Plan 1. Do **not** `cd` into `ORGE-ENGINE` and do **not** rebuild `liborge.so` here.
+Plan 2 is **mostly MAIN-only**, with **one cross-repo task: Task 3**. Tasks 1, 2, 4, 5, 6, 7 are MAIN-only — do **not** `cd` into `ORGE-ENGINE` for them and do **not** rebuild `liborge.so` for them. **Task 3 is the exception:** Plan 1 grew the kernel/`MatLUT` to *carry* `minFlow`/`maxMass`/`gas` but left `orge_jni.cpp` passing **neutral locals** (`std::vector<float> minf(matCount, 0.0f)`, `maxm = fullMass`, `gasv = 0`) with a `// TODO: extend JNI signature in a later task` — so the real per-material floor never reaches the kernel and water thins infinitely (no finite pooling). Task 3 closes that: it grows the JNI signature (ENGINE), rebuilds `liborge.so` (ENGINE), merges/pushes ENGINE `main`, bumps the MAIN gitlink, and copies the rebuilt bundle into MAIN — exactly the two-repo dance Plan-1 Task 11 used. **Never `git add` across the repo boundary:** ENGINE files are committed from `/home/claude/ORGE/ORGE-ENGINE`; the gitlink + bundled `.so` + Java are committed from `/home/claude/ORGE`.
 
-**Push policy (standing authorization — do not ask):** the user tests from `origin/rebuild`, so **every task that commits ends with `git push origin rebuild`.** Each commit message ends with the trailer
+**Push policy (standing authorization — do not ask):** the user tests from `origin/rebuild`, so **every task that commits MAIN ends with `git push origin rebuild`.** (Task 3 is the one cross-repo task: its ENGINE work-branch commit is merged into ENGINE `main` and pushed to ENGINE's `origin main` as part of the gitlink bump, then MAIN commits the gitlink + bundled `.so` + Java and pushes `origin rebuild` — see Task 3 steps E4 / M5 / M6.) Each commit message ends with the trailer
 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
 **Plan 1 must be landed first.** This plan consumes Plan 1's symbols (see "Type consistency with Plan 1" below). If `StepResult` does not yet have a 3-arg form or `material()` accessor, stop and land Plan 1's MAIN tasks (8–11) first.
@@ -63,8 +64,12 @@ These symbols come from Plan 1 and are used verbatim here. Do not rename them.
 | `core/src/main/java/net/rainbowcreation/orge/material/Material.java` | modify | record gains `minFlowMass`, `maxMass`, `gas`; new full ctor + back-compat ctors default them. |
 | `core/src/main/java/net/rainbowcreation/orge/material/MaterialCodec.java` | modify | `BodyData` + `BODY_CODEC` gain `min_flow_mass`, `max_mass`, `gas` JSON keys (optional, defaulted). |
 | `core/src/main/resources/data/orge/orge/materials/{water,lava,steam}.json` | modify | add floors/caps; `steam` gets `gas: true` + floor. (air/solid/ice need no change — see Task 2.) |
-| `core/src/main/java/net/rainbowcreation/orge/engine/BatchMarshaller.java` | modify | `Flat` + `flatten` build native `minFlow`/`maxMass`/`gas` arrays; **air `fullMass`** label at index 0. |
-| `core/src/main/java/net/rainbowcreation/orge/engine/NativeEngine.java` | modify | `orgeStep` native decl gains the 3 new LUT arrays; pass them through. |
+| `ORGE-ENGINE/orge_jni.cpp` | modify **[ENGINE]** | `orgeStep` JNI grows three input params (`jMinFlow`/`jMaxMass`/`jGas`) after `jFluid`; pin/release them; build `MatLUT` from the **real** arrays (drop the neutral `minf`/`maxm`/`gasv` locals + TODO). |
+| `ORGE-ENGINE/build/liborge.so` | rebuild **[ENGINE]** | recompiled so the real floor reaches the kernel; copied into MAIN's bundled natives. |
+| `core/src/main/resources/natives/linux-x64/liborge.so` | replace **[MAIN]** | the rebuilt ENGINE bundle (md5-verified identical to `ORGE-ENGINE/build/liborge.so`). |
+| `ORGE-ENGINE` (gitlink) | bump **[MAIN]** | submodule pointer advanced to the ENGINE commit with the new JNI signature. |
+| `core/src/main/java/net/rainbowcreation/orge/engine/BatchMarshaller.java` | modify **[MAIN]** | `Flat` + `flatten` build native `minFlow`/`maxMass`/`gas` arrays; **air `fullMass`** label at index 0. |
+| `core/src/main/java/net/rainbowcreation/orge/engine/NativeEngine.java` | modify **[MAIN]** | `orgeStep` native decl gains the 3 new LUT arrays (matching the new JNI order); pass them through. |
 | `core/src/main/java/net/rainbowcreation/orge/phase/FluidReconcileLogic.java` | modify | add a `levelBucket(int)` helper for the reconcile throttle (pure). |
 | `core/src/main/java/net/rainbowcreation/orge/phase/MinecraftFluidReconciler.java` | modify | `air → fluid` placement keyed on `material()`; steam placement; level-bucket throttle; keep §7 whitelist + `UPDATE_CLIENTS`. |
 | `core/src/main/java/net/rainbowcreation/orge/scheduler/StepValidator.java` | modify | per-species conservation in one O(N) pass with a **dual-index** sum (before by input species, after by output species, never exempted); per-cell `max_mass` bound on the output species, exempting cells over their own cap (boil-volume). |
@@ -505,18 +510,165 @@ git push origin rebuild
 
 ---
 
-## Task 3 [MAIN]: LUT builder populates `minFlow`/`maxMass`/`gas`; air `fullMass = 1.2` at index 0
+## Task 3 [ENGINE]+[MAIN]: grow the JNI to accept `minFlow`/`maxMass`/`gas`, rebuild `liborge.so`, bump the gitlink, and marshal the LUT (air `fullMass = 1.2` at index 0)
 
-**Files:**
-- Modify: `core/src/main/java/net/rainbowcreation/orge/engine/BatchMarshaller.java`
-- Modify: `core/src/main/java/net/rainbowcreation/orge/engine/NativeEngine.java`
-- Test: `core/src/test/java/net/rainbowcreation/orge/engine/BatchMarshallerLutTest.java` (create)
+> **This is the one cross-repo task in Plan 2.** It has an **[ENGINE]** half (grow the JNI signature, rebuild the `.so`, commit on a work branch) and a **[MAIN]** half (the Java marshalling + native decl + ENGINE-submodule integration / gitlink bump). The two halves are interdependent: the Java native decl order **must** match the JNI param order, and the rebuilt `.so` must be bundled into MAIN, so do them in the step order below. **Steps E0–E4 run inside `/home/claude/ORGE/ORGE-ENGINE`; steps M1–M6 run inside `/home/claude/ORGE`.** Never `git add` across the boundary.
+
+**Why this is cross-repo (the defect Plan 1 left):** Plan 1's `ORGE-ENGINE/orge_jni.cpp` does **not** accept `minFlow`/`maxMass`/`gas` from Java. It builds them as **neutral locals** (zero-floor, cap=`fullMass`, non-gas) with a TODO:
+> ```cpp
+> // Phase-2b fields not yet passed from JNI: use zero-floor, cap=fullMass, non-gas.
+> // TODO: extend JNI signature in a later task when minFlow/maxMass/gas are used.
+> std::vector<float>    minf(matCount, 0.0f);
+> std::vector<float>    maxm(fullMass, fullMass + matCount);
+> std::vector<uint8_t>  gasv(matCount, 0);
+> orge::MatLUT lut{cond, heatCap, visc, fullMass, fluid, minf.data(), maxm.data(), gasv.data(), matCount};
+> ```
+> So the post-Plan-1 JNI signature is `orgeStep(... jFullMass, jFluid, jint passes, dt, jTout, jMassOut, jMatOut)` — **no** `minFlow`/`maxMass`/`gas` params. If the Java decl inserted those three between `lutFluid` and `passes` without growing the C function, the native call would read a `float[]` where the C ABI expects the `passes` jint → crash/garbage; and even if it didn't crash, the real per-material floor would never reach the kernel, so water would thin **infinitely** (no finite pooling — defeating this plan's whole purpose). This task grows the JNI to take the three arrays, rebuilds the `.so`, and bundles it into MAIN.
 
 > **The native LUT builder is `BatchMarshaller.flatten()`** (confirmed: it already builds `cond`/`heatCap`/`visc`/`fullMass`/`fluid` from each `Material`). `MaterialLut` (the index allocator) is **not** the array builder and is not touched here.
 >
-> **Air index-0 `fullMass` subtlety:** index 0 of the LUT is the `MaterialLut.VOID` sentinel whose `defaultMass` is **0**, but Plan-1 Task-5's kernel reads `lut.fullMass[0]` as the **air density label (1.2)** for the density swap. So `flatten` must write **1.2** into `fullMass[0]` regardless of the index-0 material's `defaultMass`. This is the one place air's density label is materialized; it is general (a constant `AIR_DENSITY`), not an `air`-by-identity branch in physics logic.
+> **Air index-0 `fullMass` is JAVA-side only:** index 0 of the LUT is the `MaterialLut.VOID` sentinel whose `defaultMass` is **0**, but Plan-1 Task-5's kernel reads `lut.fullMass[0]` as the **air density label (1.2)** for the density swap. `flatten` (M-step) writes **1.2** into `fullMass[0]`, and the JNI already pins `jFullMass` and passes it straight through — so **the JNI needs NO special air handling for density**; do not add an air branch in C++. This is the one place air's density label is materialized; it is general (a constant `AIR_DENSITY`), not an `air`-by-identity branch in physics logic.
+>
+> **Bit-identicality:** this JNI change does **not** touch `orge_kernel`/`sim_engine` — it only *passes already-existing `MatLUT` fields* (`minFlow`/`maxMass`/`gas`) through to the kernel instead of neutral stand-ins. `step_section_with_halo` and the `MatLUT` struct are unchanged, so there is **no `sim_engine`-vs-kernel parity concern** and the C++ suite (which drives the kernel directly, not the JNI) is unaffected — E3 just confirms no compile breakage.
 
-- [ ] **Step 1: Write the failing test**
+---
+
+### [ENGINE] half — grow the JNI, rebuild the `.so`, commit on a work branch
+
+> All ENGINE steps run from `/home/claude/ORGE/ORGE-ENGINE`. Start on a fresh work branch off ENGINE `main`.
+
+- [ ] **Step E0: Branch ENGINE**
+
+```bash
+cd /home/claude/ORGE/ORGE-ENGINE
+git checkout main
+git pull --ff-only origin main
+git checkout -b feat/phase2b-lut-abi
+```
+
+- [ ] **Step E1: Grow the `orgeStep` JNI signature + pin/release the three arrays**
+
+In `ORGE-ENGINE/orge_jni.cpp`, add the three input params **after `jFluid` and before `jint passes`** (this is the position the Java decl in M-step expects):
+
+Change the signature line:
+
+```cpp
+        jfloatArray jFullMass, jbyteArray jFluid,
+        jint passes, jdouble dt, jfloatArray jTout, jfloatArray jMassOut, jcharArray jMatOut)
+```
+
+to:
+
+```cpp
+        jfloatArray jFullMass, jbyteArray jFluid,
+        jfloatArray jMinFlow, jfloatArray jMaxMass, jbyteArray jGas,
+        jint passes, jdouble dt, jfloatArray jTout, jfloatArray jMassOut, jcharArray jMatOut)
+```
+
+Pin the three new arrays alongside the other LUT inputs (insert right after the `fluid` pin at line ~28):
+
+```cpp
+    auto* fluid    = static_cast<uint8_t*> (env->GetPrimitiveArrayCritical(jFluid,    nullptr));
+    auto* minFlow  = static_cast<float*>   (env->GetPrimitiveArrayCritical(jMinFlow,  nullptr));
+    auto* maxMass  = static_cast<float*>   (env->GetPrimitiveArrayCritical(jMaxMass,  nullptr));
+    auto* gas      = static_cast<uint8_t*> (env->GetPrimitiveArrayCritical(jGas,      nullptr));
+```
+
+Add them to the null-guard and build the `MatLUT` from the **real** arrays — **delete** the three neutral locals + the TODO comment. Replace this block:
+
+```cpp
+    double ms = 0.0;
+    if (matIx && mass && tin && haloT && haloMat && haloMass && cond && heatCap
+            && visc && fullMass && fluid && tout && massOut && matOut) {
+        // Phase-2b fields not yet passed from JNI: use zero-floor, cap=fullMass, non-gas.
+        // TODO: extend JNI signature in a later task when minFlow/maxMass/gas are used.
+        std::vector<float>    minf(matCount, 0.0f);
+        std::vector<float>    maxm(fullMass, fullMass + matCount);
+        std::vector<uint8_t>  gasv(matCount, 0);
+        orge::MatLUT lut{cond, heatCap, visc, fullMass, fluid,
+                         minf.data(), maxm.data(), gasv.data(),
+                         static_cast<int>(matCount)};
+```
+
+with:
+
+```cpp
+    double ms = 0.0;
+    if (matIx && mass && tin && haloT && haloMat && haloMass && cond && heatCap
+            && visc && fullMass && fluid && minFlow && maxMass && gas && tout && massOut && matOut) {
+        // Phase-2b LUT fields now arrive from Java (BatchMarshaller.flatten). Air's index-0
+        // fullMass=1.2 density label is set Java-side; this JNI passes fullMass straight through.
+        orge::MatLUT lut{cond, heatCap, visc, fullMass, fluid,
+                         minFlow, maxMass, gas,
+                         static_cast<int>(matCount)};
+```
+
+Release the three new arrays in the **correct reverse-acquisition order** — they are **inputs** so they use `JNI_ABORT` (no copy-back), like the other LUT inputs. They were acquired right after `jFluid`, so they release right **before** `jFluid` (reverse order). Insert these three lines immediately **above** the existing `if (fluid) ...` release:
+
+```cpp
+    if (gas)      env->ReleasePrimitiveArrayCritical(jGas,      gas,      JNI_ABORT);
+    if (maxMass)  env->ReleasePrimitiveArrayCritical(jMaxMass,  maxMass,  JNI_ABORT);
+    if (minFlow)  env->ReleasePrimitiveArrayCritical(jMinFlow,  minFlow,  JNI_ABORT);
+    if (fluid)    env->ReleasePrimitiveArrayCritical(jFluid,    fluid,    JNI_ABORT);
+```
+
+> Resulting full JNI signature (this is what the Java native decl in M-step must match **exactly**):
+> ```
+> orgeStep(jint n, jcharArray jMatIx, jfloatArray jMass, jfloatArray jTin,
+>          jfloatArray jHaloT, jcharArray jHaloMat, jfloatArray jHaloMass,
+>          jfloatArray jCond, jfloatArray jHeatCap, jfloatArray jVisc,
+>          jfloatArray jFullMass, jbyteArray jFluid,
+>          jfloatArray jMinFlow, jfloatArray jMaxMass, jbyteArray jGas,
+>          jint passes, jdouble dt, jfloatArray jTout, jfloatArray jMassOut, jcharArray jMatOut)
+> ```
+
+- [ ] **Step E2: Rebuild the native lib (must compile)**
+
+Run:
+```bash
+JAVA_HOME=/home/claude/jdk21 /home/claude/ORGE/ORGE-ENGINE/native/build_liborge.sh /home/claude/ORGE/ORGE-ENGINE/build/liborge.so
+```
+Expected: compiles cleanly, writes `/home/claude/ORGE/ORGE-ENGINE/build/liborge.so`.
+
+- [ ] **Step E3: Run the C++ suite (confirms no breakage)**
+
+Run:
+```bash
+/home/claude/ORGE/ORGE-ENGINE/tests/run_tests.sh
+```
+Expected: green. The C++ tests drive the kernel (`step_section_with_halo`) directly, **not** the JNI, so this change (a pure pass-through of already-existing `MatLUT` fields) leaves them untouched; this run just confirms the JNI edit didn't break the build.
+
+- [ ] **Step E4: Commit on the ENGINE work branch (do NOT push yet)**
+
+```bash
+cd /home/claude/ORGE/ORGE-ENGINE
+git add orge_jni.cpp build/liborge.so
+git commit -m "feat(jni): pass minFlow/maxMass/gas LUT arrays through to the kernel (was neutral TODO)
+
+The kernel/MatLUT already carry these Phase-2b fields; this grows the JNI
+signature to feed the REAL per-material arrays instead of zero-floor/cap=fullMass
+stand-ins, so the flow floor reaches the kernel and water pools finitely. Pure
+pass-through: orge_kernel/sim_engine and MatLUT are unchanged (no parity impact).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+```
+
+> Push happens as part of the MAIN integration (M-step 5), so ENGINE `main` and the MAIN gitlink advance together.
+
+---
+
+### [MAIN] half — Java marshalling, native decl, and ENGINE-submodule integration
+
+> All MAIN steps run from `/home/claude/ORGE` (branch `rebuild`).
+
+**Files (MAIN):**
+- Modify: `core/src/main/java/net/rainbowcreation/orge/engine/BatchMarshaller.java`
+- Modify: `core/src/main/java/net/rainbowcreation/orge/engine/NativeEngine.java`
+- Replace: `core/src/main/resources/natives/linux-x64/liborge.so` (the rebuilt ENGINE bundle)
+- Bump: `ORGE-ENGINE` gitlink
+- Test: `core/src/test/java/net/rainbowcreation/orge/engine/BatchMarshallerLutTest.java` (create)
+
+- [ ] **Step M1: Write the failing test**
 
 Create `core/src/test/java/net/rainbowcreation/orge/engine/BatchMarshallerLutTest.java`:
 
@@ -591,12 +743,12 @@ class BatchMarshallerLutTest {
 
 > If `StepTask`'s constructor / `NeighborHalo`'s constructor differ from `(key, matIx, mass, temperature, halo)` / `(tempFaces, matFaces, massFaces)`, read those records and adjust `emptyTask()` to match — the LUT assertions are the point of the test.
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step M2: Run to verify it fails**
 
 Run: `JAVA_HOME=/home/claude/jdk21 ./gradlew :core:test --tests "net.rainbowcreation.orge.engine.BatchMarshallerLutTest" --rerun-tasks`
 Expected: compile FAIL — `Flat` has no `lutMinFlow()` / `lutMaxMass()` / `lutGas()` accessors.
 
-- [ ] **Step 3: Add the new LUT arrays to `BatchMarshaller.Flat` + `flatten`**
+- [ ] **Step M3: Add the new LUT arrays to `BatchMarshaller.Flat` + `flatten`**
 
 In `BatchMarshaller.java`, extend the `Flat` record (append the three arrays after `lutFluid`):
 
@@ -649,9 +801,9 @@ In `flatten`, build the three new arrays in the existing LUT loop and override i
                 cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, m);
 ```
 
-- [ ] **Step 4: Thread the new arrays through `NativeEngine.orgeStep`**
+- [ ] **Step M4: Thread the new arrays through `NativeEngine.orgeStep`**
 
-In `NativeEngine.java`, add the three arrays to the native method declaration (after `lutFluid`, before `passes` — this must match the JNI param order that Plan 1 established; if Plan 1's `orge_jni.cpp` placed `matOut` last in the OUTPUT group, the LUT inputs still precede `passes`):
+In `NativeEngine.java`, add the three arrays to the native method declaration (after `lutFluid`, before `passes` — this must match the JNI param order that **E-step 1** above just established):
 
 ```java
     private static native double orgeStep(
@@ -665,7 +817,7 @@ In `NativeEngine.java`, add the three arrays to the native method declaration (a
             float[] tOut, float[] massOut, char[] matOut);
 ```
 
-> **ABI note:** Plan 1 already added `char[] matOut` as the final output param and rebuilt `liborge.so` with the 3 new LUT input arrays in `orge_jni.cpp`. Read Plan 1's final `orge_jni.cpp` signature and the post-Plan-1 `NativeEngine.orgeStep` declaration, and match this Java declaration to it **exactly** (param count + order + types). Do **not** rebuild the native lib in this plan. If after Plan 1 the declaration already lists `lutMinFlow`/`lutMaxMass`/`lutGas`, this step is a no-op for the native decl and you only wire the call below.
+> **ABI note:** Plan 1 added `char[] matOut` as the final output param, but it did **not** add the three LUT inputs (it passed neutral locals — see the defect box at the top of this task). **E-step 1 above** grows the JNI to exactly the signature shown there. This Java decl's param order — `... lutFullMass, lutFluid, lutMinFlow, lutMaxMass, lutGas, passes, dtSeconds, tOut, massOut, matOut` — matches that grown JNI **byte-for-byte** (param count + order + types). Because E-step and this M-step are both in Task 3, you are writing both sides; keep them in lockstep. The rebuilt `.so` is bundled into MAIN in M-step 5.
 
 Update the call inside `step(...)` to pass the new arrays (and `matOut`, per Plan 1):
 
@@ -705,27 +857,57 @@ If Plan 1 did not add a `sliceMat`, add it to `BatchMarshaller` next to `sliceMa
 
 > Reconcile this step with Plan 1's actual `NativeEngine.step(...)` body: Plan 1 may already construct `StepResult` 3-arg from a sliced `matOut`. If so, only the **LUT-array additions** (`f.lutMinFlow()`, `f.lutMaxMass()`, `f.lutGas()`) are new here; keep Plan 1's existing `matOut` slicing untouched.
 
-- [ ] **Step 5: Run the new test, then the full suite + loader gate**
+- [ ] **Step M5: Integrate the ENGINE submodule + bundle the rebuilt `.so` + bump the gitlink (mirror Plan-1 Task 11)**
+
+Now that the JNI matches the Java decl, merge/push ENGINE `main`, copy the rebuilt `.so` into MAIN's bundled natives, and stage the gitlink — all in one commit so MAIN's gitlink and the bundled `.so` advance together.
+
+```bash
+# 1) ENGINE: merge the work branch into main and push (fast-forward).
+cd /home/claude/ORGE/ORGE-ENGINE
+git checkout main
+git merge --ff-only feat/phase2b-lut-abi
+git push origin main
+
+# 2) MAIN: bundle the rebuilt .so and verify it is byte-identical to the ENGINE build output.
+cp /home/claude/ORGE/ORGE-ENGINE/build/liborge.so \
+   /home/claude/ORGE/core/src/main/resources/natives/linux-x64/liborge.so
+md5sum /home/claude/ORGE/ORGE-ENGINE/build/liborge.so \
+       /home/claude/ORGE/core/src/main/resources/natives/linux-x64/liborge.so
+# Expected: the two md5 hashes are identical.
+```
+
+- [ ] **Step M6: Run the new test, then the full suite + loader gate, then commit (gitlink + bundle + Java) and push**
 
 Run: `JAVA_HOME=/home/claude/jdk21 ./gradlew :core:test --tests "net.rainbowcreation.orge.engine.BatchMarshallerLutTest" --rerun-tasks`
 Expected: PASS.
 Run: `JAVA_HOME=/home/claude/jdk21 ./gradlew :core:test`
 Expected: all green — `BatchMarshallerMassTest` (existing) constructs `Flat` only via `flatten`, so the wider record is invisible to it.
+
+> **Smoke note (the floor now bites):** once the JNI passes real `minFlow`, the native engine wets **finitely** (water no longer thins to zero). Confirm `:core:test` stays green. The two `AuditScenarioTest` wetting scenarios remain **`@Disabled`** here — they are re-enabled in a **later Plan-2 task** (Task #8 on the project board, once the reconciler relaxation lands), **not** in this task. Do not enable them here and do not weaken any assertion.
+
 Run: `JAVA_HOME=/home/claude/jdk21 ./gradlew :core:compileJava :fabric-1.21:compileJava :neoforge-1.21:compileJava`
 Expected: all 3 loaders compile.
 
-- [ ] **Step 6: Commit + push**
+Commit the gitlink bump, the bundled `.so`, and the Java in one MAIN commit, then push:
 
 ```bash
 cd /home/claude/ORGE
-git add core/src/main/java/net/rainbowcreation/orge/engine/BatchMarshaller.java \
+git add ORGE-ENGINE \
+        core/src/main/resources/natives/linux-x64/liborge.so \
+        core/src/main/java/net/rainbowcreation/orge/engine/BatchMarshaller.java \
         core/src/main/java/net/rainbowcreation/orge/engine/NativeEngine.java \
         core/src/test/java/net/rainbowcreation/orge/engine/BatchMarshallerLutTest.java
 git commit -m "feat(engine-lut): marshal minFlow/maxMass/gas to native LUT; air fullMass=1.2 at index 0
 
+Bumps the ORGE-ENGINE gitlink + bundled liborge.so to the rebuilt JNI that now
+accepts the three Phase-2b LUT input arrays (the floor finally reaches the kernel
+so water pools finitely instead of thinning to zero).
+
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 git push origin rebuild
 ```
+
+> **Repo-boundary reminder:** the `git add ORGE-ENGINE` above stages the **gitlink** (submodule pointer) from MAIN — it does NOT add ENGINE's working-tree files (those were committed from inside `ORGE-ENGINE` in E-step 4). Never `git add` an `ORGE-ENGINE/...` path from MAIN.
 
 ---
 
@@ -1352,14 +1534,14 @@ Expected: clean (all work from Tasks 1–6 committed + pushed). If anything rema
 
 | Spec item | Task(s) | How |
 |---|---|---|
-| **Decision 0** (three-mass model: `min_flow_mass ≤ default_mass ≤ max_mass`, `max_mass == default_mass` this slice, water/lava floors, gas crash-guard `min_flow_mass > 0`, air the ambient exception) | 1, 2, 3 | `Material`/`MaterialCodec` fields + canonical `maxMass()` fallback (Task 1); water/lava floors + steam gas/floor JSON, air untouched (Task 2); native LUT `minFlow`/`maxMass`/`gas` + air `fullMass=1.2` at index 0 (Task 3). |
+| **Decision 0** (three-mass model: `min_flow_mass ≤ default_mass ≤ max_mass`, `max_mass == default_mass` this slice, water/lava floors, gas crash-guard `min_flow_mass > 0`, air the ambient exception) | 1, 2, 3 | `Material`/`MaterialCodec` fields + canonical `maxMass()` fallback (Task 1); water/lava floors + steam gas/floor JSON, air untouched (Task 2); native LUT `minFlow`/`maxMass`/`gas` + air `fullMass=1.2` at index 0 (Task 3). **Task 3 is cross-repo:** it grows the JNI signature to accept the three LUT arrays (Plan 1 left them as neutral TODO locals), rebuilds `liborge.so`, and bumps the MAIN gitlink — so the real per-material floor reaches the kernel and water pools finitely. |
 | **Decision 0/1/2 material-data parts** (air-as-empty density label, general gas path — never special-case air by identity; steam a tracked gas) | 2, 3 | `steam` marked `gas: true` + `fluid: true` exercising the general tracked-gas path; air gets density label 1.2 via a general `AIR_DENSITY` constant, no air-identity branch in logic. |
 | **Decision 6** (per-species §9 conservation as ONE O(N) pass; air untracked) | 6 | `massConservedPerSpecies` single loop with a **dual-index** sum — `before` accumulated under the cell's INPUT species, `after` under its OUTPUT species — so wetting (donor water→water + recipient air→water), full-cell swaps with air, liquid sort swaps, and drains all conserve; the conservation sum is **never exempted** (it is the real gate, so a drain mislabeled as another species fails). Index-0/solid contribute to neither sum; Scheduler passes both `entry.task().matIx()` (input) and `r.material()` (output). Regression-guarded by `wettingAnAirCellIsConserved`. |
 | **Decision 7** (reconciler `air → fluid` placement incl. `orge:steam`, reads `material()`, `UPDATE_CLIENTS`-only, §7 contact whitelist, level-bucket throttle Decision 13b) | 4, 5 | `levelBucket` helper (Task 4); reconciler wets air keyed on engine species, places water/lava/steam, `isPlaceableTarget` whitelist refuses to stomp §7 solids, `bucketOfWorldBlock` throttle, `setIfChanged` keeps `UPDATE_CLIENTS` (Task 5). |
 | **Decision 12** (boil-volume exemption + over-cap deposit) | 6 | the per-cell `max_mass` **BOUND** (on the OUTPUT species) exempts cells **already over their own cap** in `massConservedPerSpecies` — NOT cells that "changed species this step", because a boiled steam parcel stays steam for the several steps it takes to relax (a transition key would freeze it after step 1). The exemption is bound-only; the dual-index conservation sum (never exempted) still forbids invented mass, guarded by `overCapCellThatInventsMassStillFails`. The `Scheduler` `cleanMass` restore mirrors the same over-cap key (`r.mass()[c] > maxMass(outMat[c])`), re-installing the engine value so the deposit isn't clamped/destroyed — robust across the multi-step relaxation, since §7 itself writes no mass (only blocks + re-pinned temperature) and the over-cap steam persists in the §5 store and is re-seen as a non-transition next snapshot. |
 | **Decision 13b** (reconcile throttle: write only on level-bucket crossing) | 4, 5 | `levelBucket` + `bucketOfWorldBlock` compare; same-bucket cells skip the write. |
 
-**Type consistency with Plan 1 (verified):** `StepResult.material()` → `char[]` used everywhere (Tasks 3, 5, 6); JSON keys `min_flow_mass`/`max_mass`/`gas` (Tasks 1, 2); Java accessors `minFlowMass()`/`maxMass()`/`gas()` (all); native LUT names `minFlow`/`maxMass`/`gas` in `BatchMarshaller.Flat` (Task 3); air index-0 `fullMass = 1.2` (Task 3). The native out array `matOut` is named only in C++/JNI (Plan 1) and never in this plan's Java.
+**Type consistency with Plan 1 (verified):** `StepResult.material()` → `char[]` used everywhere (Tasks 3, 5, 6); JSON keys `min_flow_mass`/`max_mass`/`gas` (Tasks 1, 2); Java accessors `minFlowMass()`/`maxMass()`/`gas()` (all); native LUT names `minFlow`/`maxMass`/`gas` in `BatchMarshaller.Flat` (Task 3); air index-0 `fullMass = 1.2` (Task 3). The native out array `matOut` is named only in C++/JNI (Plan 1) and never in this plan's Java. **ABI (Task 3, verified against the real `orge_jni.cpp`):** the grown JNI takes the three LUT inputs `jMinFlow`/`jMaxMass`/`jGas` immediately after `jFluid` and before `jint passes`; the `NativeEngine.orgeStep` Java decl (`... lutFullMass, lutFluid, lutMinFlow, lutMaxMass, lutGas, passes, ...`) matches that order exactly. The JNI change is a pure pass-through of existing `MatLUT` fields — `orge_kernel`/`sim_engine` are untouched, so no parity concern.
 
 **Deferred to Plan 3 (explicitly out of scope here):**
 - **Dormancy / active-set** (Decision 11): per-section per-pass settle countdown, `world.snapshot` stepping the active set rather than the whole sphere.
