@@ -36,6 +36,9 @@ import net.rainbowcreation.orge.section.SubchunkKey;
  */
 public final class MinecraftFluidReconciler implements FluidReconciler {
 
+    /** ORGE's one managed gas block id; hoisted out of the per-cell reconcile loop (no per-cell alloc). */
+    private static final Identifier ORGE_STEAM = Identifier.fromNamespaceAndPath("orge", "steam");
+
     private final SectionStoreManager stores;
     private volatile MinecraftServer server;
 
@@ -191,7 +194,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
     /** True when {@code current} is ORGE's managed gas block ({@code orge:steam}). */
     private static boolean isManagedGas(BlockState current) {
         Identifier id = BuiltInRegistries.BLOCK.getKey(current.getBlock());
-        return id != null && id.equals(Identifier.fromNamespaceAndPath("orge", "steam"));
+        return id != null && id.equals(ORGE_STEAM);
     }
 
     /**
