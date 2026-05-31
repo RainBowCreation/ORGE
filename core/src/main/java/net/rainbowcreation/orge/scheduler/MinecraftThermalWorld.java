@@ -94,8 +94,15 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             // ocean stops re-simulating. activeWithin both filters and records new-in-range keys;
             // the rest of the loop body (geometry, temps, mass, halo, entries.add) is unchanged.
             List<SubchunkKey> active = activeSet.activeWithin(dim, new ArrayList<>(union));
+            // §10 Phase-2b co-step: the native engine uses an antisymmetric seam flux (A subtracts,
+            // B adds the same transfer). Both sides must be in the SAME batch or the seam leaks mass.
+            // Expand the batch to include the 6 face-neighbours of every FLOW-ACTIVE section so a
+            // dormant neighbour is stepped alongside its active peer. Co-stepped neighbours are NOT
+            // permanently woken — their countdown is untouched; noteSettle returns them toward sleep
+            // if nothing moved. Unloaded neighbour keys are harmless: the null-checks below skip them.
+            List<SubchunkKey> stepped = SeamCoStep.expand(active, k -> !activeSet.isFlowDormant(dim, k));
 
-            for (SubchunkKey key : active) {
+            for (SubchunkKey key : stepped) {
                 LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
                 if (chunk == null) {
                     continue;
