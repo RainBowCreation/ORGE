@@ -10,9 +10,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class GeometryAssemblerTest {
 
     private static Material mat(String path, float defaultMass) {
-        return new Material(Identifier.fromNamespaceAndPath("orge", path),
-                2.5f, 1000f, 0f, defaultMass, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", path))
+                .thermalConductivity(2.5f).heatCapacity(1000f).molarMass(0f)
+                .defaultMass(defaultMass).defaultTemperature(Float.NaN)
+                .build();
     }
 
     @Test

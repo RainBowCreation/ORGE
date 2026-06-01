@@ -19,13 +19,22 @@ import java.util.Map;
  */
 public final class MaterialLut {
 
-    /** The index-0 inert sentinel: conductivity 0 ⇒ no flux across it. */
-    public static final Material VOID = new Material(
-            Identifier.fromNamespaceAndPath("orge", "void"),
-            0f,     // thermalConductivity — inert
-            1f,     // heatCapacity (never divided by: void cells are never stepped)
-            0f, 0f, 0f,
-            Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+    /**
+     * The index-0 void sentinel. Per spec invariant 5 it is the lightest <i>movable</i> fluid:
+     * {@code molar==0, minMass==0, maxMass==0} (displaceable / nothing to hold) with a FINITE
+     * viscosity (NOT frozen — earlier it was +∞ which wrongly froze void). Conductivity 0 keeps
+     * it inert to heat flux; temperature is absent ({@link Float#NaN}).
+     */
+    public static final Material VOID = Material.builder(
+                    Identifier.fromNamespaceAndPath("orge", "void"))
+            .thermalConductivity(0f)        // inert to heat flux
+            .heatCapacity(1f)               // never divided by (void cells are never stepped)
+            .molarMass(0f)                  // slot 0 packs molar 0
+            .defaultMass(0f)
+            .defaultTemperature(Float.NaN)  // absent natural temperature
+            .viscosity(0f)                  // FINITE ⇒ movable/displaceable (not frozen)
+            .minMass(0f).maxMass(0f)        // slot 0 packs minMass 0, maxMass 0
+            .build();
 
     private final List<Material> lut = new ArrayList<>();
     private final Map<Identifier, Character> byId = new HashMap<>();

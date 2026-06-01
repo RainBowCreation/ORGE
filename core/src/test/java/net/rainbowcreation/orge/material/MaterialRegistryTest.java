@@ -17,19 +17,10 @@ class MaterialRegistryTest {
 
     /** Convenience: build a minimal {@link Material} with the given id. */
     private static Material mat(String namespace, String path) {
-        return new Material(
-                Identifier.fromNamespaceAndPath(namespace, path),
-                2.0f,   // thermalConductivity
-                840f,   // heatCapacity
-                0f,     // viscosity
-                2500f,  // defaultMass
-                0.06f,  // molarMass
-                Float.POSITIVE_INFINITY,  // maxTemp
-                Float.NEGATIVE_INFINITY,  // minTemp
-                null,   // maxTarget
-                null,   // minTarget
-                null    // representativeBlock
-        );
+        return Material.builder(Identifier.fromNamespaceAndPath(namespace, path))
+                .thermalConductivity(2.0f).heatCapacity(840f).molarMass(0.06f)
+                .defaultMass(2500f).defaultTemperature(Float.NaN)
+                .build();
     }
 
     private static Material fallbackMaterial() {

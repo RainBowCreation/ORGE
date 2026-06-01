@@ -34,14 +34,18 @@ class MinecraftThermalWorldTest {
     private static final char WATER_IX = 2;
 
     private static Material fluid(Identifier id, float defaultMass) {
-        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null,
-                Float.NaN, false, true);
+        return Material.builder(id)
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(defaultMass).defaultTemperature(Float.NaN)
+                .viscosity(0f) // finite ⇒ movable (old fluid=true)
+                .build();
     }
 
     private static Material nonFluid(Identifier id, float defaultMass) {
-        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+        return Material.builder(id)
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(defaultMass).defaultTemperature(Float.NaN)
+                .build(); // no viscosity ⇒ frozen
     }
 
     /** LUT: void=0, air=1, water=2 (the indices used by the recordCellMaterials tests). */

@@ -47,21 +47,27 @@ class MaterialChangeReseedTest {
 
     /** A fluid material (no source temperature) with the given id + defaultMass. */
     private static Material fluid(Identifier id, float defaultMass) {
-        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null,
-                Float.NaN, false, true);
+        return Material.builder(id)
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(defaultMass).defaultTemperature(Float.NaN)
+                .viscosity(0f) // finite ⇒ movable (old fluid=true)
+                .build();
     }
 
     /** A fluid SOURCE material (pinned default_temperature), like lava. */
     private static Material fluidSource(Identifier id, float defaultMass, float defaultTemp) {
-        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null,
-                defaultTemp, true, true);
+        return Material.builder(id)
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(defaultMass).defaultTemperature(defaultTemp)
+                .viscosity(0f).pinned(true) // movable + pinned source
+                .build();
     }
 
     private static Material solid(Identifier id, float defaultMass) {
-        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+        return Material.builder(id)
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(defaultMass).defaultTemperature(Float.NaN)
+                .build(); // frozen
     }
 
     /** LUT: VOID=0, water=1, lava=2, stone=3, air=4. */

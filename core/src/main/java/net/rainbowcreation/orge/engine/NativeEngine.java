@@ -30,10 +30,8 @@ public final class NativeEngine implements OrgeEngine {
             int n,
             char[] matIx, float[] mass, float[] tIn,
             float[] haloT, char[] haloMat, float[] haloMass,
-            float[] lutCond, float[] lutHeatCap, float[] lutVisc,
-            float[] lutFullMass, byte[] lutFluid,
-            float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir,
-            float[] lutMolar,
+            float[] lutCond, float[] lutHeatCap, float[] lutMolar,
+            float[] lutMinMass, float[] lutMaxMass, float[] lutVisc,
             int passes, double dtSeconds,
             float[] tOut, float[] massOut, char[] matOut);
 
@@ -41,15 +39,20 @@ public final class NativeEngine implements OrgeEngine {
      * Whole-region step: build a transient engine {@code World} from {@code nCols} full-height columns
      * (each {@link RegionMarshaller#CHUNK_N} cells), run conduction and/or advection per {@code passes},
      * and read next-state back into {@code tOut}/{@code massOut}/{@code matOut} (length {@code nCols·CHUNK_N}).
-     * Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.
+     *
+     * <p><b>Canonical six-array LUT order (Task 2.1; Phase 3 C++ must match exactly):</b>
+     * {@code lutCond} (thermal_conductivity), {@code lutHeatCap} (heat_capacity), {@code lutMolar}
+     * (molar_mass), {@code lutMinMass} (min_mass), {@code lutMaxMass} (max_mass), {@code lutVisc}
+     * (viscosity; +∞ = frozen/immovable). The legacy {@code lutFullMass/lutFluid/lutMinFlow/lutGas/
+     * lutAir} arrays are gone — immovability is {@code visc == +∞}, not a flag.</p>
+     *
+     * <p>Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.</p>
      */
     private static native double orgeStepWorld(
             int nCols, int[] cx, int[] cz,
             char[] matIx, float[] mass, float[] tIn,
-            float[] lutCond, float[] lutHeatCap, float[] lutVisc,
-            float[] lutFullMass, byte[] lutFluid,
-            float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir,
-            float[] lutMolar,
+            float[] lutCond, float[] lutHeatCap, float[] lutMolar,
+            float[] lutMinMass, float[] lutMaxMass, float[] lutVisc,
             int passes, double dtSeconds,
             float[] tOut, float[] massOut, char[] matOut);
 
@@ -65,8 +68,7 @@ public final class NativeEngine implements OrgeEngine {
         LutArrays L = f.lut();
         lastStepMillis = orgeStepWorld(
                 f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
-                L.cond(), L.heatCap(), L.visc(), L.fullMass(), L.fluid(),
-                L.minFlow(), L.maxMass(), L.gas(), L.air(), L.molar(),
+                L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
                 passes, dtSeconds, tOut, massOut, matOut);
         return RegionMarshaller.slice(matOut, massOut, tOut, f.nCols());
     }
@@ -85,9 +87,8 @@ public final class NativeEngine implements OrgeEngine {
         lastStepMillis = orgeStep(
                 f.n(), f.matIx(), f.mass(), f.tIn(),
                 f.haloT(), f.haloMat(), f.haloMass(),
-                f.lutCond(), f.lutHeatCap(), f.lutVisc(), f.lutFullMass(), f.lutFluid(),
-                f.lutMinFlow(), f.lutMaxMass(), f.lutGas(), f.lutAir(),
-                f.lutMolar(),
+                f.lutCond(), f.lutHeatCap(), f.lutMolar(),
+                f.lutMinMass(), f.lutMaxMass(), f.lutVisc(),
                 passes, dtSeconds, tOut, massOut, matOut);
         List<float[]> t = BatchMarshaller.slice(tOut, f.n());
         List<float[]> m = BatchMarshaller.sliceMass(massOut, f.n());

@@ -96,6 +96,12 @@ public final class MaterialChangeReseed {
             return;
         }
         for (int i = 0; i < SectionData.CELLS; i++) {
+            // A cell that IS the void sentinel is empty space, not a fluid that moved in: never reseed
+            // it. (Under the canonical schema VOID is now a finite-viscosity — i.e. movable — fluid, so
+            // without this guard reseeds()/voids() would fire on it; matIx 0 is the unambiguous test.)
+            if (matIx[i] == VOID_IX) {
+                continue;
+            }
             Material m = lut.get(matIx[i]);
             if (reseeds(prior[i], m)) {
                 // A different fluid moved in (bucket, /setblock). Correct the stale temperature, but do

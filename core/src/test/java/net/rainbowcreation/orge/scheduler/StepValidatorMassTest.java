@@ -17,15 +17,18 @@ class StepValidatorMassTest {
     private static final char AIR_IX = 5;
 
     private static Material water() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "water"),
-                1f, 1f, 0f, 1000f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null, Float.NaN, false, true);
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "water"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN)
+                .viscosity(0f) // movable
+                .build();
     }
 
     private static Material genericSolid() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "generic_solid"),
-                1f, 1f, 0f, 2500f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null);
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "generic_solid"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(2500f).defaultTemperature(Float.NaN)
+                .build(); // frozen
     }
 
     /** VOID=0, water=1, generic_solid=2. */
@@ -34,16 +37,21 @@ class StepValidatorMassTest {
     }
 
     private static Material lava() {
-        // canonical 17-arg ctor: fluid=true, minFlow=400, maxMass=3100, gas=false
-        return new Material(Identifier.fromNamespaceAndPath("orge", "lava"),
-                1f, 1f, 0f, 3100f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null, Float.NaN, false, true, 400f, 3100f, false);
+        // movable, floor 400, cap 3100.
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "lava"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(3100f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(400f).maxMass(3100f)
+                .build();
     }
 
     private static Material steam() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "steam"),
-                1f, 1f, 0f, 0.6f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null, Float.NaN, false, true, 0.6f, 0.6f, true);
+        // a light movable gas, min/max/default 0.6.
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "steam"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(0.6f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(0.6f).maxMass(0.6f)
+                .build();
     }
 
     private static Material air() {

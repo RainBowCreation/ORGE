@@ -15,15 +15,16 @@ class MaterialThreeMassTest {
     private static final Identifier ID = Identifier.fromNamespaceAndPath("orge", "w");
 
     @Test
-    void legacyConstructorsDefaultThreeMassFields() {
-        // 11-arg COMPAT ctor preserves the OLD positional semantics: min_mass defaults to 0 (legacy
-        // min_flow_mass default), max_mass to default_mass (legacy maxMass() fallback). The material is
-        // frozen (immovable) — absent viscosity is +INF. (The builder/codec default for min_mass is
-        // default_mass; the compat ctor deliberately differs to keep old call sites byte-identical.)
-        Material m = new Material(ID, 1f, 2f, 0f, 1000f, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
-        assertEquals(0f, m.minMass(), 0f, "compat ctor: min_mass defaults to 0 (legacy min_flow_mass)");
-        assertEquals(1000f, m.maxMass(), 0f, "max_mass defaults to default_mass");
+    void builderDefaultsThreeMassFieldsToDefaultMass() {
+        // Re-pointed from the deleted compat ctor (which used the divergent legacy min_mass=0 default)
+        // to the canonical builder: absent min_mass AND max_mass both fall back to default_mass (the
+        // single spec default). Frozen (absent viscosity ⇒ +∞).
+        Material m = Material.builder(ID)
+                .thermalConductivity(1f).heatCapacity(2f).molarMass(0f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN)
+                .build();
+        assertEquals(1000f, m.minMass(), 0f, "absent min_mass -> default_mass");
+        assertEquals(1000f, m.maxMass(), 0f, "absent max_mass -> default_mass");
         assertFalse(m.movable());
     }
 

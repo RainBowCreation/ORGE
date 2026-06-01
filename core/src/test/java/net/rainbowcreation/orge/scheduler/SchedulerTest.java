@@ -75,12 +75,14 @@ class SchedulerTest {
     }
 
     /** A fluid material with non-zero defaultMass so a column carries a tracked species. */
-    private static final Material WATER = new Material(
-            Identifier.fromNamespaceAndPath("minecraft", "water"),
-            0.6f, 4186f, 1f, 1000f, 18f,
-            373.15f, 273.15f, null, null,
-            Identifier.fromNamespaceAndPath("minecraft", "water"),
-            Float.NaN, false, true);
+    private static final Material WATER = Material.builder(
+                    Identifier.fromNamespaceAndPath("minecraft", "water"))
+            .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(18f)
+            .defaultMass(1000f).defaultTemperature(Float.NaN)
+            .viscosity(1f) // finite ⇒ movable (old fluid=true)
+            .minTemp(273.15f).maxTemp(373.15f)
+            .representativeBlock(Identifier.fromNamespaceAndPath("minecraft", "water"))
+            .build();
 
     private static List<Material> lut() {
         return List.of(MaterialLut.VOID, WATER);

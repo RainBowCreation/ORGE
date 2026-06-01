@@ -39,13 +39,23 @@ public final class TestMaterials {
                 .build();
     }
 
-    /** Inert solid (stone): a no-flow wall that is not an air sink. */
+    /** Inert solid (stone): a no-flow wall (frozen ⇒ viscosity absent) that is not an air sink. */
     public static Material stone() {
-        return new Material(STONE, 1.0f, 840f, 0f, 2000f, 0f, 9999f, 0f, null, null, null);
+        return Material.builder(STONE)
+                .thermalConductivity(1.0f).heatCapacity(840f).molarMass(0f)
+                .defaultMass(2000f).defaultTemperature(Float.NaN)
+                .minTemp(0f).maxTemp(9999f)
+                .build(); // no viscosity ⇒ +∞ (frozen)
     }
 
+    /** Void sentinel: 0/0/0 masses, FINITE viscosity ⇒ displaceable (matches MaterialLut.VOID). */
     public static Material voidMat() {
-        return new Material(VOIDID, 0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null);
+        return Material.builder(VOIDID)
+                .thermalConductivity(0f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(0f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(0f).maxMass(0f)
+                .minTemp(0f).maxTemp(9999f)
+                .build();
     }
 
     private TestMaterials() {}

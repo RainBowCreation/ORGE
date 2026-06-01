@@ -11,9 +11,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class MaterialLutTest {
 
     private static Material mat(String path, float k) {
-        return new Material(Identifier.fromNamespaceAndPath("orge", path),
-                k, 1000f, 0f, 2000f, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", path))
+                .thermalConductivity(k).heatCapacity(1000f).molarMass(0f)
+                .defaultMass(2000f).defaultTemperature(Float.NaN)
+                .build();
     }
 
     @Test

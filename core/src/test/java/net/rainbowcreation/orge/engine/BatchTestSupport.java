@@ -15,8 +15,12 @@ final class BatchTestSupport {
     private BatchTestSupport() {}
 
     static Material material(String id, float cond, float heatCap, float defaultMass) {
-        return new Material(Identifier.parse(id), cond, heatCap, /*viscosity*/0f, defaultMass,
-                /*molarMass*/0.05f, /*maxTemp*/9999f, /*minTemp*/0f, null, null, null);
+        // Frozen solid: viscosity absent ⇒ +∞ (the old 11-arg ctor was always frozen).
+        return Material.builder(Identifier.parse(id))
+                .thermalConductivity(cond).heatCapacity(heatCap).molarMass(0.05f)
+                .defaultMass(defaultMass).defaultTemperature(Float.NaN)
+                .minTemp(0f).maxTemp(9999f)
+                .build();
     }
 
     /** void (k=0) at index 0, a stable solid (k=100, heatCap=500) at index 1. */
@@ -49,10 +53,12 @@ final class BatchTestSupport {
     static List<Material> fluidLut() {
         return List.of(
                 material("orge:void", 0f, 0f, 0f),
-                new Material(Identifier.parse("orge:fluid"),
-                        /*cond*/0f, /*heatCap*/1f, /*viscosity*/0.001f, /*defaultMass*/1000f,
-                        /*molarMass*/0.018f, /*maxTemp*/9999f, /*minTemp*/0f,
-                        null, null, null, Float.NaN, /*pinned*/false, /*fluid*/true));
+                Material.builder(Identifier.parse("orge:fluid"))
+                        .thermalConductivity(0f).heatCapacity(1f).molarMass(0.018f)
+                        .defaultMass(1000f).defaultTemperature(Float.NaN)
+                        .viscosity(0.001f)        // finite ⇒ movable (old fluid=true)
+                        .minTemp(0f).maxTemp(9999f)
+                        .build());
     }
 
     /**

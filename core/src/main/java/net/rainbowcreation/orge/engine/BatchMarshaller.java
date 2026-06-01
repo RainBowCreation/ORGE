@@ -20,22 +20,17 @@ final class BatchMarshaller {
     static final int FACE = NeighborHalo.FACE_CELLS;
     static final int FACES = 6;
 
-    /**
-     * Air's resting density (kg/m^3), written into the LUT's index-0 {@code fullMass} slot as the
-     * density-swap air label (Spec Decision 0/2; Plan-1 kernel reads {@code lut.fullMass[0]}). This is
-     * a general "lightest ambient gas" constant, NOT an air-by-identity branch in the physics rule.
-     */
-    static final float AIR_DENSITY = LutArrays.AIR_DENSITY;
-
     private BatchMarshaller() {}
 
-    /** Flat inputs for one {@code orgeStep} call. {@code matCount} = LUT size. */
+    /**
+     * Flat inputs for one {@code orgeStep} call. {@code matCount} = LUT size. The LUT is the canonical
+     * six physics arrays (cond, heatCap, molar, minMass, maxMass, visc) — same order as
+     * {@link NativeEngine#orgeStepWorld}; immovability is {@code visc == +∞}, no flag arrays.
+     */
     record Flat(int n, char[] matIx, float[] mass, float[] tIn,
                 float[] haloT, char[] haloMat, float[] haloMass,
-                float[] lutCond, float[] lutHeatCap,
-                float[] lutVisc, float[] lutFullMass, byte[] lutFluid,
-                float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir,
-                float[] lutMolar, int matCount) {}
+                float[] lutCond, float[] lutHeatCap, float[] lutMolar,
+                float[] lutMinMass, float[] lutMaxMass, float[] lutVisc, int matCount) {}
 
     static Flat flatten(List<StepTask> tasks, List<Material> lut) {
         int m = lut.size();
@@ -76,12 +71,11 @@ final class BatchMarshaller {
             }
         }
 
-        // §11 air flag-flip + slot-0 AIR_DENSITY label are encapsulated in the shared LUT pack so the
-        // dormant per-section path and the whole-region path stay byte-identical.
+        // Six-physics-float LUT (canonical order) shared with the whole-region path; immovability is
+        // visc == +∞.
         LutArrays L = LutArrays.pack(lut);
         return new Flat(n, matIx, mass, tIn, haloT, haloMat, haloMass,
-                L.cond(), L.heatCap(), L.visc(), L.fullMass(), L.fluid(),
-                L.minFlow(), L.maxMass(), L.gas(), L.air(), L.molar(), L.matCount());
+                L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(), L.matCount());
     }
 
     static List<float[]> slice(float[] tOut, int n) {

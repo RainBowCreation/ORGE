@@ -13,12 +13,17 @@ class MaterialFluidTest {
     private static final Identifier ID = Identifier.fromNamespaceAndPath("orge", "w");
 
     @Test
-    void legacyConstructorsDefaultImmovable() {
-        Material m = new Material(ID, 1f, 2f, 0f, 100f, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+    void builderDefaultsImmovable() {
+        // Re-pointed from deleted compat ctors: absent viscosity ⇒ +∞ (frozen/immovable).
+        Material m = Material.builder(ID)
+                .thermalConductivity(1f).heatCapacity(2f).molarMass(0f)
+                .defaultMass(100f).defaultTemperature(Float.NaN)
+                .build();
         assertFalse(m.movable());
-        Material n = new Material(ID, 1f, 2f, 0f, 100f, 0f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null, 300f, false);
+        Material n = Material.builder(ID)
+                .thermalConductivity(1f).heatCapacity(2f).molarMass(0f)
+                .defaultMass(100f).defaultTemperature(300f)
+                .build();
         assertFalse(n.movable());
     }
 

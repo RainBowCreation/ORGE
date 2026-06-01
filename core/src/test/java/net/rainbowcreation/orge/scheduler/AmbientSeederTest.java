@@ -10,14 +10,16 @@ import static org.junit.jupiter.api.Assertions.*;
 class AmbientSeederTest {
 
     private static Material src(float t) {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "lava"),
-                1f, 1f, 0f, 100f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null, t, true);
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "lava"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(100f).defaultTemperature(t).pinned(true)
+                .build();
     }
     private static Material bulk() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "air"),
-                1f, 1f, 0f, 1f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null);
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "air"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(1f).defaultTemperature(Float.NaN)
+                .build();
     }
 
     @Test

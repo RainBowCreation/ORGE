@@ -12,20 +12,25 @@ import static org.junit.jupiter.api.Assertions.*;
 class BatchMarshallerLutTest {
 
     private static Material water() {
-        // canonical 17-arg ctor: ..., fluid=true, minFlow=125, maxMass=1000, gas=false
-        return new Material(Identifier.fromNamespaceAndPath("orge", "water"),
-                0.6f, 4186f, 0.001f, 1000f, 0.018f,
-                373.15f, 273.15f, null, null,
-                Identifier.fromNamespaceAndPath("minecraft", "water"),
-                Float.NaN, false, true, 125f, 1000f, false);
+        // movable (finite visc 0.001), min 125, max/default 1000.
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "water"))
+                .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN)
+                .viscosity(0.001f).minMass(125f).maxMass(1000f)
+                .minTemp(273.15f).maxTemp(373.15f)
+                .representativeBlock(Identifier.fromNamespaceAndPath("minecraft", "water"))
+                .build();
     }
 
     private static Material steam() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "steam"),
-                0.025f, 2080f, 0f, 0.6f, 0.018f,
-                Float.POSITIVE_INFINITY, 373.15f, null, null,
-                Identifier.fromNamespaceAndPath("orge", "steam"),
-                Float.NaN, false, true, 0.6f, 0.6f, true);
+        // a light movable gas: finite visc, min/max/default 0.6.
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "steam"))
+                .thermalConductivity(0.025f).heatCapacity(2080f).molarMass(0.018f)
+                .defaultMass(0.6f).defaultTemperature(Float.NaN)
+                .viscosity(0.0001f).minMass(0.6f).maxMass(0.6f)
+                .maxTemp(373.15f)
+                .representativeBlock(Identifier.fromNamespaceAndPath("orge", "steam"))
+                .build();
     }
 
     /** A minimal StepTask batch so flatten() runs; geometry content is irrelevant to the LUT arrays. */
@@ -43,27 +48,28 @@ class BatchMarshallerLutTest {
     }
 
     @Test
-    void lutCarriesThreeMassFieldsAndAirDensityAtIndexZero() {
+    void lutCarriesSixPhysicsArraysWithDisplaceableVoidAtIndexZero() {
         List<Material> lut = List.of(MaterialLut.VOID, water(), steam());
         BatchMarshaller.Flat f = BatchMarshaller.flatten(List.of(emptyTask()), lut);
 
-        // index 0 (VOID) gets the AIR density label 1.2 for the kernel's density swap.
-        assertEquals(1.2f, f.lutFullMass()[0], 1e-4f);
-        // real materials keep their default_mass as fullMass.
-        assertEquals(1000f, f.lutFullMass()[1], 1e-4f);
-        assertEquals(0.6f, f.lutFullMass()[2], 1e-4f);
+        // Re-pointed from the dropped fullMass/minFlow/gas flag arrays to the six-physics model.
+        // Slot 0 (VOID) is now 0/0/0 masses with a FINITE (displaceable, not frozen) viscosity —
+        // replaces the old AIR_DENSITY=1.2 fullMass sentinel.
+        assertEquals(0f, f.lutMinMass()[0], 0f, "void floor 0");
+        assertEquals(0f, f.lutMaxMass()[0], 0f, "void cap 0");
+        assertEquals(0f, f.lutMolar()[0], 0f, "void molar 0");
+        assertTrue(Float.isFinite(f.lutVisc()[0]), "void displaceable ⇒ finite visc");
 
-        assertEquals(0f, f.lutMinFlow()[0], 0f, "void floor stays 0");
-        assertEquals(125f, f.lutMinFlow()[1], 1e-4f);
-        assertEquals(0.6f, f.lutMinFlow()[2], 1e-4f);
-
+        // min/max mass carried per material (replaces fullMass+minFlow).
+        assertEquals(125f, f.lutMinMass()[1], 1e-4f);
         assertEquals(1000f, f.lutMaxMass()[1], 1e-4f);
+        assertEquals(0.6f, f.lutMinMass()[2], 1e-4f);
         assertEquals(0.6f, f.lutMaxMass()[2], 1e-4f);
 
-        // TODO(Task 2.1/3.x): the record no longer distinguishes gas from liquid, so the interim LUT
-        // packs gas=0 for every material (movability is the only flag now). Gas buoyancy returns via
-        // the molar-mass-sorted advection; the gas/air flag arrays are dropped entirely in Task 2.1.
-        assertEquals((byte) 0, f.lutGas()[1], "liquid: gas flag 0");
-        assertEquals((byte) 0, f.lutGas()[2], "gas distinction deferred — interim gas flag is 0");
+        // movability is now visc-finite (both water and steam are movable); the gas flag is gone —
+        // gas vs liquid behaviour comes from molar-mass-sorted advection in Phase 3, not a flag.
+        assertTrue(Float.isFinite(f.lutVisc()[1]), "water movable");
+        assertTrue(Float.isFinite(f.lutVisc()[2]), "steam movable");
+        assertEquals(0.018f, f.lutMolar()[1], 1e-6f);
     }
 }
