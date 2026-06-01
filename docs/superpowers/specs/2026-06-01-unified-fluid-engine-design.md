@@ -15,21 +15,22 @@ violates any of them, you are building the OLD engine again — stop.**
 
 1. **There is ONE substance, and EVERY cell runs the identical flow calculation.** Stone, water, air, sand —
    all go through the same passes. The engine has **no** concept of "gas"/"liquid"/"solid", no `gasFlag`,
-   no fluid-vs-solid filter anywhere. Java hands the engine the **whole chunk, unfiltered, exactly like
-   conduction does** — it never decides what is or isn't a fluid. `state` is a **Java render label ONLY**; the
-   engine never reads it.
+   no fluid-vs-solid filter anywhere, and **no `state` field at all** (dropped — `representative_block` covers
+   rendering). Java hands the engine the **whole chunk, unfiltered, exactly like conduction does** — it never
+   decides what is or isn't a fluid.
 
-   **Immovability is data, not a branch:** a cell with `viscosity == 0` cannot flow, cannot sort, and cannot
-   be displaced — that is what makes most solids (stone) stay put. A solid that *should* move (sand, gravel)
-   simply gets `viscosity > 0` with `min_mass ≈ max_mass`, so it sorts by molar mass as a coherent block
-   without spreading — "falling blocks" emerge with zero special-case code. (`viscosity == 0` may be an
-   inner-loop fast-skip, but that is a numeric check on one field, NOT an "is it fluid" decision.)
+   **Immovability is data, not a branch:** `viscosity` is physical resistance — `0` = fastest flow, higher =
+   slower, and **absent = frozen** (marshalled as `+∞`, so its flow rate is `0`). A frozen cell (most solid
+   terrain) cannot flow, sort, or be displaced. A solid that *should* move (sand, gravel) just gets a finite
+   `viscosity` with `min_mass ≈ max_mass`, so it sorts by molar mass as a coherent block without spreading —
+   "falling blocks" emerge with zero special-case code. The single test **movable ⟺ flow-rate > 0** (i.e.
+   viscosity finite) replaces every fluid/solid branch.
 
 2. **A cell's MOTION is fully described by four numbers:** `min_mass` (relaxed per-cell mass), `max_mass`
-   (per-cell compression ceiling), `molar_mass` (sort key), `viscosity` (mobility: `0` = immovable, higher =
-   flows more readily — see the naming note in the schema). "Incompressible" vs "compressible" is just
-   **narrow vs wide `min_mass`..`max_mass`**; "solid" vs "flowing" is just `viscosity == 0` vs `> 0` — all
-   per-cell data, NOT engine branches. The full schema is below; there is **no** `min_flow_mass` and **no**
+   (per-cell compression ceiling), `molar_mass` (sort key), `viscosity` (physical resistance: `0` = fastest,
+   higher = slower ooze, **absent = frozen/∞**). "Incompressible" vs "compressible" is just **narrow vs wide
+   `min_mass`..`max_mass`**; "solid" vs "flowing" is just absent vs finite `viscosity` — all per-cell data,
+   NOT engine branches. The full schema is below; there is **no** `min_flow_mass`, **no** `state`, and **no**
    boolean `fluid`/`gas`/`air` flag.
 
 3. **There is NO "fall" rule.** Gravity is expressed *only* as **sort by molar mass: heavier sinks, lighter
@@ -41,9 +42,10 @@ violates any of them, you are building the OLD engine again — stop.**
    (0..CHUNK_H-1)** and across **all loaded chunks** as one continuous medium. *This is the bug that keeps
    coming back* — see "Why the old engine was wrong" below.
 
-5. **Void is just the lightest fluid:** `molar_mass = 0, min_mass = 0, max_mass = 0`, and `viscosity > 0`
-   (so it can be displaced). "Expand into vacuum" is not a special case — it is "I am heavier than void, so I
-   sort below it." Air is merely a slightly-heavier fluid. (Only true solids get `viscosity == 0`.)
+5. **Void is just the lightest fluid:** `molar_mass = 0, min_mass = 0, max_mass = 0`, with a **finite**
+   `viscosity` (so it can be displaced). "Expand into vacuum" is not a special case — it is "I am heavier than
+   void, so I sort below it." Air is merely a slightly-heavier fluid. (Only true solids omit `viscosity` →
+   frozen.)
 
 6. **One species per cell. Never a mixture.** A cell holds exactly one fluid id + its mass. Displacing a
    lighter fluid relocates it whole; it is never blended in.
@@ -61,12 +63,15 @@ left the design. Re-read this section.
 
 Every fluid material carries:
 
-| field | meaning | "water-ish" example | "air-ish" example | void |
-|---|---|---|---|---|
-| `min` | relaxed mass per cell — a free body expands until every occupied cell is near `min` | 125 kg | 1 kg | 0 |
-| `max` | compression ceiling — squeeze the world into one cell and it holds `max`, no more | 1000 kg | 50 kg | 0 |
-| `molarMass` | gravitational sort key — higher sinks | 18 | 2 | 0 |
-| `viscosity` | flow-rate damping only (how fast it relaxes, not whether) | high | low | — |
+| field | meaning | "water-ish" example | "air-ish" example | void | stone |
+|---|---|---|---|---|---|
+| `min_mass` | relaxed mass per cell — a free body expands until every occupied cell is near this | 125 kg | 1 kg | 0 | 2500 |
+| `max_mass` | compression ceiling — squeeze the world into one cell and it holds this, no more | 1000 kg | 50 kg | 0 | 2500 |
+| `molar_mass` | gravitational sort key — higher sinks | 18 | 2 | 0 | 60 |
+| `viscosity` | resistance: `0` = fastest, higher = slower ooze, **absent = frozen** | low | low | low | *(absent)* |
+
+Note stone: `min_mass == max_mass` (incompressible) and **no `viscosity`** (frozen) → it never moves or
+compresses. Sand would be identical but *with* a finite `viscosity` → it sorts (falls) as a coherent block.
 
 Two emergent behaviours, no branches:
 
@@ -112,7 +117,7 @@ engine LUT, and the phase system all conform to this:
 
 | field | type | who uses it | absent ⇒ default | meaning |
 |---|---|---|---|---|
-| `viscosity` | float | **engine** (advection) | **unflowable** (marshalled as `0`) | mobility: `0` = immovable (solids), higher = flows more readily. Omit it entirely for a static solid. |
+| `viscosity` | float | **engine** (advection) | **frozen** (marshalled as `+∞`) | resistance: `0` = fastest flow, higher = slower ooze. **Omit it for a static solid** (frozen). |
 | `min_mass` | float | **engine** (advection) | `= default_mass` | relaxed per-cell mass; a free body expands until cells near this. (Replaces `min_flow_mass`.) |
 | `max_mass` | float | **engine** (advection) | `= default_mass` | per-cell compression ceiling; a cell never exceeds this. |
 | `min_temp` | float | Java (phase) | no cold phase change | below this the cell becomes `min_target`. **If present, `min_target` is required.** |
@@ -121,7 +126,9 @@ engine LUT, and the phase system all conform to this:
 | `max_target` | **material id** | Java (phase) | — | material to become above `max_temp` (e.g. `orge:steam`). |
 | `representative_block` | **block id** | Java render | **`minecraft:air`** | the Minecraft block drawn for this material. **Not the identity** — see note. |
 | `pinned` | bool | Java (Dirichlet) | `false` | when true, the cell temperature is held at `default_temperature` every tick (heat source/sink). |
-| `state` | enum | **Java render** | *(pending — may be dropped)* | `solid`\|`liquid`\|`gas` render style. The engine NEVER reads it. See open question. |
+
+**`state` is dropped** — `representative_block` covers rendering and `viscosity` covers movement, so the field
+is redundant. It is not in the schema, the `Material` record, or anywhere in the engine.
 
 ### `representative_block` is NOT the material identity
 
@@ -140,17 +147,20 @@ a material JSON (`air.json`); that material's `representative_block` (`minecraft
 e.g. `water.json` has `"min_target": "minecraft:ice"` (a **block** id). It must become a **material** id
 (`orge:ice`), and an `ice` material must exist with `representative_block: minecraft:ice`.
 
-### Movement is `viscosity` only; `state` (if kept) is render-only
+### The `viscosity` model (physical resistance) — LOCKED
 
-The engine never reads `state`. Whether a cell can move is decided entirely by `viscosity`: **absent /
-`0` ⇒ a wall** (never advected, sorted, or displaced — terrain stays put); `> 0` ⇒ it participates in the
-flow passes like everything else. The field keeps the name `viscosity` but acts as a *mobility* coefficient
-(higher = flows more readily — inverted from textbook viscosity, accepted).
+`viscosity` is **physical resistance**, keeping textbook direction: `0` = fastest flow, higher = slower.
+The per-step spread rate is `clamp(K / viscosity, 0, CFL_cap)` — so `viscosity = 0` hits the stability cap
+(fastest), and a large value oozes. **Absent ⇒ frozen**: marshalled as `+∞`, giving rate `0` — the cell
+never spreads, and (because **movable ⟺ rate > 0**) it is never picked up by the molar-sort swap either, so
+solid terrain stays put. This is the ergonomic default: most blocks are solid, so they simply omit
+`viscosity`.
 
-> **OPEN QUESTION (state):** With `representative_block` choosing the draw block and `viscosity` deciding
-> movement, `state` may be **redundant**. Recommendation: drop it. Keep it only if Java needs a render *style*
-> hint beyond "which block" (animate as a liquid level vs a static block). If kept, the enum is
-> `{solid, liquid, gas}` (not `fluid`, to avoid clashing with the umbrella term).
+**v1 decision — viscosity throttles SPREAD only, not vertical sink:** the molar-mass sort is a **full-cell
+binary swap** (one-species-per-cell forbids a partial/blended swap), fired whenever two **movable** cells are
+out of gravitational order — at the engine's rate, regardless of viscosity magnitude. So a viscous fluid
+(lava) *drips down* at full speed but *spreads sideways* slowly; a frozen cell does neither. (Throttling
+vertical sink by viscosity is a banked v2 refinement — it needs per-cell state the stateless engine avoids.)
 
 ### What's wrong with the current data (the refactor checklist)
 
@@ -158,12 +168,13 @@ flow passes like everything else. The field keeps the name `viscosity` but acts 
    "0 means fall back to default" hack — defaulting is the loader's job, not a getter's.
 2. `min_target`/`max_target` hold **block** ids (`minecraft:ice`, `minecraft:water`) → must be **material**
    ids (`orge:ice`, `orge:water`); create the missing target materials.
-3. `viscosity` becomes optional: **omit it for static solids** (`generic_solid.json` should have NO viscosity
-   = unflowable). A movable solid (sand) gets `viscosity > 0` + `min_mass ≈ max_mass`.
+3. `viscosity` becomes optional with **physical semantics**: `0` = fastest, higher = slower, **omit = frozen**
+   (`generic_solid.json` should have NO `viscosity`). A movable solid (sand) gets a finite `viscosity` +
+   `min_mass ≈ max_mass`. (The old "`0` = non-fluid" meaning is gone.)
 4. `default_temperature` is now **required on every material** (no `NaN`/absent); the loader errors if a
    required field is missing.
-5. `state` (if kept per the open question) is **render-only**, enum `{solid, liquid, gas}`. The old `State`
-   enum `{SOLID, FLUID, GAS, ENTITY, AIR}` and every boolean `fluid`/`gas`/`air` flag are removed.
+5. **`state` is removed entirely** — from the JSON, the `Material` record, and the engine LUT. The old `State`
+   enum `{SOLID, FLUID, GAS, ENTITY, AIR}` and every boolean `fluid`/`gas`/`air` flag go with it.
 6. Remove every field not in the schema above; add every field that is.
 
 ## Sort key = molar mass ONLY (locked)
@@ -191,8 +202,9 @@ advection internals**.
 - The whole-region `orgeStepWorld` FFI *shape* (per-column arrays + a per-material LUT). The LUT **contents**
   change to the canonical schema below: the engine LUT carries **only** the six physics numbers
   (`thermal_conductivity`, `heat_capacity`, `molar_mass`, `min_mass`, `max_mass`, `viscosity`). No `state`,
-  no movable bit, no boolean `fluid`/`gas`/`air` flag — immovability is read straight off `viscosity == 0`.
-  Java sends every cell of every assembled column (no fluid filtering), as conduction already does.
+  no movable bit, no boolean `fluid`/`gas`/`air` flag — immovability falls out of `viscosity` being `+∞`
+  (absent), i.e. flow-rate `0`. Java sends every cell of every assembled column (no fluid filtering), as
+  conduction already does.
 
 **REBUILD (`advect_chunk` internals → section-agnostic unified-fluid passes):**
 
@@ -202,15 +214,17 @@ displace, `2c`/buoyancy-swap, `2c-seam`, `2c-seam-air`, `2d`/volume-fill) each g
 neighbours, both driven off one pre-step `WorldSnapshot`:**
 
 - **Pass A — molar-mass sort (gravity).** For every vertical neighbour pair across the *entire* column height
-  (and within the World, so a column is one contiguous medium), if the upper cell's `molarMass` exceeds the
-  lower cell's, move mass downward toward sorted order (full swap when both are full; partial otherwise).
-  One cell per step; iterates to fully sorted over steps. No section skip. This single pass is *both* "fall"
-  and "buoyancy".
-- **Pass B — relax toward `min`, cap at `max`.** For every cell above its `min`, distribute the surplus to
-  the 6-dir accessible neighbours (across all boundaries) that are below their fill, bringing cells toward
-  `min`; when boxed in, mass compresses up to `max` and no further. Same-species merges; a different-species
-  neighbour is displaced via the sort (Pass A), preserving one-species-per-cell. Viscosity sets the transfer
-  fraction.
+  (and within the World, so a column is one contiguous medium), if the upper cell's `molar_mass` exceeds the
+  lower cell's **and both cells are movable** (`viscosity` finite), **full-cell swap** them toward sorted
+  order (a full swap, never partial — one-species-per-cell forbids blending). A frozen cell (`viscosity` ∞)
+  is never swapped, so fluid can't sink through terrain. One swap/step; iterates to fully sorted. No section
+  skip, no viscosity-magnitude throttle (v1). This single pass is *both* "fall" and "buoyancy".
+- **Pass B — relax toward `min_mass`, cap at `max_mass`.** For every movable cell above its `min_mass`,
+  distribute the surplus to the 6-dir accessible neighbours (across all boundaries) below their fill, bringing
+  cells toward `min_mass`; when boxed in, mass compresses up to `max_mass` and no further. Same-species
+  merges; a different-species neighbour is displaced via the sort (Pass A), preserving one-species-per-cell.
+  The transfer fraction is `clamp(K / viscosity, 0, CFL_cap)` — so `viscosity 0` spreads fastest and a frozen
+  cell (∞) doesn't spread at all.
 
 Both passes write only their **own** cell, deriving `dm` from the shared snapshot → antisymmetric →
 per-species conservation by construction. A settle deadband (relax only when off-target by more than a small
@@ -243,15 +257,17 @@ construction — the physics walks the full medium and never branches on a bound
 
 ## Locked decisions
 
-1. **Compressibility is per-fluid `min`..`max`, engine-agnostic.** No "liquid"/"gas" category in the engine.
-2. **One species per cell** — displacement relocates whole, never blends.
-3. **Sort by `molarMass` only** — compression never changes float order.
-4. **Settle deadband + molar-sort hysteresis** — relax/swap only past a small ε (no eternal micro-flow).
-5. **Sections/chunks are storage only** — physics is boundary-agnostic, full-column + loaded-neighbour.
-6. **Void = lightest fluid** (`0/0/0`) — unifies vacuum/air/void into the one fluid continuum.
-7. **Material data conforms to the canonical schema** above — exactly those fields; `min_mass` not
-   `min_flow_mass`; targets are material ids; `state ∈ {solid, liquid, fluid}`; engine reads `state` only for
-   the solid/immovable gate. Refactoring the existing (wrong) data is in scope.
+1. **Compressibility is per-fluid `min_mass`..`max_mass`, engine-agnostic.** No "liquid"/"gas" category.
+2. **One species per cell** — displacement relocates whole, never blends. The molar sort is a full-cell swap.
+3. **Sort by `molar_mass` only** — compression never changes float order.
+4. **`viscosity` = physical resistance** — `0` = fastest, higher = slower, absent = frozen (∞). v1 throttles
+   horizontal spread only; vertical sink is full-rate for any movable cell.
+5. **Settle deadband + molar-sort hysteresis** — relax/swap only past a small ε (no eternal micro-flow).
+6. **Sections/chunks are storage only** — physics is boundary-agnostic, full-column + loaded-neighbour.
+7. **Void = lightest fluid** (`0/0/0`, finite viscosity) — unifies vacuum/air/void into one continuum.
+8. **`state` dropped; material data conforms to the canonical schema** — exactly those fields; `min_mass` not
+   `min_flow_mass`; phase targets are material ids; required fields error if missing. Refactoring the existing
+   (wrong) data is in scope.
 
 ---
 
@@ -269,12 +285,14 @@ construction — the physics walks the full medium and never branches on a bound
 5. **Void unification.** A fluid expands into a region of `0/0/0` void exactly as into air; no special-case
    code path exists for void.
 6. **Region ledger HOLD.** Any injected non-conservation freezes the region (nothing written), never leaks.
-7. **Solid stays via `viscosity == 0` (no state branch).** A stone shelf (`viscosity 0`) under a heavy fluid
-   never lets the fluid sink through it and never moves itself, and the engine contains no `state`/solid
-   conditional — only the `viscosity == 0` numeric gate. Stone still conducts heat normally.
-8. **Falling block emerges.** A column material with `viscosity > 0` and `min_mass ≈ max_mass` placed in air
-   drops one cell/step as a coherent block (no sideways spread), rests on a `viscosity 0` floor, mass exactly
+7. **Frozen solid stays (no state branch).** A stone shelf (no `viscosity` → ∞) under a heavy fluid never
+   lets the fluid sink through it and never moves itself; the engine contains no `state`/solid conditional —
+   only the `viscosity`-finite movability test. Stone still conducts heat normally.
+8. **Falling block emerges.** A column material with a finite `viscosity` and `min_mass ≈ max_mass` placed in
+   air drops one cell/step as a coherent block (no sideways spread), rests on a frozen floor, mass exactly
    conserved — with zero falling-block-specific code.
+9. **Viscosity affects spread rate, not sink rate (v1).** A high-`viscosity` fluid and a low-`viscosity`
+   fluid both sink at the same rate, but the high-`viscosity` one spreads sideways measurably slower.
 
 ---
 
