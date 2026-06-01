@@ -27,3 +27,6 @@ Thumbs.db
 
 # Fetched native engine libraries (pulled from ORGE-ENGINE releases at build time)
 */src/main/resources/natives/
+
+# JVM crash dumps
+hs_err_pid*.log
