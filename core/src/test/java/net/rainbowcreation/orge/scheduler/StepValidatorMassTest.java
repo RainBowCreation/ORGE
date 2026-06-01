@@ -97,12 +97,12 @@ class StepValidatorMassTest {
     }
 
     @Test
-    void wettingAnAirCellIsConserved() {
-        // REGRESSION GUARD for the wetting defect: a water cell (1000 kg) donates 125 kg into an
-        // adjacent AIR cell, which adopts the water species (air matIx 0 -> water). Dual-index sum:
-        // water sumBefore = donor 1000 (recipient was air -> not counted in sumBefore); water sumAfter
-        // = donor 875 + recipient 125 = 1000. Conserved -> gate returns true (the OLD output-indexed +
-        // species-change-exempt design rejected this and froze the spread).
+    void wettingAnEmptyVacuumCellIsConserved() {
+        // A water cell (1000 kg) donates 125 kg into an adjacent VACUUM cell (matIx 0, mass 0), which
+        // becomes water. Dual-index sum: water sumBefore = donor 1000 (recipient was vacuum -> no species,
+        // not counted in sumBefore); water sumAfter = donor 875 + recipient 125 = 1000. Conserved. (Note:
+        // this is wetting into VACUUM; wetting into REAL air must DISPLACE the air — see
+        // liquidDisplacesAirIntoNeighbourIsConserved.)
         float[] before = new float[4096]; float[] after = new float[4096];
         char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, WATER_IX);
         char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, WATER_IX);
@@ -120,48 +120,151 @@ class StepValidatorMassTest {
     }
 
     @Test
-    void wettingIntoRealAirIsConserved() {
-        // REGRESSION GUARD for the real-air wetting defect: with the real orge:air material a wetted
-        // cell's INPUT mass is ~1.2 kg (not 0). The kernel ADOPTS that air into the fluid (cell becomes
-        // water, absorbing the air's 1.2 kg + deposited dm; TOTAL mass conserved). §9 must credit that
-        // 1.2 kg air 'before' to the OUTPUT water species. A single donor sheds dm into each of 100 air
-        // cells. Old code (air 'before' dropped) left water sumAfter exceeding sumBefore by 100*1.2 =
-        // 120 kg, far over the ε·N ≈ 40.96 kg tolerance -> false reject (the in-game re-freeze).
+    void liquidDisplacesAirIntoNeighbourIsConserved() {
+        // §11 CONTRACT: air is a tracked, CONSERVED species. A liquid spreading into real-air cells must
+        // DISPLACE that air (relocate it), not consume it. Here a donor water cell sheds dm into 100 air
+        // cells (air-in / water-out); the 100*1.2 kg of displaced air RE-APPEARS in 100 receiver air
+        // cells whose mass rises by 1.2 kg each (air-in / air-out). Air's own dual index now balances:
+        //   air sumBefore = wetted 100*1.2 + receivers 100*1.2 (+ background, balanced)
+        //   air sumAfter  = wetted 100*0   + receivers 100*2.4 (+ background)  -> equal.
+        // Under the OLD air-credit (which dropped air's own conservation and instead padded the fluid's
+        // sumBefore) this displacement was mis-handled. Now it PASSES iff air is truly conserved.
         final int wet = 100;
-        final float dm = 5f;          // water deposited into each wetted air cell
-        final float airMass = 1.2f;   // each air cell's adopted resting mass
+        final float dm = 5f;
+        final float airMass = 1.2f;
         float[] before = new float[4096]; float[] after = new float[4096];
         char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, AIR_IX);
         char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, AIR_IX);
-        // background: a flat air field (air in == air out, before==after==1.2) -> contributes to neither sum.
+        // background: a flat air field (air in == air out, before==after==1.2) -> balances in air's sum.
         java.util.Arrays.fill(before, airMass);
         java.util.Arrays.fill(after, airMass);
-        // donor water cell (index 0): full, sheds wet*dm kg into the wetted cells.
+        // donor water cell (index 0): full water, water-in/water-out, sheds wet*dm into the wetted cells.
         inMat[0] = WATER_IX; outMat[0] = WATER_IX;
         before[0] = 1000f; after[0] = 1000f - wet * dm;
-        // wetted cells [1..wet]: air-in, water-out; each adopts 1.2 air + dm deposit.
+        // wetted cells [1..wet]: air-in, WATER-out. They received water; the air they held is displaced
+        // (relocated), so the air mass leaves these cells.
         for (int i = 1; i <= wet; i++) {
             inMat[i] = AIR_IX;          // air in (before == 1.2)
-            outMat[i] = WATER_IX;       // water out (adopted)
-            after[i] = airMass + dm;    // adopted air mass + deposited water
+            outMat[i] = WATER_IX;       // water out
+            after[i] = airMass + dm;    // water mass deposited (the displaced 1.2 air left, dm water in)
         }
-        // water sumBefore = donor 1000 + 100*1.2 (air credited to water) = 1120
-        // water sumAfter  = donor (1000-500) + 100*(1.2+5) = 500 + 620   = 1120  -> conserved.
-        // Without the air-credit, sumBefore stays 1000 while sumAfter is 1120 -> off by 120 kg
-        // (= 100 wetted cells * 1.2 air each), far over the ε·N ≈ 40.96 kg tolerance -> false reject.
-        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+        // receiver air cells [wet+1 .. 2*wet]: air-in, AIR-out. Each absorbs the 1.2 kg displaced from a
+        // wetted cell -> mass rises 1.2 -> 2.4. Air's species sum is conserved (donor air relocated here).
+        for (int i = wet + 1; i <= 2 * wet; i++) {
+            inMat[i] = AIR_IX; outMat[i] = AIR_IX;
+            after[i] = airMass + airMass; // received the displaced 1.2
+        }
+        // water sumBefore = donor 1000; sumAfter = donor 500 + 100*(1.2+5)=720 -> 1220 != 1000?  No:
+        //   the wetted cells' water-out is 6.2 each; that is 1.2 displaced-air-equivalent volume PLUS 5
+        //   water. Water must conserve on its OWN index: the 1.2 in each wetted cell is AIR mass that was
+        //   pushed out, NOT water. So model the wetted water-out as exactly the deposited dm (5), with the
+        //   pre-existing 1.2 accounted as air. Adjust: wetted water-out = dm.
+        for (int i = 1; i <= wet; i++) after[i] = dm; // water deposited only; the 1.2 air went to a receiver
+        // water sumBefore = 1000; water sumAfter = (1000-500) + 100*5 = 500 + 500 = 1000 -> conserved.
+        // air sumBefore = wetted 100*1.2 + receivers 100*1.2 (+bg) ; air sumAfter = wetted 0 + receivers
+        //   100*2.4 (+bg) -> 240 == 240 -> conserved.
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
+                "liquid displacing air into neighbours conserves BOTH water and air");
     }
 
     @Test
-    void densitySwapWithAirIsConserved() {
-        // Steam below air rises (Plan-1 swap): lower cell steam(0.6) -> air(0), upper cell air(0) ->
-        // steam(0.6). Dual-index: steam sumBefore = lower-in 0.6; steam sumAfter = upper-out 0.6. ✓
+    void airConsumedFromNothingIsRejected() {
+        // §11 CONTRACT: air can NOT simply vanish (the relabel bug). A wetted air cell whose 1.2 kg is
+        // NOT relocated anywhere -> air sumBefore exceeds air sumAfter by 100*1.2 = 120 kg, far over the
+        // ε·N ≈ 40.96 kg tolerance -> REJECT. (This is exactly the old air-credit's blind spot: it would
+        // have ACCEPTED this mass-from-nothing because air was untracked.)
+        final int wet = 100; final float dm = 5f; final float airMass = 1.2f;
         float[] before = new float[4096]; float[] after = new float[4096];
-        char[] inMat = new char[4096]; char[] outMat = new char[4096]; // all air (0) by default
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, AIR_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, AIR_IX);
+        java.util.Arrays.fill(before, airMass);
+        java.util.Arrays.fill(after, airMass);
+        inMat[0] = WATER_IX; outMat[0] = WATER_IX;
+        before[0] = 1000f; after[0] = 1000f - wet * dm;
+        for (int i = 1; i <= wet; i++) {
+            inMat[i] = AIR_IX; outMat[i] = WATER_IX;
+            after[i] = dm; // air's 1.2 simply disappears, nowhere relocated -> air not conserved
+        }
+        assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
+                "air consumed (relabelled to water) with no relocation must be rejected");
+    }
+
+    @Test
+    void densitySwapWithVacuumIsConserved() {
+        // Steam below VACUUM rises (Plan-1 swap into the void sentinel): lower cell steam(0.6) -> vacuum
+        // (matIx 0), upper cell vacuum(0) -> steam(0.6). Vacuum is no species (contributes 0). Steam's
+        // dual index: sumBefore = lower-in 0.6; sumAfter = upper-out 0.6. ✓
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; char[] outMat = new char[4096]; // all VOID/vacuum (0) by default
         int lo = 0, up = 1;
         inMat[lo] = STEAM_IX; outMat[lo] = 0;        before[lo] = 0.6f; after[lo] = 0f;
         inMat[up] = 0;        outMat[up] = STEAM_IX;  before[up] = 0f;   after[up] = 0.6f;
         assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()));
+    }
+
+    @Test
+    void airDensitySwapWithSteamIsConserved() {
+        // Air is now a tracked species, so an air<->steam buoyancy swap must conserve BOTH on their own
+        // index. Steam(0.6) below air(1.2): they swap. Lower: steam-in 0.6 / air-out 1.2. Upper:
+        // air-in 1.2 / steam-out 0.6.
+        //   steam sumBefore = lower-in 0.6 ; steam sumAfter = upper-out 0.6 -> conserved.
+        //   air   sumBefore = upper-in 1.2 ; air   sumAfter = lower-out 1.2 -> conserved.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; char[] outMat = new char[4096]; // VOID(0) elsewhere
+        int lo = 0, up = 1;
+        inMat[lo] = STEAM_IX; outMat[lo] = AIR_IX;   before[lo] = 0.6f; after[lo] = 1.2f;
+        inMat[up] = AIR_IX;   outMat[up] = STEAM_IX; before[up] = 1.2f; after[up] = 0.6f;
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
+                "air<->steam swap conserves each species on its own index");
+    }
+
+    @Test
+    void vacuumCellsContributeZeroToEverySum() {
+        // VACUUM (matIx 0, mass ~0) is no species: it must contribute nothing to any sum and never break
+        // the ledger. A field of pure vacuum with a single conserved water move passes.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; char[] outMat = new char[4096]; // all vacuum (0)
+        // one water pair: move 100 kg cell0->cell1
+        inMat[0] = WATER_IX; outMat[0] = WATER_IX; before[0] = 500f; after[0] = 400f;
+        inMat[1] = WATER_IX; outMat[1] = WATER_IX; before[1] = 500f; after[1] = 600f;
+        // the other 4094 cells are vacuum with arbitrary (even non-zero) before mass that must be ignored
+        // because their species index is 0; set a stray before to prove it is not summed.
+        before[2] = 9999f; // vacuum cell carrying junk mass -> ignored (index 0)
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
+                "vacuum cells (index 0) contribute 0 to every species sum");
+    }
+
+    @Test
+    void airCellMayHoldUpToItsMaxMass() {
+        // §11 per-cell bound: a compressed air cell may hold up to air's max_mass (1000) and still be
+        // within bound. Air-in/air-out, conserved, one cell at 1000.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, AIR_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, AIR_IX);
+        java.util.Arrays.fill(before, 1.2f); java.util.Arrays.fill(after, 1.2f);
+        // squeeze: 800 cells worth of air piled into cell0 (conserved against the donors below).
+        before[0] = 1.2f; after[0] = 1000f; // air compressed to its cap
+        // donors give up 998.8 spread over many cells (keep each donor air-in/air-out, mass falls a touch)
+        float give = (1000f - 1.2f);
+        int donors = 999; float per = give / donors;
+        for (int i = 1; i <= donors; i++) after[i] = 1.2f - per;
+        assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
+                "an air cell at its 1000 kg max_mass is within bound and conserved");
+    }
+
+    @Test
+    void airFabricatedFromNothingFailsConservation() {
+        // The bound EXEMPTS an over-cap cell (the transient compressed/boil parcel) for air just as for a
+        // fluid, so the bound alone never catches invented air. The CONSERVATION sum (never exempted) is
+        // what forbids air-from-nothing: an air cell that gains 1000 kg with no matching air donor anywhere
+        // -> air sumAfter exceeds sumBefore by 1000, far over ε·N -> REJECT.
+        float[] before = new float[4096]; float[] after = new float[4096];
+        char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, AIR_IX);
+        char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, AIR_IX);
+        java.util.Arrays.fill(before, 1.2f); java.util.Arrays.fill(after, 1.2f);
+        after[0] = 1001.2f; // +1000 kg of air from nowhere (also over cap -> bound-exempt, sum still catches)
+        assertFalse(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
+                "air invented from nothing is caught by the conservation sum, not the (exempt) bound");
     }
 
     @Test
@@ -219,16 +322,12 @@ class StepValidatorMassTest {
     void swapDisplacementConservesPerSpecies() {
         // DISPLACEMENT SWAP (native fall pass): water falls into a real-air cell below. The donor cell A
         // goes water-in/air-out (its water sank; the air's ~1.2 kg rose into it). The cell below B goes
-        // air-in/water-out (it received the water). This is mass-conserving per species globally.
+        // air-in/water-out (it received the water). With air as a TRACKED species this conserves on BOTH
+        // indices directly — no cross-species credit needed:
         //   Donor A : water-in 1000 -> air-out 1.2  (water displaced down, air risen up)
         //   Below B : air-in 1.2     -> water-out 1000 (water arrived)
-        // Pre-fix accounting (BROKEN): B hits the air-absorb branch -> water sumBefore += 1.2 (B's before);
-        //   A hits the fluid-in branch -> water sumBefore += 1000 (A's before); but A's OUTPUT air is non-
-        //   fluid so it is NOT added to any sumAfter. -> water sumBefore overcounts by 1.2 PER SWAP. A
-        //   single swap (1.2) hides under ε·N (≈40.96 kg), so we stage MANY swaps: 100 swaps -> 120 kg of
-        //   phantom over-count, far over tolerance -> the pre-fix gate FALSE-rejects this valid result.
-        // Post-fix: A (fluid-in/air-out) credits its OUTPUT air mass (1.2) to water's sumAfter, so each
-        //   swap balances (water sumBefore += 1000+1.2, sumAfter += 1000(B)+1.2(A)) -> conserved.
+        //   water sumBefore = A-in 1000 ; water sumAfter = B-out 1000   -> conserved.
+        //   air   sumBefore = B-in 1.2  ; air   sumAfter = A-out 1.2    -> conserved.
         final int swaps = 100; final float airMass = 1.2f;
         float[] before = new float[4096]; float[] after = new float[4096];
         char[] inMat = new char[4096]; char[] outMat = new char[4096]; // VOID(0) elsewhere -> inert
@@ -242,25 +341,21 @@ class StepValidatorMassTest {
     }
 
     @Test
-    void wettingStillConserves() {
-        // REGRESSION (no fluid-in/air-out cell): a donor water cell sheds dm into adjacent real-air cells
-        // that ADOPT the water species (air-in/water-out). The new swap branch (fluid-in/air-out) never
-        // fires here, so wetting accounting is unchanged: air's 1.2 'before' is credited to the output
-        // water species and donor+recipients balance.
-        final int wet = 100; final float dm = 5f; final float airMass = 1.2f;
+    void pureWaterMoveAmongAirConserves() {
+        // REGRESSION (no fluid<->air interaction): a flat background air field (air-in/air-out, balanced)
+        // plus a pure water move (water-in/water-out, 100 kg cell0->cell1). Air conserves trivially on its
+        // own index (before==after everywhere) and water conserves on its own -> gate true. Guards that the
+        // background air, now a tracked species, does not perturb a pure-fluid result.
+        final float airMass = 1.2f;
         float[] before = new float[4096]; float[] after = new float[4096];
         char[] inMat = new char[4096]; java.util.Arrays.fill(inMat, AIR_IX);
         char[] outMat = new char[4096]; java.util.Arrays.fill(outMat, AIR_IX);
         java.util.Arrays.fill(before, airMass);
         java.util.Arrays.fill(after, airMass);
-        inMat[0] = WATER_IX; outMat[0] = WATER_IX;            // donor stays water-in/water-out (NOT air-out)
-        before[0] = 1000f; after[0] = 1000f - wet * dm;
-        for (int i = 1; i <= wet; i++) {
-            inMat[i] = AIR_IX;   outMat[i] = WATER_IX;        // air -> water (wetted)
-            after[i] = airMass + dm;
-        }
+        inMat[0] = WATER_IX; outMat[0] = WATER_IX; before[0] = 500f; after[0] = 400f;
+        inMat[1] = WATER_IX; outMat[1] = WATER_IX; before[1] = 500f; after[1] = 600f;
         assertTrue(StepValidator.massConservedPerSpecies(after, before, inMat, outMat, perSpeciesLut()),
-                "pure wetting (no swap donor) must still conserve");
+                "a pure water move within a balanced air field conserves both species");
     }
 
     @Test
@@ -410,7 +505,8 @@ class StepValidatorMassTest {
             a[0] = 400f; a[1] = 600f;
             cases.add(new Case("move", a, b, in, out, true));
         }
-        // (2) wetting into real air (conserved)
+        // (2) liquid DISPLACES air into receivers (conserved): wetted air-in/water-out cells shed their
+        //     1.2 kg air into receiver air cells (air-in/air-out), so air conserves on its own index.
         {
             final int wet = 100; final float dm = 5f; final float airMass = 1.2f;
             float[] b = new float[4096]; float[] a = new float[4096];
@@ -418,8 +514,9 @@ class StepValidatorMassTest {
             char[] out = new char[4096]; java.util.Arrays.fill(out, AIR_IX);
             java.util.Arrays.fill(b, airMass); java.util.Arrays.fill(a, airMass);
             in[0] = WATER_IX; out[0] = WATER_IX; b[0] = 1000f; a[0] = 1000f - wet * dm;
-            for (int i = 1; i <= wet; i++) { in[i] = AIR_IX; out[i] = WATER_IX; a[i] = airMass + dm; }
-            cases.add(new Case("wetting", a, b, in, out, true));
+            for (int i = 1; i <= wet; i++) { in[i] = AIR_IX; out[i] = WATER_IX; a[i] = dm; }
+            for (int i = wet + 1; i <= 2 * wet; i++) { in[i] = AIR_IX; out[i] = AIR_IX; a[i] = airMass + airMass; }
+            cases.add(new Case("displace", a, b, in, out, true));
         }
         // (3) displacement swap (conserved)
         {
@@ -496,12 +593,19 @@ class StepValidatorMassTest {
     }
 
     @Test
-    void cellsWithinBoundIgnoresNonFluidOutputCells() {
-        // cellsWithinBound only bounds FLUID-output cells. An air (non-fluid) output cell carrying an
-        // absurd mass is not an advection mass and must not trip the bound.
+    void cellsWithinBoundBoundsAirToItsMaxMass() {
+        // §11: air is now a tracked species, so an air output cell IS bounded to air's max_mass (1000).
+        // A resting/compressed air cell within [0, 1000] passes; a NEGATIVE air cell (lower bound, never
+        // relaxed by the over-cap exemption) fails.
         char[] out = new char[4096]; java.util.Arrays.fill(out, AIR_IX);
-        float[] m = new float[4096]; java.util.Arrays.fill(m, 9_999_999f);
-        assertTrue(StepValidator.cellsWithinBound(m, out, perSpeciesLut()),
-                "non-fluid (air) output cells are not bound-checked");
+        float[] rest = new float[4096]; java.util.Arrays.fill(rest, 1.2f);
+        assertTrue(StepValidator.cellsWithinBound(rest, out, perSpeciesLut()), "resting air within bound");
+        float[] capped = new float[4096]; java.util.Arrays.fill(capped, 1.2f);
+        capped[0] = 1000f;
+        assertTrue(StepValidator.cellsWithinBound(capped, out, perSpeciesLut()), "air at its cap within bound");
+        float[] neg = new float[4096]; java.util.Arrays.fill(neg, 1.2f);
+        neg[0] = -5f;
+        assertFalse(StepValidator.cellsWithinBound(neg, out, perSpeciesLut()),
+                "negative air mass rejected (lower bound never relaxed)");
     }
 }

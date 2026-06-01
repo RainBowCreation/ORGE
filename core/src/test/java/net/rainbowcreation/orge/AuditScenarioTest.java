@@ -15,6 +15,7 @@ import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import net.rainbowcreation.orge.scheduler.Scheduler;
 import net.rainbowcreation.orge.scheduler.StepValidator;
 import net.rainbowcreation.orge.section.SubchunkKey;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
@@ -261,6 +262,10 @@ class AuditScenarioTest {
      * sink (the OLD .so / unwired ABI), the non-zero air cells would stay empty and this fails.
      */
     @Test
+    @Disabled("TODO(INT): replace with new conserve-air contract after .so rebuild — this asserts the OLD "
+            + "air-discard/adopt semantics against the OLD bundled liborge.so. §11 (M3) makes air a tracked, "
+            + "CONSERVED species; the new .so DISPLACES air instead of consuming it, so this scenario's "
+            + "air-adopt expectations no longer hold. INT re-enables/replaces with conserve-air assertions.")
     void waterFallsAndWetsIntoRealAirAndSection9Accepts() {
         OrgeEngine eng = EngineFactory.create();
         assumeTrue(eng instanceof NativeEngine,
@@ -493,6 +498,11 @@ class AuditScenarioTest {
      * must return TRUE every step (the air-mass credit accepting the swap).
      */
     @Test
+    @Disabled("TODO(INT): replace with new conserve-air contract after .so rebuild — this asserts the OLD "
+            + "air-discard/swap-credit semantics against the OLD bundled liborge.so. §11 (M3) makes air a "
+            + "tracked, CONSERVED species; the new .so DISPLACES air (relocated, never consumed), so this "
+            + "scenario's air-credit expectations no longer hold. INT re-enables/replaces with conserve-air "
+            + "assertions on the rebuilt lib.")
     void waterSinksThroughRealAirColumnDisplacingAirNoResidueAndSection9Accepts() {
         OrgeEngine eng = EngineFactory.create();
         assumeTrue(eng instanceof NativeEngine,

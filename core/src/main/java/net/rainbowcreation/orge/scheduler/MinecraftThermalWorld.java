@@ -100,7 +100,17 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             // dormant neighbour is stepped alongside its active peer. Co-stepped neighbours are NOT
             // permanently woken — their countdown is untouched; noteSettle returns them toward sleep
             // if nothing moved. Unloaded neighbour keys are harmless: the null-checks below skip them.
-            List<SubchunkKey> stepped = SeamCoStep.expand(active, k -> !activeSet.isFlowDormant(dim, k));
+            // §11 gas column: a flow-active section may have a fluid/gas surface whose displaced/rising gas
+            // needs a loaded receiver in the section ABOVE it across the Y seam — else strict §9
+            // conservation stalls the flow at the seam. Co-step that above-section (gated by the world top
+            // so we never add a phantom out-of-world neighbour). A flow-active section is treated as having
+            // an active surface; a calm/empty above-section costs ~nothing and settles back via noteSettle.
+            int topSectionY = SectionPos.blockToSectionCoord(level.getMaxY());
+            List<SubchunkKey> stepped = SeamCoStep.expand(
+                    active,
+                    k -> !activeSet.isFlowDormant(dim, k),
+                    k -> !activeSet.isFlowDormant(dim, k),
+                    sy -> sy <= topSectionY);
 
             for (SubchunkKey key : stepped) {
                 LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());

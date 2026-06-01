@@ -19,6 +19,17 @@ public final class StepValidator {
     private StepValidator() {}
 
     /**
+     * §11: which materials are TRACKED, CONSERVED advection species in the §9 ledger. A liquid/gas
+     * ({@link Material#fluid()}) advects; AIR ({@link Material#air()}) is now a real, finite, conserved
+     * gas that liquid <b>displaces</b> rather than consumes. Both are summed and conserved per species.
+     * VACUUM (index 0 / void) is excluded by the caller's {@code index != 0} guard — it is no species and
+     * contributes 0 to every sum.
+     */
+    private static boolean isTracked(Material m) {
+        return m.fluid() || m.air();
+    }
+
+    /**
      * Returns a fresh sanitized copy of {@code result}: each non-finite cell takes the
      * corresponding {@code fallback} value (the snapshot input temperature), and each finite
      * cell is clamped to {@code [MIN_K, MAX_K]}. Inputs are not mutated.
@@ -94,30 +105,31 @@ public final class StepValidator {
     }
 
     /**
-     * §9 per-species mass gate (Spec Decision 6/12, Phase-2b). One O(N) pass with a <b>dual-index</b>
-     * conservation sum: each cell's {@code before} mass is accumulated under its <b>input</b> species
-     * ({@code inMat[i]}) and its {@code after} mass under its <b>output</b> species ({@code outMat[i]}),
-     * each only when that species is a tracked fluid (index != 0 and {@code fluid()}). After the pass,
-     * every tracked fluid species must be conserved within {@code ε·N}. The conservation sum is
-     * <b>never exempted</b> — this is what makes it the real gate: it conserves correctly across
-     * wetting (donor water→water loses 125, recipient air→water gains 125, both under the water index →
-     * water sumBefore 1000 == sumAfter 875+125), full-cell density swaps with air (steam below air: the
-     * lower cell counts its input steam in sumBefore, the upper cell counts its output steam in sumAfter
-     * → 0.6 == 0.6), liquid sort swaps (each species conserved on its own dual index), and drains (the
-     * neighbours' after-sums under their own output species capture the donated mass), and it forbids
-     * mass invention (a water→air drain mislabeled as lava fails because lava's after-sum would exceed
-     * its before-sum while water's after-sum falls short).
+     * §9 per-species mass gate (Spec Decision 6/12, Phase-2b; §11 air-as-species). One O(N) pass with a
+     * <b>dual-index</b> conservation sum: each cell's {@code before} mass is accumulated under its
+     * <b>input</b> species ({@code inMat[i]}) and its {@code after} mass under its <b>output</b> species
+     * ({@code outMat[i]}), each only when that species is a <b>tracked species</b> (index != 0 and
+     * {@code fluid() || air()} — §11 makes AIR a real, finite, conserved gas alongside the liquids/gas).
+     * After the pass, every tracked species must be conserved within {@code ε·N}. The conservation sum is
+     * <b>never exempted</b> — this is what makes it the real gate.
      *
-     * <p>The native fall pass adds one more case: the <b>air-displacement swap</b> (fluid-in /
-     * air-out), where a falling liquid swaps with the real-air cell below and the displaced air rises
-     * into the donor. It is credited symmetrically to wetting — the donor's risen-air {@code after}
-     * mass is added to the <b>input</b> fluid's sumAfter (the swap-credit branch below) so the fluid's
-     * dual index balances. NOTE this credits an engine-emitted {@code after} value, where the wetting
-     * credit trusts the snapshot {@code before}; it therefore trusts the kernel to write only the air's
-     * resting mass (~1.2 kg) into a swapped cell — a convention enforced by the bit-identical parity +
-     * native regression, not a bound checked here.
+     * <p><b>§11 — air is conserved on its own index (no air-credit).</b> The old "air-credit" /
+     * "air-untracked" exemption is gone. A liquid no longer <em>consumes</em> the air it wets/falls into;
+     * it <b>displaces</b> it. Each interaction balances per species directly:
+     * <ul>
+     *   <li><b>wetting</b> (air-in / water-out): the wetted cell SUBTRACTS its air {@code before} from
+     *       air's sum (the air left the cell) and ADDS the deposited water to water's sum. The displaced
+     *       air must RE-APPEAR as {@code air-out} mass in a receiver cell (same co-stepped batch) or air's
+     *       conservation FAILS — exactly the §11 mass-from-nothing guard.</li>
+     *   <li><b>density swap</b> (water-in / air-out below, air-in / water-out above): water conserves on
+     *       water's dual index, air on air's — no cross credit needed.</li>
+     *   <li>liquid sort swaps, drains, and {@code steam ↔ air} buoyancy all conserve each species on its
+     *       own dual index.</li>
+     * </ul>
+     * It still forbids mass invention (a water→lava relabel fails because lava's after-sum exceeds its
+     * before-sum while water's falls short).
      *
-     * <p>Separately, each fluid cell is bounded on its <b>output</b> species,
+     * <p>Separately, each tracked-species cell is bounded on its <b>output</b> species,
      * {@code after[i] ∈ [−ε, maxMass(outMat[i]) + ε]}. The ONLY exemption is from this BOUND: a cell
      * already <b>over its own output-species cap</b> ({@code after[i] > maxMass(outMat[i])}) is a
      * transient compressed parcel — a §7/engine boil deposit (Decision 12 boil-volume) that the
@@ -125,8 +137,8 @@ public final class StepValidator {
      * "over cap", NOT "species changed this step": a boiled steam cell stays steam for the multiple
      * steps it takes to relax, so a species-change key would stop exempting it after step 1 and freeze
      * the still-relaxing over-cap steam. Exempting an over-cap cell from the bound is safe precisely
-     * because the dual-index conservation sum (never exempted) still prevents mass invention. Air/void
-     * (index 0) and solids are not advection masses and contribute to neither sum.
+     * because the dual-index conservation sum (never exempted) still prevents mass invention. VACUUM/void
+     * (index 0) and solids are not tracked species and contribute to neither sum.
      *
      * @param after   engine mass output (length N)
      * @param before  snapshot input mass (length N)
@@ -143,12 +155,13 @@ public final class StepValidator {
     }
 
     /**
-     * §9 per-cell BOUND-only check (no conservation): true iff every <b>fluid-output</b> cell is finite
-     * and within {@code [−ε, maxMass(outMat[i]) + ε]}, with the single documented exemption — a cell
-     * already <b>over its own output-species cap</b> ({@code after[i] > maxMass(outMat[i])}) is the
-     * transient §7/engine boil deposit (Decision 12 boil-volume) the advection pass relaxes over the
-     * next steps, so it skips the upper bound (the lower/negative bound is never relaxed). Air/void
-     * (index 0) and solid output cells are not advection masses and are ignored. This is exactly the
+     * §9 per-cell BOUND-only check (no conservation): true iff every <b>tracked-species output</b> cell
+     * (fluid/gas OR §11 air) is finite and within {@code [−ε, maxMass(outMat[i]) + ε]}, with the single
+     * documented exemption — a cell already <b>over its own output-species cap</b>
+     * ({@code after[i] > maxMass(outMat[i])}) is the transient §7/engine boil deposit (Decision 12
+     * boil-volume) the advection pass relaxes over the next steps, so it skips the upper bound (the
+     * lower/negative bound is never relaxed). VACUUM/void (index 0) and solid output cells are not tracked
+     * species and are ignored. This is exactly the
      * bound that {@link SpeciesMassLedger#add} folds into the per-cell pass, lifted out standalone so
      * the Scheduler can reject a single section's illegally-shaped cells while deferring the
      * CONSERVATION decision to a batch-level {@link SpeciesMassLedger}.
@@ -162,7 +175,10 @@ public final class StepValidator {
         for (int i = 0; i < after.length; i++) {
             if (!Float.isFinite(after[i])) return false;
             int out = outMat[i];
-            if (out != 0 && lut.get(out).fluid()) {
+            // §11: air is a tracked, finite species too, so an air output cell is bounded to its own
+            // max_mass (1000) exactly like a fluid. Vacuum/void (index 0) and solids are not advection
+            // masses and skip the bound.
+            if (out != 0 && isTracked(lut.get(out))) {
                 float bound = lut.get(out).maxMass();
                 if (!(after[i] > bound) && (after[i] < -cellEps || after[i] > bound + cellEps)) {
                     return false;
@@ -175,8 +191,8 @@ public final class StepValidator {
     /**
      * Batch-level §9 per-species conservation accumulator (DESIGN §10 cross-section). Runs the SAME
      * dual-index per-cell accounting as {@link #massConservedPerSpecies} (input species → sumBefore,
-     * output species → sumAfter, with the wetting air-in/fluid-out credit and the swap fluid-in/air-out
-     * credit), but accumulates across MANY co-stepped sections and validates ONCE at {@code ε·(Σ N)}.
+     * output species → sumAfter; §11 makes AIR a tracked species conserved on its OWN index — no
+     * air-credit), but accumulates across MANY co-stepped sections and validates ONCE at {@code ε·(Σ N)}.
      * Cross-seam transfers between two co-stepped sections cancel in the batch sum, so a fall that moves
      * a full cell from one section into the one below — which each per-section gate would false-reject —
      * is accepted at batch scope while real fabrication (a gain with no matching donor anywhere in the
@@ -219,27 +235,23 @@ public final class StepValidator {
                 if (!Float.isFinite(after[i])) { bound = false; continue; }
                 int in = inMat[i];
                 int out = outMat[i];
-                // BEFORE conserved under the cell's INPUT species; AFTER under its OUTPUT species. The two
-                // sums are decoupled. A fluid input credits its 'before' to its own species. Real air interacts
-                // with a fluid in two SYMMETRIC ways that both must balance the fluid's dual index:
-                //   WETTING (absorb): air-in / fluid-out — the kernel adopts the air's resting mass (~1.2 kg)
-                //     INTO the fluid, so the air is gone; we credit that air 'before' to the OUTPUT fluid
-                //     species (handled below) and the cell's fluid 'after' lands in that fluid's sumAfter.
-                //   SWAP (displace): fluid-in / air-out — the native fall pass swaps a falling liquid with the
-                //     real-air cell below; the donor's fluid sank and the displaced air (~1.2 kg) RISES into it,
-                //     so the donor now holds air, not fluid. Its fluid 'before' is credited to the fluid's
-                //     sumBefore (the fluid-in branch), and to balance we must credit the donor's OUTPUT air
-                //     'after' (~1.2 kg) to that SAME fluid's sumAfter (the new air-out branch below). Without
-                //     it, sumBefore over-counts the displaced air by ~1.2 kg per swap (the air it absorb-credits
-                //     at the below cell never reappears in sumAfter) and a large swap pool false-rejects.
-                if (in != 0 && lut.get(in).fluid()) {
+                // §11: every TRACKED species (fluid/gas OR air) is conserved on ITS OWN dual index — no
+                // cross-species credit. Air is no longer "adopted-and-discarded" by a fluid; it is a real,
+                // finite gas that liquid DISPLACES, so the air a wetting/swap relocates must RE-APPEAR as
+                // air mass elsewhere in the (co-stepped) batch, balancing air's own sumBefore/sumAfter.
+                // VACUUM/void (index 0) is no species: it contributes to neither sum.
+                //   - BEFORE mass is credited under the cell's INPUT species.
+                //   - AFTER  mass is credited under the cell's OUTPUT species.
+                // Wetting (air-in/water-out) now SUBTRACTS that air's before from air's sum (it left this
+                // cell) and ADDS the deposited water to water's sum; the displaced air must reappear in an
+                // air-out receiver to conserve air. Swap (water-in/air-out) symmetrically credits the risen
+                // air's after to air's own sum and the sunk water's before to water's own sum. A relabel
+                // that simply makes air vanish (no air-out receiver) now FAILS air's conservation — which
+                // is the whole point of the §11 fix.
+                if (in != 0 && isTracked(lut.get(in))) {
                     sumBefore[in] += before[i];
-                } else if (in != 0 && lut.get(in).air() && out != 0 && lut.get(out).fluid()) {
-                    // WETTING: fluid fell/wet INTO a real air cell and absorbed its mass (kernel adopts air):
-                    // credit the air cell's input mass to the fluid it became so before/after balance.
-                    sumBefore[out] += before[i];
                 }
-                if (out != 0 && lut.get(out).fluid()) {
+                if (out != 0 && isTracked(lut.get(out))) {
                     float b = lut.get(out).maxMass(); // per-species cap (canonical accessor: 0 -> defaultMass)
                     // BOUND on the output species, exempting a cell already OVER its own cap (a transient
                     // §7/engine boil deposit relaxing over the next steps). The conservation sum is NEVER
@@ -248,12 +260,6 @@ public final class StepValidator {
                         bound = false;
                     }
                     sumAfter[out] += after[i];
-                } else if (in != 0 && lut.get(in).fluid() && out != 0 && lut.get(out).air()) {
-                    // SWAP donor: fluid-in / air-out. The input fluid was displaced down and this cell now holds
-                    // the risen air, so credit the OUTPUT air mass to the INPUT fluid species' sumAfter — the
-                    // symmetric counterpart to the wetting absorb-credit above. No bound check: this cell holds
-                    // air now, not a capped fluid.
-                    sumAfter[in] += after[i];
                 }
             }
             totalCells += after.length;
@@ -261,7 +267,7 @@ public final class StepValidator {
         }
 
         /**
-         * True iff every tracked fluid species is conserved within {@code ε · totalCells} (the same
+         * True iff every tracked species (fluid/gas + §11 air) is conserved within {@code ε · totalCells} (the same
          * tolerance {@link #massConservedPerSpecies} applies per section, summed over the whole batch).
          */
         public boolean conserved() {
