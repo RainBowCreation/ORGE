@@ -1,14 +1,14 @@
 {
   "thermal_conductivity": 0.6,
   "heat_capacity": 4186,
-  "default_mass": 1000,
   "molar_mass": 0.018,
+  "default_mass": 1000,
+  "default_temperature": 290,
   "viscosity": 0.001,
-  "state": "fluid",
-  "min_flow_mass": 125,
+  "min_mass": 125,
   "max_mass": 1000,
   "min_temp": 273.15,
-  "min_target": "minecraft:ice",
+  "min_target": "orge:ice",
   "max_temp": 373.15,
   "max_target": "orge:steam",
   "representative_block": "minecraft:water"

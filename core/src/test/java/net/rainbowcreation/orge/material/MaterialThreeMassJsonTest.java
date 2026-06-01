@@ -13,12 +13,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Floor/cap ({@code min_mass}/{@code max_mass}) loaded from the bundled datapack JSON. Movability is
- * now the single derived test ({@code movable() ⟺ viscosity finite}); the codec reads the legacy
- * {@code min_flow_mass} key into {@code min_mass} (best-effort until Task 1.3 renames it).
- *
- * <p>NOTE(Task 1.3): the bundled steam/air JSON still carry NO {@code viscosity} key, so they load as
- * frozen (immovable) under the canonical schema. Task 1.3 rewrites the JSON to add an explicit
- * viscosity, at which point these become movable again. These tests assert the current loaded truth.
+ * now the single derived test ({@code movable() ⟺ viscosity finite}); the codec reads the canonical
+ * {@code min_mass} key. The bundled water/lava/steam JSON all carry a finite viscosity -> movable.
  */
 class MaterialThreeMassJsonTest {
 
@@ -54,7 +50,6 @@ class MaterialThreeMassJsonTest {
         assertTrue(s.minMass() > 0f, "positive floor");
         assertEquals(0.6f, s.maxMass(), 1e-4f, "max_mass == default_mass this slice");
         assertEquals(0.6f, s.defaultMass(), 1e-4f);
-        // TODO(Task 1.3): steam JSON lacks a viscosity key, so it loads frozen for now.
-        assertFalse(s.movable(), "steam JSON has no viscosity yet -> frozen until Task 1.3");
+        assertTrue(s.movable(), "steam JSON now carries a finite viscosity -> movable gas");
     }
 }

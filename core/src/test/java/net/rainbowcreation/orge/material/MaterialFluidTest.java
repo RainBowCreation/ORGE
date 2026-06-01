@@ -25,8 +25,8 @@ class MaterialFluidTest {
     @Test
     void codecViscosityMakesMovable() {
         String json = """
-                { "thermal_conductivity": 0.6, "heat_capacity": 4186, "default_mass": 1000,
-                  "viscosity": 0.001 }
+                { "thermal_conductivity": 0.6, "heat_capacity": 4186, "molar_mass": 0.018,
+                  "default_mass": 1000, "default_temperature": 290, "viscosity": 0.001 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertTrue(m.movable());
@@ -36,7 +36,8 @@ class MaterialFluidTest {
     @Test
     void codecDefaultsImmovable() {
         String json = """
-                { "thermal_conductivity": 0.6, "heat_capacity": 4186, "default_mass": 1000 }
+                { "thermal_conductivity": 0.6, "heat_capacity": 4186, "molar_mass": 0.018,
+                  "default_mass": 1000, "default_temperature": 290 }
                 """;
         assertFalse(MaterialCodec.fromJson(ID, JsonParser.parseString(json)).movable());
     }

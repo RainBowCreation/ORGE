@@ -8,8 +8,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Canonical three-mass fields ({@code min_mass}/{@code max_mass}). The old {@code state}/{@code gas}/
  * {@code min_flow_mass} model is gone: absent {@code min_mass}/{@code max_mass} both fall back to
- * {@code default_mass} (spec default), and movability is the single derived test. The codec still reads
- * the legacy {@code min_flow_mass} key into {@code min_mass} (best-effort until Task 1.3 renames it).
+ * {@code default_mass} (spec default), and movability is the single derived test. The codec reads the
+ * canonical {@code min_mass} key.
  */
 class MaterialThreeMassTest {
     private static final Identifier ID = Identifier.fromNamespaceAndPath("orge", "w");
@@ -30,9 +30,9 @@ class MaterialThreeMassTest {
     @Test
     void codecParsesThreeMassFields() {
         String json = """
-                { "thermal_conductivity": 0.6, "heat_capacity": 4186, "default_mass": 1000,
-                  "viscosity": 0.001,
-                  "min_flow_mass": 125, "max_mass": 1000 }
+                { "thermal_conductivity": 0.6, "heat_capacity": 4186, "molar_mass": 0.018,
+                  "default_mass": 1000, "default_temperature": 290, "viscosity": 0.001,
+                  "min_mass": 125, "max_mass": 1000 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertEquals(125f, m.minMass(), 1e-6f);
@@ -43,8 +43,8 @@ class MaterialThreeMassTest {
     @Test
     void codecDefaultsMaxMassToDefaultMass() {
         String json = """
-                { "thermal_conductivity": 0.025, "heat_capacity": 2080, "default_mass": 0.6,
-                  "viscosity": 0.0, "min_flow_mass": 0.6 }
+                { "thermal_conductivity": 0.025, "heat_capacity": 2080, "molar_mass": 0.018,
+                  "default_mass": 0.6, "default_temperature": 400, "viscosity": 0.0, "min_mass": 0.6 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertTrue(m.movable());
@@ -56,7 +56,8 @@ class MaterialThreeMassTest {
     @Test
     void codecDefaultsWhenAbsent() {
         String json = """
-                { "thermal_conductivity": 2.0, "heat_capacity": 840, "default_mass": 2500 }
+                { "thermal_conductivity": 2.0, "heat_capacity": 840, "molar_mass": 0.060,
+                  "default_mass": 2500, "default_temperature": 290 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertEquals(2500f, m.minMass(), 0f, "absent min_mass -> default_mass");

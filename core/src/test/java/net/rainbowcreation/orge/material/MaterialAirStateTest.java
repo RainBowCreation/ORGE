@@ -17,8 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * "first-class air state" is now just a material; the bundled orge:air still loads, carrying its
  * canonical mass/molar data.
  *
- * <p>NOTE(Task 1.3): the bundled air JSON carries no {@code viscosity} key yet, so air currently
- * loads frozen (immovable). Task 1.3 adds an explicit viscosity to make it a movable gas again.</p>
+ * <p>The bundled air JSON carries a small finite {@code viscosity}, so air is a movable gas.</p>
  */
 class MaterialAirStateTest {
 
@@ -35,10 +34,9 @@ class MaterialAirStateTest {
             Material m = MaterialCodec.fromJson(ID, body);
 
             assertEquals(1.2f, m.defaultMass(), 1e-4f, "resting density");
-            assertEquals(0.001f, m.minMass(), 1e-6f, "air's flow floor (legacy min_flow_mass key)");
+            assertEquals(1.0f, m.minMass(), 1e-6f, "air's canonical relaxed floor (~1 kg)");
             assertEquals(1000f, m.maxMass(), 1e-4f, "air's compression cap");
-            // TODO(Task 1.3): air JSON lacks a viscosity key, so it loads frozen for now.
-            assertFalse(m.movable(), "air JSON has no viscosity yet -> frozen until Task 1.3");
+            assertTrue(m.movable(), "canonical air carries a finite viscosity -> movable gas");
         }
     }
 
@@ -46,7 +44,8 @@ class MaterialAirStateTest {
     @Test
     void absentViscosityIsFrozen() {
         String json = """
-                { "thermal_conductivity": 1.0, "heat_capacity": 500.0, "default_mass": 1000.0 }
+                { "thermal_conductivity": 1.0, "heat_capacity": 500.0, "molar_mass": 0.018,
+                  "default_mass": 1000.0, "default_temperature": 290 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
         assertFalse(m.movable(), "absent viscosity -> frozen (immovable)");

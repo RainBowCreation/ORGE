@@ -25,7 +25,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class DefaultPhaseDataTest {
 
     private static Identifier orge(String path) { return Identifier.fromNamespaceAndPath("orge", path); }
-    private static Identifier mc(String path) { return Identifier.fromNamespaceAndPath("minecraft", path); }
 
     private static JsonElement resource(String path) {
         try (InputStream in = DefaultPhaseDataTest.class.getResourceAsStream(path)) {
@@ -50,7 +49,7 @@ class DefaultPhaseDataTest {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material steam = reg.get(orge("steam")).orElseThrow();
         assertEquals(373.15f, steam.minTemp(), 0.01f);
-        assertEquals(mc("water"), steam.minTarget(), "steam condenses back to water below 373.15 K");
+        assertEquals(orge("water"), steam.minTarget(), "steam condenses back to the orge:water MATERIAL below 373.15 K");
     }
 
     @Test
@@ -58,14 +57,14 @@ class DefaultPhaseDataTest {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material ice = reg.get(orge("ice")).orElseThrow();
         assertEquals(273.15f, ice.maxTemp(), 0.01f);
-        assertEquals(mc("water"), ice.maxTarget(), "ice melts to water above 273.15 K");
+        assertEquals(orge("water"), ice.maxTarget(), "ice melts to the orge:water MATERIAL above 273.15 K");
     }
 
     @Test
     void waterBoilsToSteamAndFreezesToIce() {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material water = reg.get(orge("water")).orElseThrow();
-        assertEquals(orge("steam"), water.maxTarget(), "water boils to the orge:steam block");
-        assertEquals(mc("ice"), water.minTarget(), "water freezes to minecraft:ice");
+        assertEquals(orge("steam"), water.maxTarget(), "water boils to the orge:steam MATERIAL");
+        assertEquals(orge("ice"), water.minTarget(), "water freezes to the orge:ice MATERIAL");
     }
 }

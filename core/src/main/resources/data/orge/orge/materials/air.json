@@ -1,9 +1,11 @@
 {
   "thermal_conductivity": 0.026,
   "heat_capacity": 1005,
-  "default_mass": 1.2,
   "molar_mass": 0.029,
-  "min_flow_mass": 0.001,
+  "default_mass": 1.2,
+  "default_temperature": 290,
+  "viscosity": 0.00002,
+  "min_mass": 1.0,
   "max_mass": 1000,
-  "state": "air"
+  "representative_block": "minecraft:air"
 }

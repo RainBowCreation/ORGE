@@ -1,12 +1,13 @@
 {
   "thermal_conductivity": 0.025,
   "heat_capacity": 2080,
-  "default_mass": 0.6,
   "molar_mass": 0.018,
-  "state": "gas",
-  "min_flow_mass": 0.6,
+  "default_mass": 0.6,
+  "default_temperature": 400,
+  "viscosity": 0.0001,
+  "min_mass": 0.6,
   "max_mass": 0.6,
   "min_temp": 373.15,
-  "min_target": "minecraft:water",
+  "min_target": "orge:water",
   "representative_block": "orge:steam"
 }

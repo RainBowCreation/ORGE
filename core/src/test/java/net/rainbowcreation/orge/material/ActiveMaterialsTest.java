@@ -35,8 +35,9 @@ class ActiveMaterialsTest {
             {
               "thermal_conductivity": 0.6,
               "heat_capacity": 4186.0,
+              "molar_mass": 0.018,
               "default_mass": 1000.0,
-              "molar_mass": 0.018
+              "default_temperature": 290.0
             }
             """;
 

@@ -1,14 +1,13 @@
 package net.rainbowcreation.orge.material;
 
 import com.google.gson.JsonParser;
-import com.mojang.serialization.JsonOps;
 import net.minecraft.resources.Identifier;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * TDD tests for {@link MaterialCodec}.
+ * TDD tests for {@link MaterialCodec} under the canonical strict schema.
  * All tests decode via {@code MaterialCodec.fromJson(id, jsonElement)}.
  */
 class MaterialCodecTest {
@@ -16,7 +15,7 @@ class MaterialCodecTest {
     private static final Identifier TEST_ID = Identifier.fromNamespaceAndPath("orge", "test_stone");
 
     // -------------------------------------------------------------------------
-    // (a) Full decode: all 10 body fields present
+    // (a) Full decode: required fields + optionals present
     // -------------------------------------------------------------------------
     @Test
     void fullJsonDecodesAllFields() {
@@ -24,9 +23,10 @@ class MaterialCodecTest {
                 {
                   "thermal_conductivity": 2.5,
                   "heat_capacity": 840.0,
-                  "viscosity": 0.001,
-                  "default_mass": 2700.0,
                   "molar_mass": 0.060,
+                  "default_mass": 2700.0,
+                  "default_temperature": 290.0,
+                  "viscosity": 0.001,
                   "max_temp": 3000.0,
                   "min_temp": 1600.0,
                   "max_target": "orge:lava",
@@ -44,6 +44,7 @@ class MaterialCodecTest {
         assertEquals(0.001f, m.viscosity(), 1e-5f);
         assertEquals(2700.0f, m.defaultMass(), 1e-5f);
         assertEquals(0.060f, m.molarMass(), 1e-5f);
+        assertEquals(290.0f, m.defaultTemperature(), 1e-5f);
         assertEquals(3000.0f, m.maxTemp(), 1e-5f);
         assertEquals(1600.0f, m.minTemp(), 1e-5f);
         assertEquals(Identifier.fromNamespaceAndPath("orge", "lava"), m.maxTarget());
@@ -52,7 +53,7 @@ class MaterialCodecTest {
     }
 
     // -------------------------------------------------------------------------
-    // (b) Minimal JSON: only the 3 required fields — defaults fill the rest
+    // (b) Minimal JSON: only the 5 required fields — defaults fill the rest
     // -------------------------------------------------------------------------
     @Test
     void minimalJsonAppliesDefaults() {
@@ -60,7 +61,9 @@ class MaterialCodecTest {
                 {
                   "thermal_conductivity": 1.0,
                   "heat_capacity": 500.0,
-                  "default_mass": 1000.0
+                  "molar_mass": 0.018,
+                  "default_mass": 1000.0,
+                  "default_temperature": 290.0
                 }
                 """;
 
@@ -70,12 +73,15 @@ class MaterialCodecTest {
         assertEquals(TEST_ID, m.id());
         assertEquals(1.0f, m.thermalConductivity(), 1e-6f);
         assertEquals(500.0f, m.heatCapacity(), 1e-3f);
+        assertEquals(0.018f, m.molarMass(), 1e-6f);
         assertEquals(1000.0f, m.defaultMass(), 1e-3f);
+        assertEquals(290.0f, m.defaultTemperature(), 1e-3f);
 
         // Optional fields — documented canonical defaults
         assertTrue(Float.isInfinite(m.viscosity()) && m.viscosity() > 0,
                 "viscosity default should be +Infinity (absent => frozen)");
-        assertEquals(0f, m.molarMass(), 1e-6f,        "molar_mass default should be 0");
+        assertEquals(1000.0f, m.minMass(), 1e-3f, "min_mass default should be default_mass");
+        assertEquals(1000.0f, m.maxMass(), 1e-3f, "max_mass default should be default_mass");
         assertTrue(Float.isInfinite(m.maxTemp()) && m.maxTemp() > 0,
                 "max_temp default should be +Infinity");
         assertTrue(Float.isInfinite(m.minTemp()) && m.minTemp() < 0,
@@ -89,7 +95,7 @@ class MaterialCodecTest {
     }
 
     // -------------------------------------------------------------------------
-    // (c) Gas-like: has max_target but no min_target
+    // (c) Partial targets: max_temp + max_target present, no min phase
     // -------------------------------------------------------------------------
     @Test
     void gasLikeJsonDecodesPartialTargets() {
@@ -97,7 +103,9 @@ class MaterialCodecTest {
                 {
                   "thermal_conductivity": 0.025,
                   "heat_capacity": 1005.0,
+                  "molar_mass": 0.029,
                   "default_mass": 1.2,
+                  "default_temperature": 290.0,
                   "max_temp": 373.15,
                   "max_target": "orge:steam"
                 }
@@ -116,7 +124,7 @@ class MaterialCodecTest {
     }
 
     // -------------------------------------------------------------------------
-    // (d) Missing required field → decode throws / returns null (not silently wrong)
+    // (d) Missing required field → decode throws (not silently wrong)
     // -------------------------------------------------------------------------
     @Test
     void missingRequiredFieldThrows() {
@@ -124,7 +132,9 @@ class MaterialCodecTest {
         String json = """
                 {
                   "heat_capacity": 500.0,
-                  "default_mass": 1000.0
+                  "molar_mass": 0.018,
+                  "default_mass": 1000.0,
+                  "default_temperature": 290.0
                 }
                 """;
 

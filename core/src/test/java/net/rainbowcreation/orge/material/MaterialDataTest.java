@@ -50,16 +50,18 @@ class MaterialDataTest {
                 {
                   "thermal_conductivity": 0.6,
                   "heat_capacity": 4186.0,
+                  "molar_mass": 0.018,
                   "default_mass": 1000.0,
-                  "molar_mass": 0.018
+                  "default_temperature": 290.0
                 }
                 """;
         String ironJson = """
                 {
                   "thermal_conductivity": 80.0,
                   "heat_capacity": 450.0,
+                  "molar_mass": 0.056,
                   "default_mass": 7874.0,
-                  "molar_mass": 0.056
+                  "default_temperature": 290.0
                 }
                 """;
 
@@ -213,15 +215,18 @@ class MaterialDataTest {
                 {
                   "thermal_conductivity": 80.0,
                   "heat_capacity": 450.0,
-                  "default_mass": 7874.0
-                  // molar_mass intentionally omitted — it is optional and defaults to 0
+                  "molar_mass": 0.056,
+                  "default_mass": 7874.0,
+                  "default_temperature": 290.0
                 }
                 """;
         // Missing required field "heat_capacity" → MaterialCodec will throw
         String badJson = """
                 {
                   "thermal_conductivity": 1.0,
-                  "default_mass": 100.0
+                  "molar_mass": 0.06,
+                  "default_mass": 100.0,
+                  "default_temperature": 290.0
                 }
                 """;
 
@@ -325,9 +330,9 @@ class MaterialDataTest {
 
         // water.json extra fields
         Material water = registry.get(id("orge:water")).get();
-        assertEquals(Identifier.parse("minecraft:ice"),
+        assertEquals(Identifier.parse("orge:ice"),
                 water.minTarget(),
-                "water.minTarget should be minecraft:ice");
+                "water.minTarget should be the orge:ice MATERIAL id");
         assertEquals(Identifier.parse("orge:steam"),
                 water.maxTarget(),
                 "water.maxTarget should be orge:steam");
@@ -338,9 +343,9 @@ class MaterialDataTest {
 
         // lava.json extra fields
         Material lava = registry.get(id("orge:lava")).get();
-        assertEquals(Identifier.parse("minecraft:stone"),
+        assertEquals(Identifier.parse("orge:stone"),
                 lava.minTarget(),
-                "lava.minTarget should be minecraft:stone");
+                "lava.minTarget should be the orge:stone MATERIAL id");
 
         // Load and test default bindings
         String bindingsPath = "/data/orge/orge/bindings/default.json";
