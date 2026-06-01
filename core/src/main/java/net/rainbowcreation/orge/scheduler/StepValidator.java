@@ -19,11 +19,11 @@ public final class StepValidator {
     private StepValidator() {}
 
     /**
-     * §11: which materials are TRACKED, CONSERVED advection species in the §9 ledger. A liquid/gas
-     * ({@link Material#fluid()}) advects; AIR ({@link Material#air()}) is now a real, finite, conserved
-     * gas that liquid <b>displaces</b> rather than consumes. Both are summed and conserved per species.
-     * VACUUM (index 0 / void) is excluded by the caller's {@code index != 0} guard — it is no species and
-     * contributes 0 to every sum.
+     * Which materials are TRACKED, CONSERVED advection species in the §9 ledger: any MOVABLE material
+     * ({@link Material#movable()} — finite viscosity). Under the unified model there is no liquid/gas/air
+     * distinction — water, air, steam and every other movable species are summed and conserved alike;
+     * frozen solids (viscosity +INF) don't advect and are excluded. VACUUM (index 0 / void) is excluded by
+     * the caller's {@code index != 0} guard — it is no species and contributes 0 to every sum.
      */
     private static boolean isTracked(Material m) {
         return m.movable();
@@ -109,7 +109,7 @@ public final class StepValidator {
      * <b>dual-index</b> conservation sum: each cell's {@code before} mass is accumulated under its
      * <b>input</b> species ({@code inMat[i]}) and its {@code after} mass under its <b>output</b> species
      * ({@code outMat[i]}), each only when that species is a <b>tracked species</b> (index != 0 and
-     * {@code fluid() || air()} — §11 makes AIR a real, finite, conserved gas alongside the liquids/gas).
+     * {@link Material#movable()} — every movable species, air included, is conserved alike).
      * After the pass, every tracked species must be conserved within {@code ε·N}. The conservation sum is
      * <b>never exempted</b> — this is what makes it the real gate.
      *
