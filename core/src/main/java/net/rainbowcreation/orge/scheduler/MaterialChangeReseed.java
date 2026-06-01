@@ -13,15 +13,18 @@ import java.util.List;
  * replacing water, /setblock — the persisted values still belong to the OLD block (e.g. a formerly-air
  * cell stored {@code air.default_mass} = 1.2 kg and ambient temperature). The snapshot re-reads the
  * live material every cycle; this unit compares it to the {@link CellMaterialTracker} signature and,
- * for every cell that became a <b>different fluid</b>, overrides the stale values with the new
- * material's {@link Material#defaultMass()} and its {@link AmbientSeeder} temperature (a source's
- * {@code default_temperature}, otherwise biome ambient).
+ * for every cell that became a <b>different fluid</b>, corrects the stale temperature to its
+ * {@link AmbientSeeder} value (a source's {@code default_temperature}, otherwise biome ambient) and
+ * <b>clears the stale stored mass to 0</b> — it does NOT fabricate {@link Material#defaultMass()} here.
+ * The single surviving mass seed lives in {@link ColumnAssembler} ({@code fluid && stored <= 0 ⇒
+ * defaultMass}); clearing to 0 routes a freshly-changed fluid cell through that one seed, so the Java
+ * layer never fabricates mass on a material change (DESIGN 2026-06-01 §6, R3).
  *
  * <p>Scope is deliberately <b>fluid materials only</b>. ORGE's own phase transitions all yield
  * non-fluid blocks (water→ice/steam, lava→stone), so gating on {@code live.fluid()} leaves the
  * post-transition state §7 wrote untouched without this unit needing to know which changes were
  * ORGE's. Solids carry stale thermal mass after an external swap, but that does not drive advection
- * and is a separate, lower-impact follow-on. Pure and array-mutating, mirroring {@link MassSnapshot}.</p>
+ * and is a separate, lower-impact follow-on. Pure and array-mutating.</p>
  */
 public final class MaterialChangeReseed {
 
@@ -55,8 +58,13 @@ public final class MaterialChangeReseed {
     /**
      * Overrides {@code matIx}/{@code temps}/{@code mass} in place per cell:
      * <ul>
-     *   <li>a cell that became a DIFFERENT FLUID since {@code prior} (bucket, /setblock) is reseeded
-     *       to the new fluid's {@link Material#defaultMass()} + source/ambient temperature;</li>
+     *   <li>a cell that became a DIFFERENT FLUID since {@code prior} (bucket, /setblock) has its stale
+     *       temperature corrected to the new fluid's source/ambient temperature and its stale stored
+     *       mass <b>cleared to 0</b> — it does NOT fabricate {@code defaultMass} here. Clearing to 0
+     *       routes the cell through the single surviving fresh-fluid seed in {@link ColumnAssembler}
+     *       ({@code fluid && stored <= 0 ⇒ defaultMass}), so "1 bucket = 1000 kg" stays an entry point
+     *       with exactly one mass seed in the pipeline (DESIGN 2026-06-01 §6, R3: the Java layer never
+     *       fabricates mass on a material change);</li>
      *   <li>a cell that underwent a RUNTIME block→air transition (§11 Phase A; Task M4) is set to
      *       VACUUM — the void sentinel (matIx 0) at 0 mass — so a broken block opens empty volume the
      *       engine refills from neighbouring air, rather than seeding 1.2 kg air from nothing.</li>
@@ -64,12 +72,18 @@ public final class MaterialChangeReseed {
      * No-op when {@code prior == null} (the section was never tracked, so the block-derived / world-gen
      * seed is already authoritative — chunk-load air stays 1.2 kg) or a cell's material is unchanged.
      *
+     * <p>Neither branch creates mass: the fluid-change branch only clears stale mass (the real seed
+     * lives in {@link ColumnAssembler}), and the void branch zeroes a broken cell. Temperature is not a
+     * conserved species, so seeding a fluid-change cell's temperature here is correct (a bucket of lava
+     * must reach its pinned {@code default_temperature}).</p>
+     *
      * @param prior        per-cell material ids the stored values belong to, or {@code null}
      * @param matIx        the live per-cell material indices into {@code lut} (mutated: a broken
      *                     block→air cell is rewritten to the void sentinel {@code 0})
      * @param lut          the batch material table (index 0 = {@link MaterialLut#VOID})
      * @param temps        per-cell temperatures to correct (mutated)
-     * @param mass         per-cell masses to correct (mutated)
+     * @param mass         per-cell masses to correct (mutated: a changed-fluid cell is cleared to 0 so
+     *                     {@link ColumnAssembler}'s seed re-fills it to {@code defaultMass})
      * @param biomeAmbientK the section's biome ambient temperature (K), used for non-source fluids
      */
     public static void apply(Identifier[] prior, char[] matIx, List<Material> lut,
@@ -80,8 +94,11 @@ public final class MaterialChangeReseed {
         for (int i = 0; i < SectionData.CELLS; i++) {
             Material m = lut.get(matIx[i]);
             if (reseeds(prior[i], m)) {
+                // A different fluid moved in (bucket, /setblock). Correct the stale temperature, but do
+                // NOT fabricate mass here: clear the stale stored mass to 0 so ColumnAssembler's single
+                // fresh-fluid seed (stored <= 0 ⇒ defaultMass) fills it. Exactly one mass seed survives.
                 temps[i] = m.hasDefaultTemperature() ? m.defaultTemperature() : biomeAmbientK;
-                mass[i] = m.defaultMass();
+                mass[i] = 0f;
             } else if (voids(prior[i], m)) {
                 // §11 Phase A (Task M4): a broken block (real material → air) opens empty volume.
                 // Write VACUUM — the void sentinel (matIx 0) at 0 mass — NOT 1.2 kg air from nothing.

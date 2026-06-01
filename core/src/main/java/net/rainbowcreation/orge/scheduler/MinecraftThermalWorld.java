@@ -169,17 +169,20 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     }
 
     /**
-     * Input mass for one section (§10 advection): the stored/advected mass when the section has
-     * been simulated, otherwise the block-derived geometry seed. When the store exists, fluid
-     * cells the store reports empty are seeded once to full (the freshly-placed-fluid entry
-     * point) via {@link MassSnapshot} — the SAME rule the halo {@link #neighbor} mass uses, so
-     * the two sides of a section face always agree on a cell's mass.
+     * Input mass for one section: the stored/advected mass when the section has been simulated,
+     * otherwise the block-derived geometry seed (a never-tracked section's true initial state — air
+     * 1.2 kg, solids/fluids at their {@link Material#defaultMass()}). The fresh-fluid seed (a fluid
+     * cell the store reports empty ⇒ {@code defaultMass}) is NOT applied here: it is owned by the
+     * single seed in {@link ColumnAssembler} (DESIGN 2026-06-01 §6 — exactly one fresh-fluid seed in
+     * the pipeline). This method now only selects stored-vs-geometry, never fabricates fluid mass.
      */
     private float[] sectionMass(SectionStore store, SubchunkKey key,
                                 GeometryAssembler.Geometry geo, MaterialLut lut) {
         boolean has = store != null && store.hasSection(key);
-        float[] stored = has ? store.get(key).massArray().clone() : null;
-        return MassSnapshot.selectAll(stored, geo.matIx(), lut.materials(), has, geo.mass());
+        // Never-simulated section: block-derived initial state (includes air/solid masses ColumnAssembler
+        // cannot reconstruct). Simulated section: the advected/stored mass verbatim — the fresh-fluid
+        // seed for a stored-empty fluid cell is applied downstream by ColumnAssembler, not here.
+        return has ? store.get(key).massArray().clone() : geo.mass();
     }
 
     /**
@@ -303,8 +306,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /**
      * A per-section reader for {@link ColumnAssembler}: matIx from live blocks (via
      * {@link LiveMaterials}/{@link GeometryAssembler}); mass/T from the {@link SectionStore} (the
-     * §10 advected state, with the {@link MassSnapshot} fresh-fluid rule), or the per-cell ambient
-     * seed for a never-simulated / out-of-world section. A section not loaded in the chunk is read as
+     * §10 advected state — the fresh-fluid seed is applied once by {@link ColumnAssembler}, not here),
+     * or the per-cell ambient seed for a never-simulated / out-of-world section. A section not loaded
+     * in the chunk is read as
      * full ambient air (matIx 0 / void with ambient T) — it is inside a present (loaded) column, so it
      * is a real defined cell, never "unknown".
      */

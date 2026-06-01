@@ -31,8 +31,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * </ol>
  *
  * <p>Contrast: a cell that became water via an EXTERNAL bucket (the engine never deposited there, so
- * its prior signature is still {@code orge:air}) IS reseeded to {@code water.defaultMass()} (1000) —
- * the legitimate "1 bucket = 1000 kg" entry point is preserved.</p>
+ * its prior signature is still {@code orge:air}) has its stale air mass CLEARED to 0 (Task 6 / DESIGN
+ * 2026-06-01 §6) — it is then seeded to {@code water.defaultMass()} (1000) by the single fresh-fluid
+ * seed in {@link ColumnAssembler}, so the legitimate "1 bucket = 1000 kg" entry point is preserved
+ * with exactly one mass seed (no fabrication at this seam).</p>
  */
 class MaterialChangeReseedConservationTest {
 
@@ -110,7 +112,7 @@ class MaterialChangeReseedConservationTest {
 
         assertEquals(spreadMass, mass[SPREAD], 0f,
                 "engine-wetted cell keeps its small advected mass (no reseed → conservation)");
-        assertEquals(1000f, mass[BUCKET], 0f,
-                "external bucket cell (prior=air) IS reseeded to water.defaultMass()");
+        assertEquals(0f, mass[BUCKET], 0f,
+                "external bucket cell (prior=air) is CLEARED to 0 (ColumnAssembler then seeds 1000)");
     }
 }

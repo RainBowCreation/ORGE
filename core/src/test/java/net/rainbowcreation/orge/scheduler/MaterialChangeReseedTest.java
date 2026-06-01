@@ -12,10 +12,12 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Pure unit tests for {@link MaterialChangeReseed}: when a cell's live material becomes a DIFFERENT
  * fluid since the previous cycle (e.g. air→water from a bucket, lava replacing water), the §5 store
- * still holds the OLD block's temp/mass (air's 1.2 kg / ambient). This unit overrides those stale
- * values with the new material's defaults. Non-fluid materials and unchanged cells are left alone so
- * ORGE's own phase transitions (→ stone/ice/steam, all non-fluid) and ongoing flow are never
- * disturbed.
+ * still holds the OLD block's temp/mass (air's 1.2 kg / ambient). This unit corrects the stale
+ * temperature to the new material's source/ambient seed and <b>clears the stale stored mass to 0</b>
+ * (DESIGN 2026-06-01 §6 / Task 6): it no longer fabricates {@code defaultMass} — the single surviving
+ * fresh-fluid mass seed lives in {@link ColumnAssembler} ({@code fluid && stored <= 0 ⇒ defaultMass}),
+ * which fills the cleared cell. Non-fluid materials and unchanged cells are left alone so ORGE's own
+ * phase transitions (→ stone/ice/steam, all non-fluid) and ongoing flow are never disturbed.
  */
 class MaterialChangeReseedTest {
 
@@ -89,27 +91,29 @@ class MaterialChangeReseedTest {
     }
 
     @Test
-    void airToWaterReseedsMassToDefaultAndTempToAmbient() {
+    void airToWaterClearsStaleMassToZeroAndSeedsTempToAmbient() {
         // The reported bug: bucket water into a previously-air FULL cell. Store holds air's 1.2 kg.
+        // Task 6: the stale mass is CLEARED to 0 (ColumnAssembler's seed then fills it to 1000); the
+        // temperature is corrected to biome ambient. No mass is fabricated here.
         float[] temps = new float[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
         java.util.Arrays.fill(temps, 283f);
         java.util.Arrays.fill(mass, 1.2f);  // air's stored mass
         MaterialChangeReseed.apply(uniformPrior(AIR), uniform(WATER_IX), lut(), temps, mass, 285f);
-        assertEquals(1000f, mass[0], 0f, "water re-seeded to its defaultMass");
+        assertEquals(0f, mass[0], 0f, "stale mass cleared to 0 (ColumnAssembler seeds defaultMass)");
         assertEquals(285f, temps[0], 0f, "water (no source temp) seeds at biome ambient");
     }
 
     @Test
-    void airToLavaReseedsMassAndPinnedTemperature() {
+    void airToLavaClearsStaleMassToZeroAndSeedsPinnedTemperature() {
         // Bucket lava into air: must reach lava's pinned 1400 K (else it inherits cold 283 and the
-        // phase planner freezes it to stone).
+        // phase planner freezes it to stone). Mass is cleared to 0; ColumnAssembler seeds the 3100.
         float[] temps = new float[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
         java.util.Arrays.fill(temps, 283f);
         java.util.Arrays.fill(mass, 1.2f);
         MaterialChangeReseed.apply(uniformPrior(AIR), uniform(LAVA_IX), lut(), temps, mass, 285f);
-        assertEquals(3100f, mass[0], 0f, "lava re-seeded to its defaultMass");
+        assertEquals(0f, mass[0], 0f, "stale mass cleared to 0 (ColumnAssembler seeds defaultMass)");
         assertEquals(1400f, temps[0], 0f, "lava seeds at its pinned default_temperature, not ambient");
     }
 
@@ -240,7 +244,8 @@ class MaterialChangeReseedTest {
             if (i % 2 == 0) {
                 assertEquals(250f, mass[i], 0f, "unchanged water cell " + i + " preserved");
             } else {
-                assertEquals(1000f, mass[i], 0f, "air→water cell " + i + " re-seeded");
+                assertEquals(0f, mass[i], 0f,
+                        "air→water cell " + i + " cleared to 0 (ColumnAssembler seeds defaultMass)");
             }
         }
     }
