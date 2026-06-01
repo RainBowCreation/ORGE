@@ -54,4 +54,27 @@ class FluidReconcileLogicTest {
         assertNotEquals(FluidReconcileLogic.levelBucket(FluidReconcileLogic.levelForFraction(0.1f)),
                         FluidReconcileLogic.levelBucket(FluidReconcileLogic.REMOVE));
     }
+
+    // ---- species-aware render throttle (vacated-cell duplicate fix) ----
+
+    @Test
+    void speciesChangeNeverThrottles_vacatedWaterCellBecomesAir() {
+        // Bug repro: engine Pass A swapped water down into the air below, so this cell's NEW
+        // species is AIR rendering full (level 0) while the WORLD block is still water at level 0
+        // (bucket 0). The numeric level coincides (0 == 0) but the species CHANGED (water -> air),
+        // so the throttle must NOT skip -- otherwise the stale water block is never cleared.
+        assertFalse(FluidReconcileLogic.throttles(false, 0, 0));
+    }
+
+    @Test
+    void sameSpeciesWithinBucketStillThrottles() {
+        // water -> water, both render at level 0 -> no packet (throttle preserved).
+        assertTrue(FluidReconcileLogic.throttles(true, 0, 0));
+    }
+
+    @Test
+    void sameSpeciesLevelChangedDoesNotThrottle() {
+        // water -> water but the render level moved (3 vs current bucket 0) -> must write.
+        assertFalse(FluidReconcileLogic.throttles(true, 3, 0));
+    }
 }

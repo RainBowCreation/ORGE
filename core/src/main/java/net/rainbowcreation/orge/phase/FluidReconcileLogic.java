@@ -43,4 +43,22 @@ public final class FluidReconcileLogic {
     public static int levelBucket(int level) {
         return level;
     }
+
+    /**
+     * The render-throttle decision (Decision 13b), made species-aware so a vacated fluid cell is
+     * never silently kept. The level-bucket throttle is a valid "skip the packet" optimization ONLY
+     * when the cell's species did not change: same fluid whose mass merely moved within a render
+     * bucket needs no write. A SPECIES CHANGE (e.g. a cell that engine Pass A turned from water into
+     * the air that rose from below, or water→lava) must ALWAYS reconcile — even when the numeric
+     * render level coincides — otherwise the stale block is never replaced and a falling column
+     * leaves a duplicate trail.
+     *
+     * @param sameSpecies  true when the cell's new species equals the world block's species
+     * @param renderLevel  the level the new mass renders at ({@link #REMOVE} or 0..7)
+     * @param currentBucket the bucket the world block currently shows ({@link #bucketOfWorldBlock})
+     * @return true to SKIP the write (throttle); false to reconcile
+     */
+    public static boolean throttles(boolean sameSpecies, int renderLevel, int currentBucket) {
+        return sameSpecies && levelBucket(renderLevel) == currentBucket;
+    }
 }

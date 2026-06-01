@@ -111,10 +111,15 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             float f = FluidReconcileLogic.fraction(mass, levelMaterial.defaultMass());
             int renderLevel = FluidReconcileLogic.levelForFraction(f);
 
-            // ---- level-bucket throttle (Decision 13b) ----
+            // ---- species-aware level-bucket throttle (Decision 13b) ----
+            // The bucket throttle may only skip the write when the cell's SPECIES is unchanged. A
+            // species change (incl. a fluid cell that Pass A vacated → air) must always reconcile,
+            // even if the numeric render level coincides, or the stale block is never replaced
+            // (falling-column duplicate trail).
             int currentBucket = bucketOfWorldBlock(current);
-            if (FluidReconcileLogic.levelBucket(renderLevel) == currentBucket) {
-                continue; // mass moved within the same render bucket -> no packet
+            boolean sameSpecies = sameSpecies(levelMaterial, worldMaterial);
+            if (FluidReconcileLogic.throttles(sameSpecies, renderLevel, currentBucket)) {
+                continue; // same species, mass moved within the same render bucket -> no packet
             }
 
             int x = i & 15;
@@ -181,6 +186,27 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             return worldMaterial; // air cell that received no fluid mass; world-block path decides
         }
         return outLut.get(s);
+    }
+
+    /**
+     * True when the cell's NEW species (the one being rendered this step, {@code levelMaterial}) is
+     * the SAME material as the world block currently shows ({@code worldMaterial}), compared by
+     * material id. Only then is the level-bucket throttle allowed to skip the write. A null id on
+     * either side (defensive) counts as "changed" so the cell always reconciles.
+     */
+    private static boolean sameSpecies(Material levelMaterial, Material worldMaterial) {
+        if (levelMaterial == worldMaterial) {
+            return true;
+        }
+        if (levelMaterial == null || worldMaterial == null) {
+            return false;
+        }
+        Identifier a = levelMaterial.id();
+        Identifier b = worldMaterial.id();
+        if (a == null || b == null) {
+            return false; // guard: unidentified material -> never throttle
+        }
+        return a.equals(b);
     }
 
     /** The render bucket the world block currently shows: REMOVE for non-fluid, else its LEVEL. */
