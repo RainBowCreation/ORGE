@@ -19,12 +19,21 @@ public final class TestMaterials {
     private static final Identifier STONE = Identifier.fromNamespaceAndPath("minecraft", "stone");
     private static final Identifier VOIDID = Identifier.fromNamespaceAndPath("orge", "void");
 
-    /** Live datapack roster: orge:air — a movable finite gas, min 0.001, default 1.2, max 1000, M 0.029. */
+    /**
+     * Live datapack roster: orge:air — a movable finite gas. Mirrors the canonical {@code air.json}
+     * (thermal_conductivity 0.026, heat_capacity 1005, <b>molar_mass 0.002</b>, default_mass 1.2,
+     * <b>min_mass 1.0</b>, max_mass 1000). The molar mass is the load-bearing correction: at 0.002 air
+     * is LIGHTER than water (M 0.018), so under the engine's molar-mass sort water SINKS below air and
+     * air rises — the pre-fix 0.029 inverted that (air heavier ⇒ water floated). Viscosity is kept at
+     * {@code 0f} (fastest movable) rather than the JSON's tiny 0.00002 so the live oracles settle in a
+     * handful of cycles; the test exercises buoyancy ORDERING, which depends on molar mass, not on the
+     * exact resistance.
+     */
     public static Material air() {
         return Material.builder(AIR)
-                .thermalConductivity(0.026f).heatCapacity(1005f).molarMass(0.029f)
+                .thermalConductivity(0.026f).heatCapacity(1005f).molarMass(0.002f)
                 .defaultMass(1.2f).defaultTemperature(Float.NaN)
-                .viscosity(0f).minMass(0.001f).maxMass(1000f)
+                .viscosity(0f).minMass(1.0f).maxMass(1000f)
                 .minTemp(0f)
                 .build();
     }

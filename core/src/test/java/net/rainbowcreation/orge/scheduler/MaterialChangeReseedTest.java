@@ -33,9 +33,9 @@ class MaterialChangeReseedTest {
 
     /**
      * The ambient finite gas (formerly State.AIR). Under the canonical schema air has no separate
-     * non-fluid state — it is a movable gas (finite viscosity). NOTE(Task 3.x): collapsing air into
-     * "movable" shadows the old broken-block→vacuum branch (now a plain reseed); the vacuum policy is
-     * reworked when the new engine advection lands.
+     * non-fluid state — it is a movable gas (finite viscosity), so a broken-block→air cell takes the
+     * plain {@code reseeds()} path (stays AIR, stale mass cleared to 0). The old broken-block→VACUUM
+     * branch is gone (Task 4.1): breaking a block spawns AIR, not the VOID sentinel.
      */
     private static Material air(Identifier id, float defaultMass) {
         return Material.builder(id)
@@ -169,15 +169,13 @@ class MaterialChangeReseedTest {
     // --- A RUNTIME block→air transition clears the stale mass. ---
 
     @Test
-    void brokenBlockToAirClearsStaleMass() {
-        // A player breaks a stone block: the live cell is now air, but the §5 store still holds the
-        // OLD stone mass (2500). The stale mass is cleared to 0 (no 1.2 kg air-from-nothing).
-        //
-        // TODO(Task 3.x): the canonical schema collapses air into "movable", so reseeds() now fires
-        // first and this cell stays AIR (a plain reseed) rather than becoming the VOID sentinel — the
-        // old broken-block→VACUUM matIx-rewrite (which needed air to be a distinct non-fluid state)
-        // is shadowed. The vacuum policy is reworked when the new engine advection lands; for now we
-        // assert the surviving, model-consistent outcome: the stale stone mass is cleared.
+    void brokenBlockToAirBecomesAirNotVacuum() {
+        // A player breaks a stone block: the live cell is now AIR (a movable gas under the unified
+        // model), but the §5 store still holds the OLD stone mass (2500). Breaking a block spawns AIR,
+        // not the VOID sentinel: the cell KEEPS its live air material (matIx = air's slot) and the stale
+        // stone mass is CLEARED to 0 (no 1.2 kg air-from-nothing); ColumnAssembler then seeds the cleared
+        // air cell to air's defaultMass. This is the plain reseeds() path — the obsolete broken-block→
+        // VACUUM (matIx→void) policy is GONE.
         char[] matIx = uniform(AIR_IX);
         float[] temps = new float[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
@@ -185,47 +183,54 @@ class MaterialChangeReseedTest {
         java.util.Arrays.fill(mass, 2500f);  // stale stone mass
         MaterialChangeReseed.apply(uniformPrior(Identifier.fromNamespaceAndPath("orge", "stone")),
                 matIx, lut(), temps, mass, 285f);
-        assertEquals(0f, mass[0], 0f, "broken block→air cell clears the stale stone mass (no air-from-nothing)");
+        assertEquals(AIR_IX, matIx[0],
+                "broken block→air cell HOLDS the air material (not the VOID sentinel)");
+        assertEquals(0f, mass[0], 0f,
+                "broken block→air cell clears the stale stone mass to 0 (ColumnAssembler seeds air default)");
+        assertEquals(285f, temps[0], 0f, "air (no source temp) seeds at biome ambient");
     }
 
     @Test
     void chunkLoadAirSeedingIsUntouchedAndDiffersFromBrokenBlock() {
-        // The two air paths MUST differ. Chunk-load / world-gen seeding (prior == null, the section
-        // was never tracked) leaves the block-derived 1.2 kg air seed alone — the world comes WITH
-        // its air. A runtime break (prior = a real block) makes vacuum. Same live air cell, opposite
-        // mass outcome, gated solely on whether the cell was tracked before.
+        // The two air paths MUST differ in MASS, though both end as the AIR material. Chunk-load /
+        // world-gen seeding (prior == null, the section was never tracked) leaves the block-derived
+        // 1.2 kg air seed alone — the world comes WITH its air. A runtime break (prior = a real block)
+        // is a reseeds() change: the cell stays AIR but its stale mass is cleared to 0 (ColumnAssembler
+        // re-seeds air's default). Same live air material, opposite mass outcome, gated solely on
+        // whether the cell was tracked before.
         char[] seedMat = uniform(AIR_IX);
         float[] seedMass = new float[SectionData.CELLS];
         java.util.Arrays.fill(seedMass, 1.2f);  // the world-gen / block-derived air seed
         MaterialChangeReseed.apply(null, seedMat, lut(),
                 new float[SectionData.CELLS], seedMass, 285f);
-        assertEquals(AIR_IX, seedMat[0], "chunk-load air keeps its real air material (not void)");
+        assertEquals(AIR_IX, seedMat[0], "chunk-load air keeps its real air material");
         assertEquals(1.2f, seedMass[0], 0f, "chunk-load / world-gen air seeding stays 1.2 kg (unchanged)");
 
-        // Same live air cell, but tracked (a runtime break) → vacuum. The paths genuinely diverge.
+        // Same live air cell, but tracked (a runtime break) → still AIR, but mass cleared to 0.
         char[] runtimeMat = uniform(AIR_IX);
         float[] runtimeMass = new float[SectionData.CELLS];
         java.util.Arrays.fill(runtimeMass, 2500f);
         MaterialChangeReseed.apply(uniformPrior(Identifier.fromNamespaceAndPath("orge", "stone")),
                 runtimeMat, lut(), new float[SectionData.CELLS], runtimeMass, 285f);
+        assertEquals(AIR_IX, runtimeMat[0], "broken block→air keeps the air material (not void)");
         assertNotEquals(seedMass[0], runtimeMass[0],
-                "world-gen air (1.2) and broken-block vacuum (0) must differ");
-        assertEquals(0f, runtimeMass[0], 0f, "the broken-block path is vacuum");
+                "world-gen air (1.2 kg) and broken-block-cleared air (0 kg) must differ");
+        assertEquals(0f, runtimeMass[0], 0f, "the broken-block path clears stale mass to 0");
     }
 
     @Test
-    void engineAirFillIsNotMistakenForAPlayerEditAndNotReVacuumed() {
-        // Reseed-misfire guard (mirrors MaterialChangeReseedConservationTest): the engine filled a
-        // broken-block vacuum with air over a step (the cell's recorded signature is the engine
-        // OUTPUT species = air). Next snapshot the live cell is air and prior is ALSO air, so this
-        // unit must NOT re-vacuum it (no air→air transition) — the fill is not fought.
+    void engineAirFillIsNotMistakenForAPlayerEditAndNotReseeded() {
+        // Reseed-misfire guard: the engine flowed air into a cell over a step (the cell's recorded
+        // signature is the engine OUTPUT species = air). Next snapshot the live cell is air and prior
+        // is ALSO air, so reseeds() is false (same id) — this unit must NOT touch it. The engine fill
+        // (mass + label) is preserved, never fought.
         char[] matIx = uniform(AIR_IX);
         float[] temps = new float[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
         java.util.Arrays.fill(temps, 290f);
         java.util.Arrays.fill(mass, 0.8f);  // air the engine flowed in (still equalising)
         MaterialChangeReseed.apply(uniformPrior(AIR), matIx, lut(), temps, mass, 285f);
-        assertEquals(AIR_IX, matIx[0], "engine-filled air cell stays air (not re-vacuumed)");
+        assertEquals(AIR_IX, matIx[0], "engine-filled air cell stays air (untouched)");
         assertEquals(0.8f, mass[0], 0f, "engine-filled air mass is preserved (the fill is not fought)");
     }
 

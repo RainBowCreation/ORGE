@@ -39,56 +39,32 @@ public final class MaterialChangeReseed {
     }
 
     /**
-     * True when a cell underwent a RUNTIME block→air transition (§11 Phase A; Task M4) — its
-     * previously-tracked block ({@code prior}) was a real, non-air material and the cell's live
-     * material is now first-class {@link Material#air()} air. Such a cell must become <b>vacuum</b>
-     * (mass 0, the void sentinel), NOT 1.2 kg air-from-nothing: breaking a block opens empty volume
-     * that the engine's gas volume-fill refills from real neighbouring air (conserved).
+     * Overrides {@code temps}/{@code mass} in place per cell. A cell that became a DIFFERENT movable
+     * material since {@code prior} (bucket, /setblock, or a broken block whose live material is now
+     * AIR) has its stale temperature corrected to the new material's source/ambient temperature and its
+     * stale stored mass <b>cleared to 0</b> — it does NOT fabricate {@code defaultMass} here. Clearing
+     * to 0 routes the cell through the single surviving fresh-fluid seed in {@link ColumnAssembler}
+     * ({@code movable && stored <= 0 ⇒ defaultMass}), so "1 bucket = 1000 kg" (and "broken block → air's
+     * default") stays an entry point with exactly one mass seed in the pipeline (DESIGN 2026-06-01 §6,
+     * R3: the Java layer never fabricates mass on a material change).
      *
-     * <p>Gated on {@code prior != null}: a never-tracked section ({@code prior == null}) is chunk-load /
-     * world-gen seeding — the world comes WITH its air, so its 1.2 kg block-derived seed is left alone.
-     * Gated on {@code !prior.equals(live air id)}: an air→air cell (e.g. one the engine just filled with
-     * air, recorded from the engine OUTPUT signature) is NOT re-vacuumed, so the reseed guard never
-     * fights the gas fill ([[orge-reseed-misfire-fix]]).</p>
-     */
-    // TODO(Task 1.2/3.x): the old air/fluid distinction is gone (air is now just a movable gas), so
-    // this collapses to movable() like reseeds(). With reseeds() checked first in apply(), the void
-    // branch is currently shadowed; the broken-block→vacuum policy is reworked when the new engine
-    // advection lands. Mapped to movable() to preserve compilation + the §11 finite-gas model.
-    public static boolean voids(Identifier prior, Material live) {
-        return prior != null && live.movable() && !live.id().equals(prior);
-    }
-
-    /**
-     * Overrides {@code matIx}/{@code temps}/{@code mass} in place per cell:
-     * <ul>
-     *   <li>a cell that became a DIFFERENT FLUID since {@code prior} (bucket, /setblock) has its stale
-     *       temperature corrected to the new fluid's source/ambient temperature and its stale stored
-     *       mass <b>cleared to 0</b> — it does NOT fabricate {@code defaultMass} here. Clearing to 0
-     *       routes the cell through the single surviving fresh-fluid seed in {@link ColumnAssembler}
-     *       ({@code fluid && stored <= 0 ⇒ defaultMass}), so "1 bucket = 1000 kg" stays an entry point
-     *       with exactly one mass seed in the pipeline (DESIGN 2026-06-01 §6, R3: the Java layer never
-     *       fabricates mass on a material change);</li>
-     *   <li>a cell that underwent a RUNTIME block→air transition (§11 Phase A; Task M4) is set to
-     *       VACUUM — the void sentinel (matIx 0) at 0 mass — so a broken block opens empty volume the
-     *       engine refills from neighbouring air, rather than seeding 1.2 kg air from nothing.</li>
-     * </ul>
-     * No-op when {@code prior == null} (the section was never tracked, so the block-derived / world-gen
-     * seed is already authoritative — chunk-load air stays 1.2 kg) or a cell's material is unchanged.
+     * <p>Under the unified model breaking a block spawns AIR — a movable gas — not a VOID sentinel, so
+     * that case is the same {@code reseeds()} path: the cell KEEPS its live air material and only its
+     * stale mass is cleared. The obsolete broken-block→VACUUM (matIx→void) policy is gone (Task 4.1).</p>
      *
-     * <p>Neither branch creates mass: the fluid-change branch only clears stale mass (the real seed
-     * lives in {@link ColumnAssembler}), and the void branch zeroes a broken cell. Temperature is not a
-     * conserved species, so seeding a fluid-change cell's temperature here is correct (a bucket of lava
-     * must reach its pinned {@code default_temperature}).</p>
+     * <p>No-op when {@code prior == null} (the section was never tracked, so the block-derived / world-gen
+     * seed is already authoritative — chunk-load air stays 1.2 kg) or a cell's material is unchanged. The
+     * branch never creates mass (it only clears stale mass; the real seed lives in {@link
+     * ColumnAssembler}). Temperature is not a conserved species, so seeding a changed cell's temperature
+     * here is correct (a bucket of lava must reach its pinned {@code default_temperature}).</p>
      *
      * @param prior        per-cell material ids the stored values belong to, or {@code null}
-     * @param matIx        the live per-cell material indices into {@code lut} (mutated: a broken
-     *                     block→air cell is rewritten to the void sentinel {@code 0})
+     * @param matIx        the live per-cell material indices into {@code lut} (read-only here)
      * @param lut          the batch material table (index 0 = {@link MaterialLut#VOID})
      * @param temps        per-cell temperatures to correct (mutated)
-     * @param mass         per-cell masses to correct (mutated: a changed-fluid cell is cleared to 0 so
+     * @param mass         per-cell masses to correct (mutated: a changed-material cell is cleared to 0 so
      *                     {@link ColumnAssembler}'s seed re-fills it to {@code defaultMass})
-     * @param biomeAmbientK the section's biome ambient temperature (K), used for non-source fluids
+     * @param biomeAmbientK the section's biome ambient temperature (K), used for non-source materials
      */
     public static void apply(Identifier[] prior, char[] matIx, List<Material> lut,
                              float[] temps, float[] mass, float biomeAmbientK) {
@@ -96,25 +72,19 @@ public final class MaterialChangeReseed {
             return;
         }
         for (int i = 0; i < SectionData.CELLS; i++) {
-            // A cell that IS the void sentinel is empty space, not a fluid that moved in: never reseed
-            // it. (Under the canonical schema VOID is now a finite-viscosity — i.e. movable — fluid, so
-            // without this guard reseeds()/voids() would fire on it; matIx 0 is the unambiguous test.)
+            // A cell that IS the void sentinel is empty space, not a material that moved in: never reseed
+            // it. (Under the canonical schema VOID is a finite-viscosity — i.e. movable — fluid, so
+            // without this guard reseeds() would fire on it; matIx 0 is the unambiguous test.)
             if (matIx[i] == VOID_IX) {
                 continue;
             }
             Material m = lut.get(matIx[i]);
             if (reseeds(prior[i], m)) {
-                // A different fluid moved in (bucket, /setblock). Correct the stale temperature, but do
-                // NOT fabricate mass here: clear the stale stored mass to 0 so ColumnAssembler's single
-                // fresh-fluid seed (stored <= 0 ⇒ defaultMass) fills it. Exactly one mass seed survives.
+                // A different movable material moved in (bucket, /setblock, or a broken block now AIR).
+                // Correct the stale temperature, but do NOT fabricate mass here: clear the stale stored
+                // mass to 0 so ColumnAssembler's single fresh-fluid seed (stored <= 0 ⇒ defaultMass)
+                // fills it. Exactly one mass seed survives in the pipeline.
                 temps[i] = m.hasDefaultTemperature() ? m.defaultTemperature() : biomeAmbientK;
-                mass[i] = 0f;
-            } else if (voids(prior[i], m)) {
-                // §11 Phase A (Task M4): a broken block (real material → air) opens empty volume.
-                // Write VACUUM — the void sentinel (matIx 0) at 0 mass — NOT 1.2 kg air from nothing.
-                // The engine's gas volume-fill refills it from neighbouring air, conserved. Temperature
-                // is left as-is: vacuum carries no species, and the engine treats matIx 0 as void.
-                matIx[i] = VOID_IX;
                 mass[i] = 0f;
             }
         }
