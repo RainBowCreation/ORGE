@@ -50,6 +50,15 @@ public final class MaterialLut {
         return ix;
     }
 
+    /** The LUT index already assigned to {@code id}, or 0 (the {@link #VOID} sentinel) if this id has
+     *  not been seen in this batch. Read-only — never appends. Used by the {@link ColumnAssembler}
+     *  seed gate to translate a recorded prior-species {@link Identifier} into the section's LUT space
+     *  (an unknown/never-simulated prior maps to void, which differs from any real fluid ⇒ seeds). */
+    public char indexOf(Identifier id) {
+        Character existing = byId.get(id);
+        return existing != null ? existing : (char) 0;
+    }
+
     /** The table to hand to the engine; index 0 = {@link #VOID}. */
     public List<Material> materials() {
         return Collections.unmodifiableList(lut);

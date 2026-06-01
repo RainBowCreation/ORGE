@@ -210,6 +210,27 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         return true;
     }
 
+    /**
+     * The prior cycle's recorded engine-output species (a per-cell {@link Identifier} signature from
+     * {@link CellMaterialTracker}) translated into the current batch LUT's index space, for the
+     * {@link ColumnAssembler} seed gate. A {@code null} prior (never-tracked section) or an id absent
+     * from this batch's LUT maps to 0 (void) — which differs from any real fluid index, so a genuinely
+     * new placement still seeds. Same {@code char[SectionData.CELLS]} layout the assembler expects.
+     */
+    private static char[] priorSpeciesIndices(Identifier[] prior, MaterialLut lut) {
+        char[] out = new char[SectionData.CELLS];
+        if (prior == null) {
+            return out; // all void → no recorded signature → every fresh fluid is a genuine placement
+        }
+        int n = Math.min(prior.length, out.length);
+        for (int i = 0; i < n; i++) {
+            if (prior[i] != null) {
+                out[i] = lut.indexOf(prior[i]);
+            }
+        }
+        return out;
+    }
+
     /** Biome base temperature sampled once at the section centre, mapped to Kelvin. */
     private static float biomeAmbientK(ServerLevel level, SubchunkKey key) {
         int bx = (key.cx() << 4) + 8;
@@ -339,7 +360,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             // /setblock, broken block→vacuum) — same reseed the per-section path applied.
             Identifier[] priorMat = cellMaterials.prior(dim, key);
             MaterialChangeReseed.apply(priorMat, geo.matIx(), lut.materials(), temps, mass, ambientK);
-            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps);
+            // Translate last cycle's recorded engine-output species into this section's LUT space for the
+            // ColumnAssembler seed gate: a fluid cell at 0 kg is reseeded only when its label is NEW
+            // relative to priorSpecies (genuine placement), never when the engine drained it (prior ==
+            // current ⇒ no fabrication). An untracked section yields all-void ⇒ every fresh fluid seeds.
+            char[] priorSpecies = priorSpeciesIndices(priorMat, lut);
+            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies);
         };
     }
 
