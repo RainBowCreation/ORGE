@@ -293,4 +293,53 @@ class Section11PhaseANativeE2ETest {
         assertTrue(fullestAir <= air.maxMass() + 1e-2f,
                 "no air cell may exceed max_mass=" + air.maxMass() + ", fullest was " + fullestAir);
     }
+
+    // ============================================================================================
+    // (f) SOLID GUARD (E4): an AIR cell directly UNDER an inert SOLID must NEVER buoyancy-lift the
+    //     solid. Now that air is a live participating gas, the OLD gate (>=1 side gas) would fire on
+    //     air-below-stone and SINK the stone — terrain corruption common in any cave/overhang. The
+    //     fix requires BOTH swapped cells movable (liquid|gas), so an inert solid is left untouched.
+    //     Drives the REAL native engine path; self-skips without the .so.
+    // ============================================================================================
+
+    @Test
+    void airDirectlyUnderSolidDoesNotMoveTheSolid() {
+        NativeEngine e = requireNative();
+        List<Material> lut = List.of(voidMat(), water(), air(), stone());   // void, WATER=1, AIR=2, STONE=3
+
+        char[]  matIx = new char[SEC_N];
+        float[] mass  = new float[SEC_N];
+        float[] temp  = new float[SEC_N];
+        Arrays.fill(temp, 300f);
+        // A single AIR pocket directly beneath a STONE ceiling, surrounded by VACUUM (the canonical
+        // cave/overhang shape). Lighter air below + denser stone above is exactly the density
+        // inversion the OLD buoyancy gate fired on (air is a gas) — which would sink the solid. All
+        // interior, away from every section face. Stone at (8,8,8); air pocket directly below at (8,7,8).
+        int x = 8, z = 8, ys = 8, ya = 7;
+        int stone = sidx(x, ys, z);
+        int airBelow = sidx(x, ya, z);
+        matIx[stone]    = (char) 3; mass[stone]    = 2000f; // inert solid (fluid=gas=false)
+        matIx[airBelow] = (char) 2; mass[airBelow] = 1.2f;  // live air gas, lighter than the stone
+
+        for (int it = 0; it < 16; it++) {
+            char[]  inMat  = matIx.clone();
+            float[] before = mass.clone();
+            StepTask task = new StepTask(new SubchunkKey(0, 0, 0), matIx, mass, temp, voidHalo());
+            List<StepResult> out = e.step(List.of(task), lut,
+                    Scheduler.ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
+            mass = out.get(0).mass();
+            temp = out.get(0).temperature();
+            matIx = out.get(0).material() != null ? out.get(0).material() : matIx;
+            assertTrue(StepValidator.massConservedPerSpecies(mass, before, inMat, matIx, lut),
+                    "it=" + it + ": §9 must accept the (no-op) air-below-solid step");
+            // The solid must NEVER move: its cell stays stone with its full mass, and the air cell
+            // beneath it is never relabelled to stone (i.e. the stone did not sink into it).
+            assertEquals((char) 3, matIx[stone],
+                    "it=" + it + ": stone ceiling stays put (air must NOT lift/sink the solid)");
+            assertEquals(2000f, mass[stone], 1e-2f,
+                    "it=" + it + ": stone's mass is unchanged (not swapped with the 1.2 kg air)");
+            assertTrue(matIx[airBelow] != 3,
+                    "it=" + it + ": the stone did NOT sink into the air cell below it");
+        }
+    }
 }
