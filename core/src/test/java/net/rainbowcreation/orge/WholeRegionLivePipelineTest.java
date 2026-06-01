@@ -23,22 +23,22 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * {@code (0,0)} and {@code (1,0)} through a single {@link NativeEngine#stepWorld} call so the
  * engine flows water ACROSS the X seam between them.
  *
- * <p>The engine's tested cross-X/Z-seam mechanism (see {@code ORGE-ENGINE/sim_engine.hpp} the
- * {@code wetPair} same-species seam-leveling block, and {@code tests/world_step_test.cpp} case (b),
- * which seeds a same-species sliver on the far side) is SAME-SPECIES LEVELING: two same-species
- * fluid cells of different mass straddling the seam level toward each other. Cross-seam
- * wetting-into-air is a BANKED engine feature, NOT present in this {@code .so}. So the scenario
- * places a high water cell at the {@code +X} edge of col {@code (0,0)} and a low water cell at the
- * {@code -X} edge of col {@code (1,0)}; the engine levels water from {@code (0,0)} across the seam
- * into {@code (1,0)}.</p>
+ * <p>The engine's cross-X/Z-seam mechanism (see {@code ORGE-ENGINE/sim_engine.hpp}) now performs
+ * cross-seam wetting-INTO-AIR (engine commit {@code 161bb2c}, bundled into this {@code .so}): a
+ * liquid cell on one side of a chunk seam displaces a PURE-AIR cell on the far side. This is the
+ * landed form of what used to be a BANKED feature; the test no longer needs a same-species water
+ * sliver on the far side to coax the engine across. So the scenario places the ENTIRE 1000 kg water
+ * body at the {@code +X} edge of col {@code (0,0)} over a stone floor, and leaves col {@code (1,0)}
+ * as PURE finite air — the engine flows water across the X seam into genuine air.</p>
  *
  * <p>Every cycle asserts: (a) total water across both columns {@code == 1000} (±1e-2); (c) total
  * air mass across both columns is conserved (magnitude-relative tolerance, since the air total is
  * ~2.4e5 kg over ~4.7e5 float32 cells and the §11 leak it guards against is kg-scale per cell).
- * After settling: (b) more water ended up in col {@code (1,0)} than it started with — it crossed
- * the X seam. The per-cycle {@link StepValidator.SpeciesMassLedger} gate enforces the engine's own
- * {@code ε·N} conservation over BOTH columns. Engine output is persisted VERBATIM per column (no
- * reseed, trust the engine).</p>
+ * After settling: (b) a MEANINGFUL amount of water ended up in col {@code (1,0)} (which started with
+ * ZERO water) — it genuinely crossed the X seam into pure air, not into a pre-seeded sliver. The
+ * per-cycle {@link StepValidator.SpeciesMassLedger} gate enforces the engine's own {@code ε·N}
+ * conservation over BOTH columns. Engine output is persisted VERBATIM per column (no reseed, trust
+ * the engine).</p>
  */
 class WholeRegionLivePipelineTest {
 
@@ -131,12 +131,12 @@ class WholeRegionLivePipelineTest {
         FakeColumn col1 = new FakeColumn(1, 0);
         col0.floor();
         col1.floor();
-        // High water cell at the +X edge of col0 (x=15) and a low water cell at the -X edge of col1 (x=0),
-        // both resting on the floor at the SAME y. Both supported (won't drain to 0 -> no reseed). The
-        // engine's same-species seam-leveling moves water col0 -> col1 across the X seam. Total = 1000 kg.
-        final float col1Start = 100f;
-        col0.set(15, 1, 8, WATER, 900f, 290f);
-        col1.set(0, 1, 8, WATER, col1Start, 290f);
+        // The ENTIRE 1000 kg water body sits at the +X edge of col0 (x=15) over the stone floor.
+        // Column (1,0) is PURE finite air on the far side of the seam — NO pre-seeded water. The
+        // engine's cross-seam wetting-into-air (commit 161bb2c) flows water col0 -> col1 across the
+        // X seam into genuine air. Total water = 1000 kg, all in col0 to start.
+        final float col1Start = 0f;
+        col0.set(15, 1, 8, WATER, 1000f, 290f);
 
         double airBefore = col0.speciesMass(AIR) + col1.speciesMass(AIR);
         // Air total is ~2.4e5 kg across ~4.7e5 air cells; a float32 round-trip through the engine each
@@ -170,8 +170,10 @@ class WholeRegionLivePipelineTest {
             assertEquals(airBefore, air, airTol, "total air conserved every cycle (cycle " + cycle + ")");
         }
 
-        assertTrue(col1.speciesMass(WATER) > col1Start + 1f,
-                "water crossed the X seam into column (1,0): started " + col1Start
+        // col1 started with ZERO water; a meaningful mass crossing into pure air is the new teeth.
+        // Under the OLD .so (no cross-seam-into-air), water would NOT enter pure air and this fails.
+        assertTrue(col1.speciesMass(WATER) > 50f,
+                "water crossed the X seam into PURE-AIR column (1,0): started " + col1Start
                         + " kg, ended " + col1.speciesMass(WATER) + " kg");
     }
 }
