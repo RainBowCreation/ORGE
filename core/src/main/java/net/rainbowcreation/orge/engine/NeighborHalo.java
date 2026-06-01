@@ -22,6 +22,22 @@ public record NeighborHalo(
 ) {
     public static final int FACE_CELLS = 256;
 
+    /**
+     * An all-void halo: every face is zero temperature / void material ({@code 0}) / 0 kg — encodes
+     * "no neighbour on any side" (a world-edge / absent-column wall). Used by the whole-region column
+     * path, which carries cross-column flow in the engine World rather than in per-section halos, so its
+     * reconstructed per-section {@link StepTask}s need a valid-but-inert halo.
+     */
+    public static NeighborHalo empty() {
+        return new NeighborHalo(
+                new float[FACE_CELLS], new float[FACE_CELLS], new float[FACE_CELLS],
+                new float[FACE_CELLS], new float[FACE_CELLS], new float[FACE_CELLS],
+                new char[FACE_CELLS], new char[FACE_CELLS], new char[FACE_CELLS],
+                new char[FACE_CELLS], new char[FACE_CELLS], new char[FACE_CELLS],
+                new float[FACE_CELLS], new float[FACE_CELLS], new float[FACE_CELLS],
+                new float[FACE_CELLS], new float[FACE_CELLS], new float[FACE_CELLS]);
+    }
+
     /** Temperature faces in the canonical order negX, posX, negY, posY, negZ, posZ. */
     public float[][] tempFaces() {
         return new float[][]{negXT, posXT, negYT, posYT, negZT, posZT};

@@ -1,6 +1,8 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.engine.ColumnResult;
+import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
@@ -27,14 +29,20 @@ public interface ThermalWorld {
      * {@link StepTask} (geometry + a COPY of its temperatures + halo). Returns an empty batch
      * when there is nothing to simulate.
      */
-    Batch snapshot(int range);
+    default Batch snapshot(int range) {
+        return new Batch(List.of(), List.of(MaterialLut.VOID));
+    }
 
     /**
      * Persist one validated result on the server thread: write the result's temperatures AND mass
      * into the entry's section and mark its column dirty (§5). A section that has unloaded since the
      * snapshot is skipped.
+     *
+     * <p>DORMANT: the per-section path is superseded by the whole-region column path
+     * ({@link #snapshotColumns}/{@link #writeBackColumn}); kept as a default so the surviving
+     * per-section test fakes still compile.</p>
      */
-    void writeBack(BatchEntry entry, StepResult result);
+    default void writeBack(BatchEntry entry, StepResult result) { }
 
     /**
      * Record a section's per-step settle deltas (DESIGN §10 Decision 11). Called from the writeback
@@ -62,4 +70,36 @@ public interface ThermalWorld {
      * already-known and reseeds only genuine external edits. Default no-op for headless test worlds.
      */
     default void recordCellMaterials(BatchEntry entry, char[] outMat, java.util.List<Material> lut) { }
+
+    // ----------------------------------------------------------------------------------------
+    // Whole-region column path (DESIGN 2026-06-01 §5–§7). Replaces the per-section snapshot/
+    // writeBack + halo/seam machinery: the active+apron column set is stepped as one engine World.
+    // ----------------------------------------------------------------------------------------
+
+    /** One full-height column ({@link ColumnTask}, {@link net.rainbowcreation.orge.engine.RegionMarshaller#CHUNK_N}
+     *  cells) plus the key it came from for write-back. */
+    record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task) {}
+
+    /** A cycle's worth of column work: the dimension-tagged columns + the shared material LUT. */
+    record ColumnBatch(List<ColumnEntry> entries, List<Material> lut) {}
+
+    /**
+     * Assemble this cycle's active+apron column set (the player-sphere union at {@code range}
+     * projected to columns, expanded by one ring of LOADED neighbour columns — the apron;
+     * MC-unloaded neighbours are excluded so they read as an absent-column wall). Each entry is a
+     * full-height {@link ColumnTask} assembled via {@link ColumnAssembler}. Returns an empty batch
+     * when there is nothing to simulate. Default empty for headless test worlds that only drive the
+     * per-section path.
+     */
+    default ColumnBatch snapshotColumns(int range) {
+        return new ColumnBatch(List.of(), List.of(MaterialLut.VOID));
+    }
+
+    /**
+     * Persist one validated column result (T + mass) back into the 24 sections of {@code (cx,cz)},
+     * reconcile MC blocks to the engine output species, record the output materials as the next
+     * cycle's signature, settle, and wake any neighbour column that gained mass across an X/Z
+     * boundary. Default no-op for headless test worlds.
+     */
+    default void writeBackColumn(ColumnEntry entry, ColumnResult result) { }
 }

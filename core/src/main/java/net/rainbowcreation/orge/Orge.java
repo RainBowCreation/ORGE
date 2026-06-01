@@ -163,6 +163,8 @@ public final class Orge {
         thermalWorld = new MinecraftThermalWorld(SECTION_STORES, cellMaterials, activeSet);
         phaseChanger = new MinecraftPhaseChanger(SECTION_STORES);
         fluidReconciler = new MinecraftFluidReconciler(SECTION_STORES);
+        // Whole-region column write-back drives the §7 phase-changer + §10 reconciler per section.
+        thermalWorld.setReconcilers(fluidReconciler, phaseChanger);
         Worker serverWorker = new Worker(
                 UUID.randomUUID(), true,
                 Scheduler.DEFAULT_RANGE, Scheduler.MAX_RANGE,

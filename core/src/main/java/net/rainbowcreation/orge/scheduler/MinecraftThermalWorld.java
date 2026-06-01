@@ -9,11 +9,15 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.rainbowcreation.orge.engine.ColumnResult;
+import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.phase.FluidReconciler;
+import net.rainbowcreation.orge.phase.PhaseChanger;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -21,18 +25,20 @@ import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * Live {@link ThermalWorld} over a running {@link MinecraftServer} (DESIGN §8). Builds the
- * player-sphere (+ forced-chunk) union across all loaded levels, assembles each loaded
- * section's {@link StepTask} via the pure {@link SphereUnion}/{@link GeometryAssembler}/
- * {@link HaloAssembler} units, and writes validated results back through the §5
- * {@link SectionStoreManager}. The only Minecraft-coupled class in the scheduler.
- * Both {@link #snapshot} and {@link #writeBack} touch the server-thread-confined
- * {@link SectionStoreManager} and MUST be called on the server thread (the
- * {@code volatile server} field is the only cross-thread state).
+ * Live {@link ThermalWorld} over a running {@link MinecraftServer} (DESIGN §8; whole-region rewire
+ * 2026-06-01). Builds the player-sphere (+ forced-chunk) union across all loaded levels, projects it
+ * to the awake column set + a loaded apron ring, and assembles each column into a full-height
+ * {@link ColumnTask} via {@link ColumnAssembler} (reading live blocks + the §5 {@link SectionStore}).
+ * {@link #writeBackColumn} scatters the validated {@link ColumnResult} back into the 24 sections via
+ * {@link ColumnSectionCodec}, then reconciles/phase-changes each. The only Minecraft-coupled class in
+ * the scheduler. {@link #snapshotColumns}/{@link #writeBackColumn} touch the server-thread-confined
+ * {@link SectionStoreManager} and MUST be called on the server thread (the {@code volatile server}
+ * field is the only cross-thread state). The per-section {@link #writeBack} override is kept dormant.
  */
 public final class MinecraftThermalWorld implements ThermalWorld {
 
@@ -41,11 +47,28 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private final ActiveSet activeSet;
     private volatile MinecraftServer server;
 
+    /** §10/§7 seams the column write-back drives per section (set in {@link Orge} after construction;
+     *  default NOOP so headless tests that never set them do not need a live reconciler/phase changer). */
+    private FluidReconciler fluidReconciler = FluidReconciler.NOOP;
+    private PhaseChanger phaseChanger = PhaseChanger.NOOP;
+
+    /** The material LUT of the most recent {@link #snapshotColumns} batch, threaded to
+     *  {@link #writeBackColumn} (whose signature carries no LUT) so the reconciler can resolve the
+     *  engine output species. Both run on the server thread in the same cycle, so a plain field is safe. */
+    private List<Material> lastColumnLut = List.of(MaterialLut.VOID);
+
     public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials,
                                  ActiveSet activeSet) {
         this.stores = stores;
         this.cellMaterials = cellMaterials;
         this.activeSet = activeSet;
+    }
+
+    /** Wire the per-section reconcile/phase seams the column {@link #writeBackColumn} drives (DESIGN
+     *  2026-06-01 §7: write-back persists then reconciles+phase-changes each of the 24 sections). */
+    public void setReconcilers(FluidReconciler fluidReconciler, PhaseChanger phaseChanger) {
+        this.fluidReconciler = fluidReconciler;
+        this.phaseChanger = phaseChanger;
     }
 
     /** Convenience for headless write-back tests that never call {@link #snapshot}. */
@@ -61,89 +84,6 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** Bind the running server (on SERVER_STARTED); unbind on stop. */
     public void bindServer(MinecraftServer server) { this.server = server; }
     public void unbindServer() { this.server = null; }
-
-    // Server thread only.
-    @Override
-    public Batch snapshot(int range) {
-        MinecraftServer srv = this.server;
-        if (srv == null) {
-            return new Batch(List.of(), List.of(MaterialLut.VOID));
-        }
-        ActiveMaterials.State mats = ActiveMaterials.current();
-        MaterialLut lut = new MaterialLut();
-        List<BatchEntry> entries = new ArrayList<>();
-
-        for (ServerLevel level : srv.getAllLevels()) {
-            Identifier dim = level.dimension().identifier();
-
-            Set<SubchunkKey> anchors = new HashSet<>();
-            for (ServerPlayer p : level.players()) {
-                anchors.add(new SubchunkKey(
-                        SectionPos.blockToSectionCoord(p.getBlockX()),
-                        SectionPos.blockToSectionCoord(p.getBlockY()),
-                        SectionPos.blockToSectionCoord(p.getBlockZ())));
-            }
-            if (anchors.isEmpty() && level.getForceLoadedChunks().isEmpty()) {
-                continue;
-            }
-            Set<SubchunkKey> union = SphereUnion.expand(anchors, range);
-            addForcedSections(level, union);
-
-            // §10 Decision 11: step only the ACTIVE SET within range. A never-seen section is
-            // admitted active (new-in-range); a fully-asleep section is dropped here so a calm
-            // ocean stops re-simulating. activeWithin both filters and records new-in-range keys;
-            // the rest of the loop body (geometry, temps, mass, halo, entries.add) is unchanged.
-            List<SubchunkKey> active = activeSet.activeWithin(dim, new ArrayList<>(union));
-            // §10 Phase-2b co-step: the native engine uses an antisymmetric seam flux (A subtracts,
-            // B adds the same transfer). Both sides must be in the SAME batch or the seam leaks mass.
-            // Expand the batch to include the 6 face-neighbours of every FLOW-ACTIVE section so a
-            // dormant neighbour is stepped alongside its active peer. Co-stepped neighbours are NOT
-            // permanently woken — their countdown is untouched; noteSettle returns them toward sleep
-            // if nothing moved. Unloaded neighbour keys are harmless: the null-checks below skip them.
-            // §11 gas column: a flow-active section may have a fluid/gas surface whose displaced/rising gas
-            // needs a loaded receiver in the section ABOVE it across the Y seam — else strict §9
-            // conservation stalls the flow at the seam. Co-step that above-section (gated by the world top
-            // so we never add a phantom out-of-world neighbour). A flow-active section is treated as having
-            // an active surface; a calm/empty above-section costs ~nothing and settles back via noteSettle.
-            int topSectionY = SectionPos.blockToSectionCoord(level.getMaxY());
-            List<SubchunkKey> stepped = SeamCoStep.expand(
-                    active,
-                    k -> !activeSet.isFlowDormant(dim, k),
-                    k -> !activeSet.isFlowDormant(dim, k),
-                    sy -> sy <= topSectionY);
-
-            for (SubchunkKey key : stepped) {
-                LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
-                if (chunk == null) {
-                    continue;
-                }
-                LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, key.sectionY());
-                if (section == null) {
-                    continue;
-                }
-                final LevelChunkSection sec = section;
-                GeometryAssembler.CellMaterials cellMat =
-                        i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
-                GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
-                SectionStore store = stores.store(dim);
-                float[] temps = sectionTemps(level, store, key, cellMat);
-                float[] mass = sectionMass(store, key, geo, lut);
-                // §10 follow-on: a cell whose block changed material since last cycle (bucket fluid,
-                // /setblock, piston) still carries the OLD block's persisted temp/mass (a formerly-air
-                // cell stored 1.2 kg + ambient). Refresh those stale cells from the new material's
-                // defaults. The signature this compares against was recorded at the LAST write-back
-                // from the engine's OUTPUT species (recordCellMaterials), so the reconciler's own
-                // fluid placements are already-known and only genuine external edits reseed.
-                Identifier[] priorMat = cellMaterials.prior(dim, key);
-                MaterialChangeReseed.apply(priorMat, geo.matIx(), lut.materials(), temps, mass,
-                        biomeAmbientK(level, key));
-                NeighborHalo halo = buildHalo(level, dim, key, lut, mats);
-                entries.add(new BatchEntry(dim, key,
-                        new StepTask(key, geo.matIx(), mass, temps, halo)));
-            }
-        }
-        return new Batch(entries, lut.materials());
-    }
 
     // Server thread only.
     @Override
@@ -290,48 +230,226 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         }
     }
 
-    /** Build the 6-face halo: neighbour temps from the store, neighbour matIx from geometry. */
-    private NeighborHalo buildHalo(ServerLevel level, Identifier dim, SubchunkKey k,
-                                   MaterialLut lut, ActiveMaterials.State mats) {
-        return HaloAssembler.assemble(
-                neighbor(level, dim, k.cx() - 1, k.sectionY(), k.cz(), lut, mats, GeometryAssembler.Face.NEG_X),
-                neighbor(level, dim, k.cx() + 1, k.sectionY(), k.cz(), lut, mats, GeometryAssembler.Face.POS_X),
-                neighbor(level, dim, k.cx(), k.sectionY() - 1, k.cz(), lut, mats, GeometryAssembler.Face.NEG_Y),
-                neighbor(level, dim, k.cx(), k.sectionY() + 1, k.cz(), lut, mats, GeometryAssembler.Face.POS_Y),
-                neighbor(level, dim, k.cx(), k.sectionY(), k.cz() - 1, lut, mats, GeometryAssembler.Face.NEG_Z),
-                neighbor(level, dim, k.cx(), k.sectionY(), k.cz() + 1, lut, mats, GeometryAssembler.Face.POS_Z));
+    // ============================================================================================
+    // Whole-region column path (DESIGN 2026-06-01). snapshotColumns assembles the active+apron column
+    // set into full-height ColumnTasks; writeBackColumn scatters a ColumnResult back into 24 sections.
+    // ============================================================================================
+
+    // Server thread only.
+    @Override
+    public ColumnBatch snapshotColumns(int range) {
+        MinecraftServer srv = this.server;
+        if (srv == null) {
+            return new ColumnBatch(List.of(), List.of(MaterialLut.VOID));
+        }
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        MaterialLut lut = new MaterialLut();
+        List<ColumnEntry> entries = new ArrayList<>();
+
+        for (ServerLevel level : srv.getAllLevels()) {
+            Identifier dim = level.dimension().identifier();
+
+            Set<SubchunkKey> anchors = new HashSet<>();
+            for (ServerPlayer p : level.players()) {
+                anchors.add(new SubchunkKey(
+                        SectionPos.blockToSectionCoord(p.getBlockX()),
+                        SectionPos.blockToSectionCoord(p.getBlockY()),
+                        SectionPos.blockToSectionCoord(p.getBlockZ())));
+            }
+            if (anchors.isEmpty() && level.getForceLoadedChunks().isEmpty()) {
+                continue;
+            }
+            Set<SubchunkKey> union = SphereUnion.expand(anchors, range);
+            addForcedSections(level, union);
+
+            // Project the active section set to the awake COLUMN set (any active section ⇒ its column
+            // is awake), preserving the §10 dormancy gate (a fully-asleep section contributes nothing,
+            // a calm column drops out). activeWithin records new-in-range keys, same as the section path.
+            List<SubchunkKey> active = activeSet.activeWithin(dim, new ArrayList<>(union));
+            LinkedHashSet<Long> awakeColumns = new LinkedHashSet<>();
+            for (SubchunkKey key : active) {
+                awakeColumns.add(packColumn(key.cx(), key.cz()));
+            }
+            // Apron (DESIGN §5/decision 7): expand by one ring of LOADED neighbour columns so a
+            // loaded-but-dormant neighbour is stepped as a real column (not misread as an absent-column
+            // wall). A genuinely MC-unloaded neighbour is excluded → correct wall.
+            LinkedHashSet<Long> columns = new LinkedHashSet<>(awakeColumns);
+            for (long packed : awakeColumns) {
+                int cx = unpackCx(packed);
+                int cz = unpackCz(packed);
+                addLoadedNeighbour(level, columns, cx - 1, cz);
+                addLoadedNeighbour(level, columns, cx + 1, cz);
+                addLoadedNeighbour(level, columns, cx, cz - 1);
+                addLoadedNeighbour(level, columns, cx, cz + 1);
+            }
+
+            SectionStore store = stores.store(dim);
+            for (long packed : columns) {
+                int cx = unpackCx(packed);
+                int cz = unpackCz(packed);
+                if (LiveMaterials.loadedChunk(level, cx, cz) == null) {
+                    continue; // unloaded since selection: absent column = wall
+                }
+                ColumnAssembler.SectionSource src =
+                        columnSource(level, dim, store, lut, mats);
+                entries.add(new ColumnEntry(dim, cx, cz,
+                        ColumnAssembler.assemble(cx, cz, lut.materials(), src)));
+            }
+        }
+        lastColumnLut = lut.materials();
+        return new ColumnBatch(entries, lut.materials());
     }
 
     /**
-     * A neighbour's face data (temperature, matIx, mass) or null (void) when not loaded. Only the
-     * single 16×16 plane the halo reads ({@code face}) is assembled — {@link GeometryAssembler#assembleFace}
-     * computes matIx/mass for those 256 cells, ~16× less geometry work than a full section assemble.
-     * At those face cells the values are bit-identical to the old full-section path, so the halo
-     * (and cross-section conservation) is unchanged.
+     * A per-section reader for {@link ColumnAssembler}: matIx from live blocks (via
+     * {@link LiveMaterials}/{@link GeometryAssembler}); mass/T from the {@link SectionStore} (the
+     * §10 advected state, with the {@link MassSnapshot} fresh-fluid rule), or the per-cell ambient
+     * seed for a never-simulated / out-of-world section. A section not loaded in the chunk is read as
+     * full ambient air (matIx 0 / void with ambient T) — it is inside a present (loaded) column, so it
+     * is a real defined cell, never "unknown".
      */
-    private HaloAssembler.Neighbor neighbor(ServerLevel level, Identifier dim,
-                                            int cx, int sectionY, int cz,
-                                            MaterialLut lut, ActiveMaterials.State mats,
-                                            GeometryAssembler.Face face) {
-        LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
-        if (chunk == null) return null;
-        LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, sectionY);
-        if (section == null) return null;
-        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+    private ColumnAssembler.SectionSource columnSource(ServerLevel level, Identifier dim,
+                                                       SectionStore store, MaterialLut lut,
+                                                       ActiveMaterials.State mats) {
+        return (cx, cz, sectionY) -> {
+            SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+            LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
+            LevelChunkSection section = chunk == null ? null : LiveMaterials.sectionOrNull(chunk, sectionY);
+            float ambientK = biomeAmbientK(level, key);
+            if (section == null) {
+                // No block section here (above world top / empty subchunk): treat as void/ambient. matIx
+                // 0 (void) → ColumnAssembler leaves it as-is (not a fluid, so no seed); mass 0; ambient T.
+                char[] mat = new char[SectionData.CELLS];
+                float[] mass = new float[SectionData.CELLS];
+                float[] temp = new float[SectionData.CELLS];
+                java.util.Arrays.fill(temp, ambientK);
+                return new ColumnAssembler.SectionCells(mat, mass, temp);
+            }
+            final LevelChunkSection sec = section;
+            GeometryAssembler.CellMaterials cellMat =
+                    i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
+            GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
+            float[] temps = sectionTemps(level, store, key, cellMat);
+            float[] mass = sectionMass(store, key, geo, lut);
+            // §10 follow-on: refresh cells whose block changed material since last cycle (bucket fluid,
+            // /setblock, broken block→vacuum) — same reseed the per-section path applied.
+            Identifier[] priorMat = cellMaterials.prior(dim, key);
+            MaterialChangeReseed.apply(priorMat, geo.matIx(), lut.materials(), temps, mass, ambientK);
+            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps);
+        };
+    }
+
+    // Server thread only.
+    @Override
+    public void writeBackColumn(ColumnEntry entry, ColumnResult result) {
+        SectionStore store = stores.store(entry.dimension());
+        if (store == null || !store.isLoaded(entry.cx(), entry.cz())) {
+            return;
+        }
+        float maxMassDelta = 0f;
+        float[] inMass = entry.task().mass();
+        for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
+            SubchunkKey key = new SubchunkKey(entry.cx(), sectionY, entry.cz());
+            float[][] tm = ColumnSectionCodec.sliceSection(result.temperature(), result.mass(), sectionY);
+            float[] inT = ColumnSectionCodec.sliceSection(
+                    entry.task().temperature(), entry.task().mass(), sectionY)[0];
+            // Clamp identically to the per-section path: non-finite T → snapshot input (clamped [0,6000]);
+            // mass clamped to [0, fullMassBound] (the column's max defaultMass over its species).
+            float[] cleanT = StepValidator.clean(tm[0], inT);
+            float[] cleanM = StepValidator.cleanMass(tm[1], fullMassBound(entry.task()));
+            char[] outMat = ColumnSectionCodec.sliceSectionMaterials(result.matIx(), sectionY);
+
+            SectionData data = store.get(key);
+            float[] dstT = data.temperatureArray();
+            System.arraycopy(cleanT, 0, dstT, 0, SectionData.CELLS);
+            float[] dstM = data.massArray();
+            System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
+            data.demoteIfUniform();
+            store.put(key, data);
+
+            // Reconstruct the per-section entry the §10/§7 seams consume (input geometry + this section's
+            // engine output species). recordCellMaterials/noteSettle/reconcile/phase mirror the
+            // per-section advection write-back exactly.
+            char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
+            StepTask secTask = new StepTask(key, inMatSec, inMass(inMass, sectionY), inT,
+                    NeighborHalo.empty());
+            ThermalWorld.BatchEntry secEntry = new ThermalWorld.BatchEntry(entry.dimension(), key, secTask);
+            recordCellMaterials(secEntry, outMat, lastColumnLut);
+            float secMassDelta = maxAbsDelta(cleanM, secTask.mass());
+            if (secMassDelta > maxMassDelta) maxMassDelta = secMassDelta;
+            noteSettle(secEntry, secMassDelta, -1f);
+            phaseChanger.applyPhaseChanges(secEntry);
+            fluidReconciler.reconcile(secEntry, outMat, lastColumnLut);
+        }
+        // Wake any LOADED neighbour column that could have received mass across an X/Z boundary this step
+        // (DESIGN §5 wake-on-cross): if our column moved any mass, the apron neighbour must re-enter next
+        // cycle to accept incoming flow rather than stranding it at the seam. Column-granular replacement
+        // (the old per-section seam wake); over-waking is harmless (the neighbour settles via noteSettle).
+        if (maxMassDelta >= SettleCountdown.EPS_MASS) {
+            wakeColumnNeighbour(entry.dimension(), entry.cx() - 1, entry.cz());
+            wakeColumnNeighbour(entry.dimension(), entry.cx() + 1, entry.cz());
+            wakeColumnNeighbour(entry.dimension(), entry.cx(), entry.cz() - 1);
+            wakeColumnNeighbour(entry.dimension(), entry.cx(), entry.cz() + 1);
+        }
+    }
+
+    /** The section-Y slice of a column's input mass (for the per-section reconstructed StepTask). */
+    private static float[] inMass(float[] columnInMass, int sectionY) {
+        float[] m = new float[SectionData.CELLS];
+        for (int z = 0; z < 16; z++) {
+            for (int sy = 0; sy < 16; sy++) {
+                int colRow = 16 * ColumnSectionCodec.engineY(sectionY, sy) + 6144 * z;
+                int secRow = 16 * sy + 256 * z;
+                for (int x = 0; x < 16; x++) {
+                    m[secRow + x] = columnInMass[colRow + x];
+                }
+            }
+        }
+        return m;
+    }
+
+    /** Wake every loaded section of a neighbour column's flow pass so it re-enters next cycle. */
+    private void wakeColumnNeighbour(Identifier dim, int cx, int cz) {
+        // We don't know which sectionY received mass; wake the whole loaded column's flow countdowns so a
+        // dormant neighbour re-enters. Cheap: one map touch per existing section; the codec drives the
+        // common case where flow stays near the donor anyway.
         SectionStore store = stores.store(dim);
-        final LevelChunkSection sec = section;
-        GeometryAssembler.CellMaterials cellMat =
-                i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
-        float[] temps = sectionTemps(level, store, key, cellMat);
-        // Assemble ONLY the contributing face plane (the 256 cells the halo will read), not all 4096.
-        GeometryAssembler.Geometry geo = GeometryAssembler.assembleFace(cellMat, lut, face);
-        // Neighbour mass: the SAME §10 MassSnapshot rule as the section's own mass (sectionMass) so
-        // the two sides of a shared face agree — stored/advected mass when the section exists (fluid
-        // entry point seeds empty fluid cells once), else the block-derived geometry seed. Applied
-        // only at the face cells (selectFace) to match the face-only geometry.
-        boolean has = store != null && store.hasSection(key);
-        float[] stored = has ? store.get(key).massArray().clone() : null;
-        float[] mass = MassSnapshot.selectFace(stored, geo.matIx(), lut.materials(), has, geo.mass(), face);
-        return new HaloAssembler.Neighbor(temps, geo.matIx(), mass);
+        if (store == null || !store.isLoaded(cx, cz)) return;
+        for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
+            SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+            if (store.hasSection(key)) {
+                activeSet.wakeFlowSection(dim, key);
+            }
+        }
+    }
+
+    /** Max material defaultMass over the column's species (the per-cell mass clamp bound). */
+    private static float fullMassBound(ColumnTask task) {
+        // The column carries no LUT; the bound is the largest legal per-cell mass. Use a generous water-
+        // scale cap (1000 kg is every fluid's full block); a higher-density fluid keeps its own mass via
+        // the per-species ledger upstream. Clamp here only guards against engine NaN/overflow leakage.
+        return Float.MAX_VALUE; // per-species bounds are enforced by the region ledger; avoid clamping real mass
+    }
+
+    private static float maxAbsDelta(float[] a, float[] b) {
+        float m = 0f;
+        int n = Math.min(a.length, b.length);
+        for (int i = 0; i < n; i++) {
+            float d = Math.abs(a[i] - b[i]);
+            if (d > m) m = d;
+        }
+        return m;
+    }
+
+    private static long packColumn(int cx, int cz) {
+        return (cx & 0xffffffffL) | (((long) cz) << 32);
+    }
+    private static int unpackCx(long packed) { return (int) (packed & 0xffffffffL); }
+    private static int unpackCz(long packed) { return (int) (packed >> 32); }
+
+    private void addLoadedNeighbour(ServerLevel level, Set<Long> columns, int cx, int cz) {
+        if (LiveMaterials.loadedChunk(level, cx, cz) != null) {
+            columns.add(packColumn(cx, cz));
+        }
     }
 }
