@@ -12,21 +12,25 @@ import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Tests for {@link PhasePlanner} — the pure §7 per-section transition plan. */
+/** Tests for {@link PhasePlanner} — the pure §7 per-section transition plan (targets are MATERIAL ids). */
 class PhasePlannerTest {
 
-    private static Identifier id(String path) { return Identifier.fromNamespaceAndPath("minecraft", path); }
+    private static Identifier mat(String path) { return Identifier.fromNamespaceAndPath("orge", path); }
 
     private static Material water() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "water"),
-                0.6f, 1000f, 0f, 1000f, 0.018f,
-                373.15f, 273.15f, id("air"), id("ice"), null);
+        return Material.builder(mat("water"))
+                .thermalConductivity(0.6f).heatCapacity(1000f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(293f).viscosity(0f)
+                .maxTemp(373.15f).minTemp(273.15f)
+                .maxTarget(mat("steam")).minTarget(mat("ice"))
+                .build();
     }
 
     private static Material air() {
-        return new Material(Identifier.fromNamespaceAndPath("orge", "air"),
-                0.026f, 1005f, 0f, 1.2f, 0.029f,
-                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
+        return Material.builder(mat("air"))
+                .thermalConductivity(0.026f).heatCapacity(1005f).molarMass(0.029f)
+                .defaultMass(1.2f).defaultTemperature(293f).viscosity(0f)
+                .build();
     }
 
     private static float[] fill(float v) {
@@ -48,7 +52,7 @@ class PhasePlannerTest {
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(fill(400f), fullMass(), allWater, ALL_EXIST);
         assertEquals(SectionData.CELLS, plan.size());
         assertEquals(0, plan.get(0).cellIndex());
-        assertEquals(id("air"), plan.get(0).blockId());
+        assertEquals(mat("steam"), plan.get(0).materialId());
     }
 
     @Test
@@ -58,15 +62,15 @@ class PhasePlannerTest {
         assertEquals(SectionData.CELLS / 2, plan.size());
         for (PhasePlanner.Transition t : plan) {
             assertEquals(0, t.cellIndex() % 2, "only even (water) cells transition");
-            assertEquals(id("air"), t.blockId());
+            assertEquals(mat("steam"), t.materialId());
         }
     }
 
     @Test
-    void targetBlocksThatDoNotExistAreSkipped() {
+    void targetMaterialsThatDoNotExistAreSkipped() {
         IntFunction<Material> allWater = i -> water();
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(fill(400f), fullMass(), allWater, x -> false);
-        assertTrue(plan.isEmpty(), "no transition when the target block is not registered");
+        assertTrue(plan.isEmpty(), "no transition when the target material is not registered");
     }
 
     @Test
@@ -77,7 +81,7 @@ class PhasePlannerTest {
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(temps, fullMass(), allWater, ALL_EXIST);
         assertEquals(1, plan.size());
         assertEquals(1234, plan.get(0).cellIndex());
-        assertEquals(id("air"), plan.get(0).blockId());
+        assertEquals(mat("steam"), plan.get(0).materialId());
     }
 
     @Test
@@ -85,7 +89,7 @@ class PhasePlannerTest {
         float[] temps = fill(250f);
         IntFunction<Material> allWater = i -> water();
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(temps, fullMass(), allWater, ALL_EXIST);
-        assertEquals(Set.of(id("ice")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::blockId).toList()));
+        assertEquals(Set.of(mat("ice")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::materialId).toList()));
     }
 
     // --- Bug B: a drained/empty cell is not a fluid and must not freeze or boil. ---
@@ -109,7 +113,7 @@ class PhasePlannerTest {
         IntFunction<Material> allWater = i -> water();
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(temps, mass, allWater, ALL_EXIST);
         assertEquals(SectionData.CELLS, plan.size(), "real cold water still freezes");
-        assertEquals(Set.of(id("ice")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::blockId).toList()));
+        assertEquals(Set.of(mat("ice")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::materialId).toList()));
     }
 
     @Test
@@ -119,6 +123,6 @@ class PhasePlannerTest {
         IntFunction<Material> allWater = i -> water();
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(temps, mass, allWater, ALL_EXIST);
         assertEquals(SectionData.CELLS, plan.size(), "real hot water still boils");
-        assertEquals(Set.of(id("air")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::blockId).toList()));
+        assertEquals(Set.of(mat("steam")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::materialId).toList()));
     }
 }

@@ -13,10 +13,11 @@ import java.util.function.Predicate;
 /**
  * Builds one section's phase-change plan: for each of the {@value SectionData#CELLS} cells,
  * ask {@link PhaseRule} whether its temperature crosses a threshold, and if the resulting
- * target block exists, record a {@link Transition}. Pure (no Minecraft world access) — the
- * per-cell {@link Material} and the block-exists check are injected, so it tests with fakes.
- * The live caller supplies {@code BuiltInRegistries.BLOCK::containsKey} and a block→material
- * lookup; see {@code MinecraftPhaseChanger}.
+ * target <b>material</b> exists, record a {@link Transition}. Pure (no Minecraft world access) —
+ * the per-cell {@link Material} and the material-exists check are injected, so it tests with fakes.
+ * The planner works purely in material ids; it does NOT resolve representative blocks (that is the
+ * separate {@link PhaseRenderResolver} lookup done by the changer). The live caller supplies a
+ * material-exists predicate over the active registry; see {@code MinecraftPhaseChanger}.
  *
  * <p>Cells with essentially no mass are skipped before the rule is evaluated (Bug B): when the
  * native engine fully drains a falling-water cell it zeroes both mass and temperature, and a
@@ -34,22 +35,28 @@ public final class PhasePlanner {
      */
     public static final float PHASE_MIN_MASS = 5f;
 
-    /** One cell's transition: section-local cell index (x+16y+256z) → block id to place. */
-    public record Transition(int cellIndex, Identifier blockId) {}
+    /** One cell's transition: section-local cell index (x+16y+256z) → target MATERIAL id. */
+    public record Transition(int cellIndex, Identifier materialId) {}
 
     private PhasePlanner() {}
 
+    /**
+     * @param materialExists true iff the target MATERIAL id is registered in the active material
+     *                       registry — a transition to an unknown material is dropped. (This is a
+     *                       material-exists check, NOT a block-exists check; the block to draw is
+     *                       resolved later via {@link PhaseRenderResolver}.)
+     */
     public static List<Transition> plan(float[] temperatures,
                                         float[] mass,
                                         IntFunction<Material> cellMaterial,
-                                        Predicate<Identifier> blockExists) {
+                                        Predicate<Identifier> materialExists) {
         List<Transition> out = new ArrayList<>();
         for (int i = 0; i < SectionData.CELLS; i++) {
             if (mass[i] <= PHASE_MIN_MASS) {
                 continue; // drained/empty cell — not a fluid that can boil or freeze (Bug B)
             }
-            Optional<Identifier> target = PhaseRule.targetBlock(temperatures[i], cellMaterial.apply(i));
-            if (target.isPresent() && blockExists.test(target.get())) {
+            Optional<Identifier> target = PhaseRule.targetMaterial(temperatures[i], cellMaterial.apply(i));
+            if (target.isPresent() && materialExists.test(target.get())) {
                 out.add(new Transition(i, target.get()));
             }
         }

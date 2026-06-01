@@ -19,6 +19,7 @@ import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.IntFunction;
 
 /**
@@ -84,20 +85,33 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         IntFunction<Material> cellMat = i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
 
         // Materials are read from PRE-SWAP blocks; the re-pin set is computed before swapping
-        // so a surviving source still reads as its source material.
+        // so a surviving source still reads as its source material. The planner works in MATERIAL
+        // ids and the existence check is now "does this target MATERIAL exist?" — the block to draw
+        // is the separate material → representative_block lookup done below.
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(
-                temps, mass, cellMat, BuiltInRegistries.BLOCK::containsKey);
+                temps, mass, cellMat, id -> mats.registry().get(id).isPresent());
         List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cellMat, plan);
 
         int ox = key.cx() << 4;
         int oy = key.sectionY() << 4;
         int oz = key.cz() << 4;
         for (PhasePlanner.Transition t : plan) {
+            // Resolve the target MATERIAL → its representative_block (a separate lookup; identity is
+            // the material id, the block is only what's drawn). Skip if the material or its repr block
+            // isn't available. BANKED: fully block-decoupled material identity (so invisible gases can
+            // share minecraft:air as their repr) — v1 records the new species ONLY via the placed
+            // representative_block, so each phase-target material must have a uniquely-bound repr block
+            // (§8 geometry rescan reads it back through MaterialBindings).
+            Optional<Identifier> repr =
+                    PhaseRenderResolver.representativeBlock(mats.registry()::get, t.materialId());
+            if (repr.isEmpty() || !BuiltInRegistries.BLOCK.containsKey(repr.get())) {
+                continue;
+            }
             int i = t.cellIndex();
             int x = i & 15;
             int y = (i >> 4) & 15;
             int z = (i >> 8) & 15;
-            BlockState state = BuiltInRegistries.BLOCK.getValue(t.blockId()).defaultBlockState();
+            BlockState state = BuiltInRegistries.BLOCK.getValue(repr.get()).defaultBlockState();
             // UPDATE_CLIENTS only: sync the change to clients but skip the neighbour/physics
             // cascade (DESIGN §7). The chunk light engine still re-lights on the state change;
             // if a light-emitting transition (e.g. lava→stone) ever looks stale, revisit the flag.

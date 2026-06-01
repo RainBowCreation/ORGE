@@ -83,7 +83,7 @@ class AuditScenarioTest {
 
             // (2) phase change on post-step temps (all cells)
             for (int i = 0; i < n; i++) {
-                Optional<Identifier> target = PhaseRule.targetBlock(t[i], matAt.apply(i));
+                Optional<Identifier> target = PhaseRule.targetMaterial(t[i], matAt.apply(i));
                 if (target.isPresent()) {
                     block[i] = target.get();
                     if (target.get().equals(ORGE_STEAM)) {
@@ -496,7 +496,7 @@ class AuditScenarioTest {
         assertTrue(waterOcc > 1, "water must have spread into a finite pool (> 1 cell), occupied=" + waterOcc);
 
         // KEEP §7: a water cell heated above boiling still yields orge:steam via PhaseRule.
-        Optional<Identifier> phaseTarget = PhaseRule.targetBlock(400f, water);
+        Optional<Identifier> phaseTarget = PhaseRule.targetMaterial(400f, water);
         assertEquals(ORGE_STEAM, phaseTarget.orElse(null));
         // KEEP reconcile: per-material defaultMass — water fraction uses water's full mass.
         assertEquals(0, FluidReconcileLogic.levelForFraction(
