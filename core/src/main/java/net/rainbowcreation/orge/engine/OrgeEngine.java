@@ -30,6 +30,17 @@ public interface OrgeEngine {
      */
     List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds, int passes);
 
+    /**
+     * Step the joined active region as one engine {@code World}: each {@link ColumnTask} is a full-height
+     * column ({@link RegionMarshaller#CHUNK_N} cells, engine index {@code x + 16*y + 6144*z}). Native
+     * cross-column X/Z flow + contiguous Y. Returns next-state columns in the same order as {@code columns}.
+     */
+    default java.util.List<ColumnResult> stepWorld(java.util.List<ColumnTask> columns,
+                                                   java.util.List<net.rainbowcreation.orge.material.Material> lut,
+                                                   double dtSeconds, int passes) {
+        throw new UnsupportedOperationException("stepWorld not implemented by " + getClass().getSimpleName());
+    }
+
     /** Per-section compute time of the last {@link #step}, ms — drives health throttling. */
     double lastStepMillis();
 }

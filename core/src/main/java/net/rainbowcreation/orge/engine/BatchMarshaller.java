@@ -25,7 +25,7 @@ final class BatchMarshaller {
      * density-swap air label (Spec Decision 0/2; Plan-1 kernel reads {@code lut.fullMass[0]}). This is
      * a general "lightest ambient gas" constant, NOT an air-by-identity branch in the physics rule.
      */
-    static final float AIR_DENSITY = 1.2f;
+    static final float AIR_DENSITY = LutArrays.AIR_DENSITY;
 
     private BatchMarshaller() {}
 
@@ -76,39 +76,12 @@ final class BatchMarshaller {
             }
         }
 
-        float[] cond = new float[m];
-        float[] heatCap = new float[m];
-        float[] visc = new float[m];
-        float[] fullMass = new float[m];
-        byte[] fluid = new byte[m];
-        float[] minFlow = new float[m];
-        float[] maxMass = new float[m];
-        byte[] gas = new byte[m];
-        byte[] air = new byte[m];
-        float[] molar = new float[m];
-        for (int i = 0; i < m; i++) {
-            Material mat = lut.get(i);
-            cond[i] = mat.thermalConductivity();
-            heatCap[i] = mat.heatCapacity();
-            visc[i] = mat.viscosity();
-            fullMass[i] = mat.defaultMass();
-            // §11 Phase A air flag-flip (engine-LUT ONLY, NOT Material.fluid()/gas()): the kernel
-            // (E2/E3) treats orge:air as the compressible ambient gas it DISPLACES rather than
-            // consumes, so it must arrive as a participating fluid+gas. We DON'T mutate
-            // Material.fluid()/gas() — Java's "placeable fluid block" notion (reconciler / §7 phase
-            // logic) stays unchanged; only the marshalled engine view of air changes.
-            fluid[i] = (mat.fluid() || mat.air()) ? (byte) 1 : (byte) 0;
-            minFlow[i] = mat.minFlowMass();
-            maxMass[i] = mat.maxMass();           // canonical accessor: 0 -> defaultMass
-            gas[i] = (mat.gas() || mat.air()) ? (byte) 1 : (byte) 0;
-            air[i] = mat.air() ? (byte) 1 : (byte) 0;   // air identity unchanged
-            molar[i] = mat.molarMass();           // §11: plumb molar (kg/mol) to the engine (Phase B uses it)
-        }
-        // Index 0 is the VOID/ambient sentinel; label it with air's density so the kernel's
-        // density swap (Plan-1) reads a meaningful "empty cell" density rather than 0.
-        fullMass[0] = AIR_DENSITY;
+        // §11 air flag-flip + slot-0 AIR_DENSITY label are encapsulated in the shared LUT pack so the
+        // dormant per-section path and the whole-region path stay byte-identical.
+        LutArrays L = LutArrays.pack(lut);
         return new Flat(n, matIx, mass, tIn, haloT, haloMat, haloMass,
-                cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, air, molar, m);
+                L.cond(), L.heatCap(), L.visc(), L.fullMass(), L.fluid(),
+                L.minFlow(), L.maxMass(), L.gas(), L.air(), L.molar(), L.matCount());
     }
 
     static List<float[]> slice(float[] tOut, int n) {

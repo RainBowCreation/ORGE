@@ -26,6 +26,17 @@ public final class StubEngine implements OrgeEngine {
     }
 
     @Override
+    public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
+                                        double dtSeconds, int passes) {
+        List<ColumnResult> out = new ArrayList<>(columns.size());
+        for (ColumnTask c : columns) {
+            out.add(new ColumnResult(c.matIx().clone(), c.mass().clone(), c.temperature().clone()));
+        }
+        lastStepMillis = 0.0;
+        return out;
+    }
+
+    @Override
     public double lastStepMillis() {
         return lastStepMillis;
     }

@@ -37,6 +37,40 @@ public final class NativeEngine implements OrgeEngine {
             int passes, double dtSeconds,
             float[] tOut, float[] massOut, char[] matOut);
 
+    /**
+     * Whole-region step: build a transient engine {@code World} from {@code nCols} full-height columns
+     * (each {@link RegionMarshaller#CHUNK_N} cells), run conduction and/or advection per {@code passes},
+     * and read next-state back into {@code tOut}/{@code massOut}/{@code matOut} (length {@code nCols·CHUNK_N}).
+     * Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.
+     */
+    private static native double orgeStepWorld(
+            int nCols, int[] cx, int[] cz,
+            char[] matIx, float[] mass, float[] tIn,
+            float[] lutCond, float[] lutHeatCap, float[] lutVisc,
+            float[] lutFullMass, byte[] lutFluid,
+            float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir,
+            float[] lutMolar,
+            int passes, double dtSeconds,
+            float[] tOut, float[] massOut, char[] matOut);
+
+    @Override
+    public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
+                                        double dtSeconds, int passes) {
+        if (columns.isEmpty()) { lastStepMillis = 0.0; return new ArrayList<>(); }
+        RegionMarshaller.Flat f = RegionMarshaller.flatten(columns, lut);
+        int total = f.nCols() * RegionMarshaller.CHUNK_N;
+        float[] tOut = scratch.temp(total);
+        float[] massOut = scratch.mass(total);
+        char[] matOut = scratch.material(total);
+        LutArrays L = f.lut();
+        lastStepMillis = orgeStepWorld(
+                f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
+                L.cond(), L.heatCap(), L.visc(), L.fullMass(), L.fluid(),
+                L.minFlow(), L.maxMass(), L.gas(), L.air(), L.molar(),
+                passes, dtSeconds, tOut, massOut, matOut);
+        return RegionMarshaller.slice(matOut, massOut, tOut, f.nCols());
+    }
+
     @Override
     public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dtSeconds, int passes) {
         if (tasks.isEmpty()) {
