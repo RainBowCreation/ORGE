@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "refmap": "orge.refmap.json",
   "mixins": [
-    "FlowingFluidMixin"
+    "FlowingFluidMixin",
+    "WaterFluidMixin"
   ],
   "injectors": {
     "defaultRequire": 1

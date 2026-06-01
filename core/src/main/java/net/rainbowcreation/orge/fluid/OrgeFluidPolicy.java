@@ -8,15 +8,20 @@ package net.rainbowcreation.orge.fluid;
  * cancel the scheduled flow/spread tick. All decision logic lives here (the mixin stays a thin
  * fact-gatherer) so it is unit-testable headlessly &mdash; no Minecraft types appear in this class.</p>
  *
- * <p><b>Safety invariant (obsidian preserved):</b> the policy returns {@code true} (suppress) ONLY
- * when the fluid is ORGE-managed water/lava, its section is an ORGE-managed/loaded section, AND no
- * adjacent interacting fluid (lava&harr;water) is present. Whenever lava and water are adjacent the
- * policy returns {@code false}, so vanilla {@code tick} keeps running and the
- * {@code LiquidBlock} placement / neighbour-change that drives
- * {@code FluidInteractionRegistry} &rarr; obsidian / cobblestone / basalt stays reachable
- * (Nether-portal-critical; spec "Vanilla thermal interactions", Decision 2026-05-30 = PRESERVE).
- * Unmanaged regions and non-fluids are also never suppressed &mdash; the safe default is to let
- * vanilla run.</p>
+ * <p><b>Authority invariant (obsidian REVERSED):</b> the policy returns {@code true} (suppress) for
+ * ORGE-managed water/lava in an ORGE-managed/loaded section <b>unconditionally</b> &mdash; including
+ * when an interacting fluid (lava&harr;water) is adjacent. ORGE is now the sole authority over the
+ * fluids it simulates, so vanilla solidification (obsidian / cobblestone / basalt) is intentionally
+ * disabled for managed fluids: lava cools to stone thermally via ORGE's phase system, and a future
+ * lava-cooling branch will reintroduce obsidian under ORGE control. (This reverses the prior
+ * 2026-05-30 PRESERVE decision; the {@code interactingFluidAdjacent} input that drove it was
+ * removed.) Unmanaged regions and non-fluids are still never suppressed &mdash; the safe default is
+ * to let vanilla run there.</p>
+ *
+ * <p><b>Infinite water disabled globally:</b> {@link #allowInfiniteWater()} returns {@code false} so
+ * the per-loader mixin into {@code FlowingFluid#canConvertToSource} prevents two source neighbours
+ * from fabricating a third source &mdash; that "mass from nothing" breaks ORGE's finite-mass model.
+ * This is a global (not section-scoped) disable, as the user asked to remove the vanilla feature.</p>
  */
 public final class OrgeFluidPolicy {
 
@@ -63,25 +68,29 @@ public final class OrgeFluidPolicy {
     /**
      * The core decision: suppress vanilla flow/spread for this fluid tick?
      *
-     * @param isOrgeFluid              the ticking fluid is ORGE-managed water or lava
-     * @param sectionManaged           the tick position's subchunk is an ORGE-managed/loaded section
-     * @param interactingFluidAdjacent a cardinal neighbour holds the interacting fluid (lava&harr;water)
-     *                                 that can solidify &mdash; the obsidian/cobblestone/basalt path
-     * @return {@code true} to cancel the vanilla tick; {@code false} to let vanilla run (the safe
-     *         default that preserves obsidian and never freezes unmanaged regions)
+     * @param isOrgeFluid    the ticking fluid is ORGE-managed water or lava
+     * @param sectionManaged the tick position's subchunk is an ORGE-managed/loaded section
+     * @return {@code true} to cancel the vanilla tick (ORGE-managed fluid in a managed section: ORGE
+     *         owns it, including lava&harr;water contact); {@code false} to let vanilla run (the safe
+     *         default for non-fluids and unmanaged regions)
      */
-    public static boolean shouldSuppressFlow(boolean isOrgeFluid,
-                                             boolean sectionManaged,
-                                             boolean interactingFluidAdjacent) {
+    public static boolean shouldSuppressFlow(boolean isOrgeFluid, boolean sectionManaged) {
         if (!isOrgeFluid) {
             return false; // not a fluid ORGE simulates — vanilla owns it
         }
         if (!sectionManaged) {
             return false; // outside an ORGE-managed loaded section — do not globally freeze the world
         }
-        if (interactingFluidAdjacent) {
-            return false; // PRESERVE obsidian/cobblestone/basalt: let vanilla spread/solidify run
-        }
-        return true; // ORGE-managed fluid in a managed section with no solidifying neighbour: ORGE owns it
+        return true; // ORGE-managed fluid in a managed section — ORGE is authoritative (obsidian off)
+    }
+
+    /**
+     * Whether vanilla "infinite water" (a flowing water cell with &ge;2 adjacent sources converting
+     * itself to a source) is allowed. Always {@code false}: that conversion fabricates mass from
+     * nothing and breaks ORGE's finite-mass model, so the per-loader {@code canConvertToSource} mixin
+     * forces it off globally for water.
+     */
+    public static boolean allowInfiniteWater() {
+        return false;
     }
 }

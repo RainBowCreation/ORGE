@@ -10,11 +10,11 @@ import org.junit.jupiter.api.Test;
  * Headless tests for the pure {@link OrgeFluidPolicy} decision object. No Minecraft types are
  * involved: the policy takes primitives/booleans so the loader-free {@code core} stays JUnit-able.
  *
- * <p>The central safety property under test is that the lava&harr;water solidification path
- * (obsidian / cobblestone / basalt &mdash; Nether-portal-critical) is NEVER suppressed: whenever an
- * interacting fluid is adjacent, the policy returns {@code false} so vanilla flow/spread keeps
- * running and the {@code LiquidBlock} placement/neighbour-change that produces obsidian stays
- * reachable.</p>
+ * <p>ORGE is now fully authoritative over the water/lava it simulates in ORGE-managed sections:
+ * vanilla flow/spread is suppressed there <b>unconditionally</b>, including when an interacting
+ * fluid (lava&harr;water) is adjacent. Vanilla solidification (obsidian / cobblestone / basalt) is
+ * intentionally disabled for managed fluids &mdash; lava cools to stone thermally via ORGE's phase
+ * system, and a future lava-cooling branch will reintroduce obsidian.</p>
  */
 final class OrgeFluidPolicyTest {
 
@@ -25,37 +25,43 @@ final class OrgeFluidPolicyTest {
     }
 
     @Test
-    void managedWaterNoInteraction_suppresses() {
+    void managedFluidInManagedSection_suppresses() {
         assertTrue(OrgeFluidPolicy.shouldSuppressFlow(
                 /* isOrgeFluid */ true,
-                /* sectionManaged */ true,
-                /* interactingFluidAdjacent */ false));
+                /* sectionManaged */ true));
     }
 
     @Test
-    void managedLavaAdjacentWater_doesNotSuppress_obsidianPreserved() {
-        // Lava with an adjacent interacting fluid (water) MUST let vanilla run, or obsidian/
-        // cobblestone/basalt would never form.
-        assertFalse(OrgeFluidPolicy.shouldSuppressFlow(
+    void managedFluidSuppressedEvenWhenLavaWaterAdjacent() {
+        // REVERSAL: previously the lava<->water (obsidian) adjacency PRESERVED vanilla flow. ORGE is
+        // now authoritative, so a managed fluid in a managed section is suppressed regardless of any
+        // interacting neighbour. The interactingFluidAdjacent input was removed entirely.
+        assertTrue(OrgeFluidPolicy.shouldSuppressFlow(
                 /* isOrgeFluid */ true,
-                /* sectionManaged */ true,
-                /* interactingFluidAdjacent */ true));
+                /* sectionManaged */ true));
     }
 
     @Test
     void unmanagedSection_doesNotSuppress() {
         assertFalse(OrgeFluidPolicy.shouldSuppressFlow(
                 /* isOrgeFluid */ true,
-                /* sectionManaged */ false,
-                /* interactingFluidAdjacent */ false));
+                /* sectionManaged */ false));
     }
 
     @Test
     void nonOrgeFluid_doesNotSuppress() {
         assertFalse(OrgeFluidPolicy.shouldSuppressFlow(
                 /* isOrgeFluid */ false,
-                /* sectionManaged */ true,
-                /* interactingFluidAdjacent */ false));
+                /* sectionManaged */ true));
+    }
+
+    // --- infinite-water (source conversion) ----------------------------------------------------
+
+    @Test
+    void infiniteWater_isDisabledGlobally() {
+        // Vanilla's "two source neighbours make a third source" fabricates mass from nothing, which
+        // breaks ORGE's finite-mass model. It is disabled globally for water.
+        assertFalse(OrgeFluidPolicy.allowInfiniteWater());
     }
 
     // --- managed-section predicate seam --------------------------------------------------------

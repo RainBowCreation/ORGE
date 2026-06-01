@@ -26,10 +26,10 @@ import java.util.Objects;
  *
  * <p>The previous {@code @ExpectPlatform} per-loader split (and its two no-op {@code *Impl} classes)
  * was removed: the only loader-specific part is now the mixin (applied by each loader's mixin config),
- * and the predicate wiring is pure common code over {@link SectionStoreManager}. The obsidian /
- * cobblestone / basalt path is preserved by the policy (it never suppresses when an interacting fluid
- * is adjacent), and additionally that path is driven by {@code LiquidBlock}, not
- * {@code FlowingFluid#tick}, so it is untouched by the cancellation.</p>
+ * and the predicate wiring is pure common code over {@link SectionStoreManager}. ORGE is now
+ * authoritative over managed fluids: the obsidian / cobblestone / basalt path is intentionally
+ * disabled inside managed sections (no adjacent-interacting-fluid carve-out), with thermal cooling
+ * to stone owning lava and a future lava-cooling branch reintroducing obsidian.</p>
  */
 public final class VanillaFluidSuppressor {
     private VanillaFluidSuppressor() {}
