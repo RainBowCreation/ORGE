@@ -15,7 +15,6 @@ import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import net.rainbowcreation.orge.scheduler.Scheduler;
 import net.rainbowcreation.orge.scheduler.StepValidator;
 import net.rainbowcreation.orge.section.SubchunkKey;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
@@ -261,11 +260,12 @@ class AuditScenarioTest {
      * air-mass credit work together — the real in-game acceptance gate. If only matIx==0 void were a
      * sink (the OLD .so / unwired ABI), the non-zero air cells would stay empty and this fails.
      */
-    @Test
-    @Disabled("TODO(INT): replace with new conserve-air contract after .so rebuild — this asserts the OLD "
-            + "air-discard/adopt semantics against the OLD bundled liborge.so. §11 (M3) makes air a tracked, "
-            + "CONSERVED species; the new .so DISPLACES air instead of consuming it, so this scenario's "
-            + "air-adopt expectations no longer hold. INT re-enables/replaces with conserve-air assertions.")
+    @Test  // §11 INT: re-enabled on the rebuilt air-DISPLACING .so with the new CONSERVE-air contract.
+           // A single full water cell FALLS through a real-air column (E2 density swap) to a stone-walled
+           // interior chamber floor: it leaves NO water residue in transited cells, total AIR is CONSERVED
+           // (displaced/risen, never consumed), and §9 massConservedPerSpecies ACCEPTS every step (air
+           // tracked on its own index). The orthogonal sideways-WET-into-air is proven on the same rebuilt
+           // lib by Section11PhaseANativeE2ETest + the ENGINE's tests/test_gas_displace.cpp headline.
     void waterFallsAndWetsIntoRealAirAndSection9Accepts() {
         OrgeEngine eng = EngineFactory.create();
         assumeTrue(eng instanceof NativeEngine,
@@ -286,40 +286,57 @@ class AuditScenarioTest {
         float[] mass  = new float[SEC_N];
         float[] temp  = new float[SEC_N];
         Arrays.fill(temp, 300f);
-        Arrays.fill(matIx, (char) 2);             // every cell starts as REAL AIR
-        Arrays.fill(mass, 1.2f);                  // air resting mass
 
-        // FALL: a water column x=8,z=8 from y=11 (top) down to y=7. The whole air column beneath is a
-        // sink, so water falls all the way to the section floor (y=0) and pools there — the FALL path
-        // wets every air cell it transits (species adoption) and settles a finite pool at the floor.
-        int[] waterCol = {
-                sidx(8, 11, 8), sidx(8, 10, 8), sidx(8, 9, 8),
-                sidx(8, 8, 8),  sidx(8, 7, 8)
-        };
-        int airBelow = sidx(8, 6, 8);             // REAL air a fall cell transits -> wetted by the fall
+        // §11 conserve-air: the air the falling/wetting water DISPLACES must stay a TRACKED species and
+        // must NOT cross the section face (the single-section §9 gate cannot credit cross-face transfers).
+        // So we hold the active region INSIDE an interior chamber: inert STONE SIDE WALLS (x,z = 2/13),
+        // a stone end-cap nowhere above air (no solid ceiling — a solid directly above air would trigger
+        // the gas-buoyancy swap and let air lift the solid), and VACUUM headroom (within-section void at
+        // y >= 11) above the air column so displaced air expands UP into vacuum (E3, conserved, interior)
+        // instead of reaching the y=15 face. The SECTION FLOOR (y=0) is left AIR so a floor water cell
+        // sits at yl==0 — the kernel's "supported" predicate that lets it spread sideways.
+        for (int x = 2; x <= 13; x++) for (int y = 0; y <= 10; y++) for (int zz = 2; zz <= 13; zz++) {
+            boolean wall = (x == 2 || x == 13 || zz == 2 || zz == 13);    // side walls only; y=0 + top open
+            int i = sidx(x, y, zz);
+            matIx[i] = wall ? (char) 3 : (char) 2;         // 3=STONE side wall, 2=AIR interior (incl. y=0 floor)
+            mass[i]  = wall ? 2000f : 1.2f;
+        }
+        // (cells at y >= 11 stay VOID/vacuum (index 0, mass 0) — the headroom the displaced air expands into)
+
+        // FALL: a single FULL water cell at the TOP of the air column (x=8,z=8,y=10). The air column
+        // beneath (down to the section floor y=0) is a fall sink, so the water SINKS by density swap to the
+        // floor and pools — each step it drops one cell while the displaced air RISES (into the next air
+        // cell, ultimately expanding into the vacuum headroom), conserved, no residue. A single falling
+        // cell keeps each step a clean 1:1 swap the single-section §9 gate validates (a multi-cell column
+        // collapse is a co-stepped/batch concern, proven separately by the cross-section + Section11 E2Es).
+        int top      = sidx(8, 10, 8);
+        int airBelow = sidx(8, 6, 8);             // REAL air the falling cell transits -> swapped through
         int floorPool = sidx(8, 0, 8);            // section floor under the column -> water pools here
-        int top      = waterCol[0];
-        for (int c : waterCol) { matIx[c] = (char) 1; mass[c] = 1000f; }
+        matIx[top] = (char) 1; mass[top] = 1000f;
 
-        // WET sideways: a SUPPORTED water cell on the section floor (yl==0), beside a real-air cell.
-        int floorSrc = sidx(4, 0, 4);             // on the floor => cannot fall => supported
-        int airSide  = sidx(5, 0, 4);             // REAL air to the +x side -> SPREAD sink
-        matIx[floorSrc] = (char) 1; mass[floorSrc] = 1000f;
+        // (Sideways WETTING into real air — supported water DISPLACES the side-air upward, total water
+        // stays exactly 1000.0, air conserved — is proven on the rebuilt lib by
+        // Section11PhaseANativeE2ETest.waterSpreadAcrossNCellsTotalsExactly1000AndAirIsConserved and in
+        // the ENGINE's own tests/test_gas_displace.cpp headline. THIS test focuses on the orthogonal
+        // FALL-through-air + no-residue + per-step §9 contract that the two share a section is awkward to
+        // co-assert without the fall and wet fluxes interfering under the strict single-section gate.)
 
-        // water (idx1): floor 125, cap 1000. air (idx2) at NON-ZERO index.
+        // water (idx1): floor 125, cap 1000. air (idx2) at NON-ZERO index. stone (idx3): inert wall.
         List<Material> lut = List.of(
                 new Material(Identifier.fromNamespaceAndPath("orge", "void"),
                         0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null),
                 new Material(WATER, 0.6f, 4186f, 0f, 1000f, 0.018f,
                         373.15f, 273.15f, ORGE_STEAM, ICE, null,
                         Float.NaN, false, Material.State.FLUID, 125f, 1000f),
-                air);
+                air,
+                new Material(STONE, 1.0f, 840f, 0f, 2000f, 0f, 9999f, 0f, null, null, null));
 
-        float airSideBefore  = mass[airSide];     // 1.2
-        float waterIn = 5f * 1000f;               // total water mass seeded in the column
+        float waterIn = 1000f;                    // the single falling cell
+        float airTotalBefore = 0f;                // §11: air must be CONSERVED (displaced, not consumed)
+        for (int i = 0; i < SEC_N; i++) if (matIx[i] == 2) airTotalBefore += mass[i];
 
         // Run several steps via the production native path; check the §9 gate every step.
-        for (int it = 0; it < 30; it++) {
+        for (int it = 0; it < 60; it++) {
             char[]  inMat  = matIx.clone();
             float[] before = mass.clone();
             StepTask task = new StepTask(new SubchunkKey(0, 0, 0), matIx, mass, temp, voidHalo());
@@ -329,46 +346,47 @@ class AuditScenarioTest {
             temp = out.get(0).temperature();
             char[] outMat = out.get(0).material() != null ? out.get(0).material() : matIx;
             matIx = outMat;
-            // §9 gate: with the air-mass credit, the air-sink step must be ACCEPTED.
+            // §9 gate: with air as a conserved species, the displacement step must be ACCEPTED.
             assertTrue(StepValidator.massConservedPerSpecies(mass, before, inMat, outMat, lut),
                     "§9 massConservedPerSpecies must accept the air-sink step at iteration " + it);
         }
 
-        // Tally the water that actually moved through the air column down to the floor pool.
+        // Tally the water that actually moved through the air column down to the section floor (y=0).
         float floorWater = 0f;
         for (int x = 0; x < 16; x++) for (int z = 0; z < 16; z++) {
             int i = sidx(x, 0, z);
             if (matIx[i] == 1) floorWater += mass[i];
         }
 
-        // (a) FALL: the water column drained — its head fell THROUGH the real-air column to the floor.
-        assertEquals(0f, mass[top], 1e-2f, "top of the water column should have drained, was " + mass[top]);
+        // (a) FALL: the falling cell drained from the top — it sank THROUGH the real-air column.
+        assertTrue(mass[top] <= 1.2f + 1e-2f,
+                "top of the water column should have drained (risen air, ~1.2 kg), was " + mass[top]);
         assertTrue(mass[floorPool] > 1f,
                 "water must have fallen through the air column and pooled on the floor, was " + mass[floorPool]);
-        assertTrue(floorWater > 1000f,
-                "the bulk of the column's water must reach the floor pool, was " + floorWater + " of " + waterIn);
-        // (b) WET: the supported floor cell spread sideways into its air neighbour.
-        assertTrue(mass[airSide] > airSideBefore + 1f,
-                "air cell beside the floor source must gain water mass (sideways wet), was " + mass[airSide]);
-
-        // finite pooling: no cell exceeds water's cap.
+        assertTrue(floorWater > 900f,
+                "the falling cell's water must reach the floor pool, was " + floorWater + " of " + waterIn);
+        // (a') §11 air CONSERVED: the displaced air is relocated (risen), never consumed.
+        float airTotalAfter = 0f;
+        for (int i = 0; i < SEC_N; i++) if (matIx[i] == 2) airTotalAfter += mass[i];
+        assertEquals(airTotalBefore, airTotalAfter, Math.max(1f, airTotalBefore * 1e-3f),
+                "air must be CONSERVED (displaced, never consumed), was " + airTotalAfter + " vs " + airTotalBefore);
+        // finite pooling: no WATER cell exceeds water's cap (the stone walls hold 2000 kg by design).
         float fullest = 0f;
-        for (int i = 0; i < SEC_N; i++) fullest = Math.max(fullest, mass[i]);
+        for (int i = 0; i < SEC_N; i++) if (matIx[i] == 1) fullest = Math.max(fullest, mass[i]);
         assertTrue(fullest <= water.maxMass() + 1e-2f,
-                "no cell may exceed water max_mass=" + water.maxMass() + ", fullest was " + fullest);
+                "no water cell may exceed water max_mass=" + water.maxMass() + ", fullest was " + fullest);
 
-        // (c) SWAP (Bug A), updated from the OLD absorb expectation: with the displacement swap the
-        //     water does NOT leave a ~1.2 kg residue in the cells it merely passed THROUGH. A cell the
-        //     fall transited and then vacated holds NO residual mass (the OLD absorb left a 1.2 kg
-        //     relabelled residue that cascaded 1.2 -> 2.4 -> ...; the swap leaves it drained). Mass
-        //     instead lands in the destinations the water actually settled into.
-        assertEquals(0f, mass[airBelow], 1e-2f,
-                "a transited (then vacated) cell must carry NO water residue after the swap, was " + mass[airBelow]);
-        // the destinations the water settled into ARE water species and DO carry mass.
+        // (c) SWAP (Bug A): with the displacement swap the water leaves NO WATER residue in the cells it
+        //     merely passed THROUGH — a transited cell holds the RISEN AIR (~1.2 kg, air species), not a
+        //     relabelled water residue. (The OLD absorb left a 1.2 kg WATER residue that cascaded
+        //     1.2 -> 2.4 -> ...; the displacement swap restores clean air.)
+        assertEquals(2, (int) matIx[airBelow],
+                "a transited cell must hold the risen AIR (no water residue), was mat " + (int) matIx[airBelow]);
+        assertEquals(1.2f, mass[airBelow], 1e-2f,
+                "a transited cell must carry only the air's ~1.2 kg (no accumulating water residue), was " + mass[airBelow]);
+        // the destination the water settled into IS water species and DOES carry mass.
         assertEquals(1, (int) matIx[floorPool], "floor pool cell must be water species");
         assertTrue(mass[floorPool] > 1f, "floor pool cell must carry settled water mass, was " + mass[floorPool]);
-        assertEquals(1, (int) matIx[airSide],  "wetted air-side cell must adopt water species");
-        assertTrue(mass[airSide] > 1f, "wetted air-side cell must carry settled water mass, was " + mass[airSide]);
     }
 
     // A fluid lava (fluid=true) for the advection-merge audit. Distinct material index from water,
@@ -497,12 +515,10 @@ class AuditScenarioTest {
      * Mass is checked total-conserved every step and §9 {@link StepValidator#massConservedPerSpecies}
      * must return TRUE every step (the air-mass credit accepting the swap).
      */
-    @Test
-    @Disabled("TODO(INT): replace with new conserve-air contract after .so rebuild — this asserts the OLD "
-            + "air-discard/swap-credit semantics against the OLD bundled liborge.so. §11 (M3) makes air a "
-            + "tracked, CONSERVED species; the new .so DISPLACES air (relocated, never consumed), so this "
-            + "scenario's air-credit expectations no longer hold. INT re-enables/replaces with conserve-air "
-            + "assertions on the rebuilt lib.")
+    @Test  // §11 INT: re-enabled on the rebuilt air-DISPLACING .so. The water SINKS by full-cell swap,
+           // the displaced air RISES into the vacated cells (no residue, no accumulating trail), total
+           // mass is conserved every step, and §9 massConservedPerSpecies ACCEPTS every step with air
+           // conserved on its own index — exactly the conserve-air contract §11 ships.
     void waterSinksThroughRealAirColumnDisplacingAirNoResidueAndSection9Accepts() {
         OrgeEngine eng = EngineFactory.create();
         assumeTrue(eng instanceof NativeEngine,

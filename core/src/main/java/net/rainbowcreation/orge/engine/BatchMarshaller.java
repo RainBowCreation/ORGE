@@ -34,7 +34,8 @@ final class BatchMarshaller {
                 float[] haloT, char[] haloMat, float[] haloMass,
                 float[] lutCond, float[] lutHeatCap,
                 float[] lutVisc, float[] lutFullMass, byte[] lutFluid,
-                float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir, int matCount) {}
+                float[] lutMinFlow, float[] lutMaxMass, byte[] lutGas, byte[] lutAir,
+                float[] lutMolar, int matCount) {}
 
     static Flat flatten(List<StepTask> tasks, List<Material> lut) {
         int m = lut.size();
@@ -84,23 +85,30 @@ final class BatchMarshaller {
         float[] maxMass = new float[m];
         byte[] gas = new byte[m];
         byte[] air = new byte[m];
+        float[] molar = new float[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
             heatCap[i] = mat.heatCapacity();
             visc[i] = mat.viscosity();
             fullMass[i] = mat.defaultMass();
-            fluid[i] = mat.fluid() ? (byte) 1 : (byte) 0;
+            // §11 Phase A air flag-flip (engine-LUT ONLY, NOT Material.fluid()/gas()): the kernel
+            // (E2/E3) treats orge:air as the compressible ambient gas it DISPLACES rather than
+            // consumes, so it must arrive as a participating fluid+gas. We DON'T mutate
+            // Material.fluid()/gas() — Java's "placeable fluid block" notion (reconciler / §7 phase
+            // logic) stays unchanged; only the marshalled engine view of air changes.
+            fluid[i] = (mat.fluid() || mat.air()) ? (byte) 1 : (byte) 0;
             minFlow[i] = mat.minFlowMass();
             maxMass[i] = mat.maxMass();           // canonical accessor: 0 -> defaultMass
-            gas[i] = mat.gas() ? (byte) 1 : (byte) 0;
-            air[i] = mat.air() ? (byte) 1 : (byte) 0;
+            gas[i] = (mat.gas() || mat.air()) ? (byte) 1 : (byte) 0;
+            air[i] = mat.air() ? (byte) 1 : (byte) 0;   // air identity unchanged
+            molar[i] = mat.molarMass();           // §11: plumb molar (kg/mol) to the engine (Phase B uses it)
         }
         // Index 0 is the VOID/ambient sentinel; label it with air's density so the kernel's
         // density swap (Plan-1) reads a meaningful "empty cell" density rather than 0.
         fullMass[0] = AIR_DENSITY;
         return new Flat(n, matIx, mass, tIn, haloT, haloMat, haloMass,
-                cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, air, m);
+                cond, heatCap, visc, fullMass, fluid, minFlow, maxMass, gas, air, molar, m);
     }
 
     static List<float[]> slice(float[] tOut, int n) {
