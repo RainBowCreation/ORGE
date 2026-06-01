@@ -27,6 +27,14 @@ class MaterialChangeReseedTest {
     private static final char WATER_IX = 1;
     private static final char LAVA_IX = 2;
     private static final char STONE_IX = 3;
+    private static final char AIR_IX = 4;
+
+    /** First-class AIR (State.AIR): air()==true, fluid()==false. The §11 ambient finite gas. */
+    private static Material air(Identifier id, float defaultMass) {
+        return new Material(id, 1f, 1f, 0f, defaultMass, 0f,
+                Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null,
+                Float.NaN, false, Material.State.AIR, 0.001f, 1000f);
+    }
 
     /** A fluid material (no source temperature) with the given id + defaultMass. */
     private static Material fluid(Identifier id, float defaultMass) {
@@ -47,12 +55,13 @@ class MaterialChangeReseedTest {
                 Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, null, null, null);
     }
 
-    /** LUT: VOID=0, water=1, lava=2, stone=3. */
+    /** LUT: VOID=0, water=1, lava=2, stone=3, air=4. */
     private static List<Material> lut() {
         return List.of(MaterialLut.VOID,
                 fluid(WATER, 1000f),
                 fluidSource(LAVA, 3100f, 1400f),
-                solid(Identifier.fromNamespaceAndPath("orge", "stone"), 2500f));
+                solid(Identifier.fromNamespaceAndPath("orge", "stone"), 2500f),
+                air(AIR, 1.2f));
     }
 
     private static char[] uniform(char ix) {
@@ -137,6 +146,79 @@ class MaterialChangeReseedTest {
         java.util.Arrays.fill(mass, 0f);
         MaterialChangeReseed.apply(uniformPrior(AIR), uniform(VOID_IX), lut(), temps, mass, 285f);
         assertEquals(283f, temps[0], 0f);
+        assertEquals(0f, mass[0], 0f);
+    }
+
+    // --- §11 Phase A (Task M4): a RUNTIME block→air transition makes VACUUM, not air-from-nothing. ---
+
+    @Test
+    void brokenBlockToAirBecomesVacuumNotAir() {
+        // A player breaks a stone block: the live cell is now air, but the §5 store still holds the
+        // OLD stone mass (2500). The new rule: the cell becomes VACUUM (matIx 0 = void, mass 0), NOT
+        // 1.2 kg air from nothing. Neighbouring air refills it in the engine (conserved).
+        char[] matIx = uniform(AIR_IX);
+        float[] temps = new float[SectionData.CELLS];
+        float[] mass = new float[SectionData.CELLS];
+        java.util.Arrays.fill(temps, 290f);
+        java.util.Arrays.fill(mass, 2500f);  // stale stone mass
+        MaterialChangeReseed.apply(uniformPrior(Identifier.fromNamespaceAndPath("orge", "stone")),
+                matIx, lut(), temps, mass, 285f);
+        assertEquals(VOID_IX, matIx[0], "broken block→air cell becomes the void sentinel (matIx 0)");
+        assertEquals(0f, mass[0], 0f, "broken block→air cell is VACUUM (0 mass), not 1.2 kg air");
+    }
+
+    @Test
+    void chunkLoadAirSeedingIsUntouchedAndDiffersFromBrokenBlock() {
+        // The two air paths MUST differ. Chunk-load / world-gen seeding (prior == null, the section
+        // was never tracked) leaves the block-derived 1.2 kg air seed alone — the world comes WITH
+        // its air. A runtime break (prior = a real block) makes vacuum. Same live air cell, opposite
+        // mass outcome, gated solely on whether the cell was tracked before.
+        char[] seedMat = uniform(AIR_IX);
+        float[] seedMass = new float[SectionData.CELLS];
+        java.util.Arrays.fill(seedMass, 1.2f);  // the world-gen / block-derived air seed
+        MaterialChangeReseed.apply(null, seedMat, lut(),
+                new float[SectionData.CELLS], seedMass, 285f);
+        assertEquals(AIR_IX, seedMat[0], "chunk-load air keeps its real air material (not void)");
+        assertEquals(1.2f, seedMass[0], 0f, "chunk-load / world-gen air seeding stays 1.2 kg (unchanged)");
+
+        // Same live air cell, but tracked (a runtime break) → vacuum. The paths genuinely diverge.
+        char[] runtimeMat = uniform(AIR_IX);
+        float[] runtimeMass = new float[SectionData.CELLS];
+        java.util.Arrays.fill(runtimeMass, 2500f);
+        MaterialChangeReseed.apply(uniformPrior(Identifier.fromNamespaceAndPath("orge", "stone")),
+                runtimeMat, lut(), new float[SectionData.CELLS], runtimeMass, 285f);
+        assertNotEquals(seedMass[0], runtimeMass[0],
+                "world-gen air (1.2) and broken-block vacuum (0) must differ");
+        assertEquals(0f, runtimeMass[0], 0f, "the broken-block path is vacuum");
+    }
+
+    @Test
+    void engineAirFillIsNotMistakenForAPlayerEditAndNotReVacuumed() {
+        // Reseed-misfire guard (mirrors MaterialChangeReseedConservationTest): the engine filled a
+        // broken-block vacuum with air over a step (the cell's recorded signature is the engine
+        // OUTPUT species = air). Next snapshot the live cell is air and prior is ALSO air, so this
+        // unit must NOT re-vacuum it (no air→air transition) — the fill is not fought.
+        char[] matIx = uniform(AIR_IX);
+        float[] temps = new float[SectionData.CELLS];
+        float[] mass = new float[SectionData.CELLS];
+        java.util.Arrays.fill(temps, 290f);
+        java.util.Arrays.fill(mass, 0.8f);  // air the engine flowed in (still equalising)
+        MaterialChangeReseed.apply(uniformPrior(AIR), matIx, lut(), temps, mass, 285f);
+        assertEquals(AIR_IX, matIx[0], "engine-filled air cell stays air (not re-vacuumed)");
+        assertEquals(0.8f, mass[0], 0f, "engine-filled air mass is preserved (the fill is not fought)");
+    }
+
+    @Test
+    void brokenBlockToVoidStaysVacuum() {
+        // A cell that became the void sentinel directly (matIx 0) is already vacuum: leave it.
+        char[] matIx = uniform(VOID_IX);
+        float[] temps = new float[SectionData.CELLS];
+        float[] mass = new float[SectionData.CELLS];
+        java.util.Arrays.fill(temps, 283f);
+        java.util.Arrays.fill(mass, 0f);
+        MaterialChangeReseed.apply(uniformPrior(Identifier.fromNamespaceAndPath("orge", "stone")),
+                matIx, lut(), temps, mass, 285f);
+        assertEquals(VOID_IX, matIx[0]);
         assertEquals(0f, mass[0], 0f);
     }
 
