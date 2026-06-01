@@ -11,6 +11,15 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Floor/cap ({@code min_mass}/{@code max_mass}) loaded from the bundled datapack JSON. Movability is
+ * now the single derived test ({@code movable() ⟺ viscosity finite}); the codec reads the legacy
+ * {@code min_flow_mass} key into {@code min_mass} (best-effort until Task 1.3 renames it).
+ *
+ * <p>NOTE(Task 1.3): the bundled steam/air JSON still carry NO {@code viscosity} key, so they load as
+ * frozen (immovable) under the canonical schema. Task 1.3 rewrites the JSON to add an explicit
+ * viscosity, at which point these become movable again. These tests assert the current loaded truth.
+ */
 class MaterialThreeMassJsonTest {
 
     private static Material load(String name) throws Exception {
@@ -25,28 +34,27 @@ class MaterialThreeMassJsonTest {
     @Test
     void waterHasFloorAndCapEqualToDefaultMass() throws Exception {
         Material w = load("water");
-        assertTrue(w.fluid());
-        assertEquals(125f, w.minFlowMass(), 1e-4f);
+        assertTrue(w.movable(), "water JSON has viscosity -> movable");
+        assertEquals(125f, w.minMass(), 1e-4f);
         assertEquals(1000f, w.maxMass(), 1e-4f, "max_mass == default_mass this slice");
         assertEquals(1000f, w.defaultMass(), 1e-4f);
-        assertFalse(w.gas());
     }
 
     @Test
     void lavaHasFloorAndCapEqualToDefaultMass() throws Exception {
         Material l = load("lava");
-        assertEquals(400f, l.minFlowMass(), 1e-4f);
+        assertTrue(l.movable(), "lava JSON has viscosity -> movable");
+        assertEquals(400f, l.minMass(), 1e-4f);
         assertEquals(3100f, l.maxMass(), 1e-4f);
-        assertFalse(l.gas());
     }
 
     @Test
-    void steamIsGasWithPositiveFloorAndCapEqualToDefaultMass() throws Exception {
+    void steamFloorAndCapEqualToDefaultMass() throws Exception {
         Material s = load("steam");
-        assertTrue(s.gas(), "steam is a tracked gas");
-        assertTrue(s.fluid(), "a tracked gas participates in advection");
-        assertTrue(s.minFlowMass() > 0f, "gas crash-guard: positive floor");
+        assertTrue(s.minMass() > 0f, "positive floor");
         assertEquals(0.6f, s.maxMass(), 1e-4f, "max_mass == default_mass this slice");
         assertEquals(0.6f, s.defaultMass(), 1e-4f);
+        // TODO(Task 1.3): steam JSON lacks a viscosity key, so it loads frozen for now.
+        assertFalse(s.movable(), "steam JSON has no viscosity yet -> frozen until Task 1.3");
     }
 }

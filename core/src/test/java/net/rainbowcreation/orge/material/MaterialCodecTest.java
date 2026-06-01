@@ -72,8 +72,9 @@ class MaterialCodecTest {
         assertEquals(500.0f, m.heatCapacity(), 1e-3f);
         assertEquals(1000.0f, m.defaultMass(), 1e-3f);
 
-        // Optional fields — documented defaults
-        assertEquals(0f, m.viscosity(), 1e-6f,        "viscosity default should be 0");
+        // Optional fields — documented canonical defaults
+        assertTrue(Float.isInfinite(m.viscosity()) && m.viscosity() > 0,
+                "viscosity default should be +Infinity (absent => frozen)");
         assertEquals(0f, m.molarMass(), 1e-6f,        "molar_mass default should be 0");
         assertTrue(Float.isInfinite(m.maxTemp()) && m.maxTemp() > 0,
                 "max_temp default should be +Infinity");
@@ -83,7 +84,8 @@ class MaterialCodecTest {
         // Nullable id fields — absent means null
         assertNull(m.maxTarget(),       "max_target absent → null");
         assertNull(m.minTarget(),      "min_target absent → null");
-        assertNull(m.representativeBlock(), "representative_block absent → null");
+        assertEquals(Identifier.fromNamespaceAndPath("minecraft", "air"), m.representativeBlock(),
+                "representative_block absent → minecraft:air (canonical default)");
     }
 
     // -------------------------------------------------------------------------

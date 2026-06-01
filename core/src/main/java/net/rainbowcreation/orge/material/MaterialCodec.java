@@ -7,7 +7,6 @@ import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.resources.Identifier;
 
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -42,22 +41,17 @@ public final class MaterialCodec {
 
     private MaterialCodec() {}
 
-    /** snake/lower-case string ⇆ {@link Material.State}; unknown names decode to a codec error. */
-    static final Codec<Material.State> STATE_CODEC = Codec.stringResolver(
-            s -> s.name().toLowerCase(Locale.ROOT),
-            s -> {
-                try { return Material.State.valueOf(s.toUpperCase(Locale.ROOT)); }
-                catch (IllegalArgumentException e) { return null; }
-            });
-
     // -------------------------------------------------------------------------
     // Internal record: the body fields (id is supplied separately by loader)
     // -------------------------------------------------------------------------
+    // TODO(Task 1.2): strict required-or-error + temp/target pairing rewrite. For now this
+    // best-effort adapts the EXISTING (old-schema) JSON into the new canonical record so
+    // AllMaterials-style loading keeps working; the JSON files are rewritten in Task 1.3.
 
     record BodyData(
             float thermalConductivity,
             float heatCapacity,
-            float viscosity,
+            Optional<Float> viscosity,
             float defaultMass,
             float molarMass,
             float maxTemp,
@@ -67,9 +61,8 @@ public final class MaterialCodec {
             Optional<Identifier> representativeBlock,
             float defaultTemperature,
             boolean pinned,
-            Material.State state,
-            float minFlowMass,
-            float maxMass
+            Optional<Float> minMass,
+            Optional<Float> maxMass
     ) {}
 
     // -------------------------------------------------------------------------
@@ -86,7 +79,7 @@ public final class MaterialCodec {
                             .forGetter(BodyData::thermalConductivity),
                     Codec.FLOAT.fieldOf("heat_capacity")
                             .forGetter(BodyData::heatCapacity),
-                    Codec.FLOAT.optionalFieldOf("viscosity", 0f)
+                    Codec.FLOAT.optionalFieldOf("viscosity")
                             .forGetter(BodyData::viscosity),
                     Codec.FLOAT.fieldOf("default_mass")
                             .forGetter(BodyData::defaultMass),
@@ -106,11 +99,10 @@ public final class MaterialCodec {
                             .forGetter(BodyData::defaultTemperature),
                     Codec.BOOL.optionalFieldOf("pinned", false)
                             .forGetter(BodyData::pinned),
-                    STATE_CODEC.optionalFieldOf("state", Material.State.SOLID)
-                            .forGetter(BodyData::state),
-                    Codec.FLOAT.optionalFieldOf("min_flow_mass", 0f)
-                            .forGetter(BodyData::minFlowMass),
-                    Codec.FLOAT.optionalFieldOf("max_mass", 0f)
+                    // min_flow_mass is the old key for the new min_mass floor (best-effort; Task 1.3 renames it).
+                    Codec.FLOAT.optionalFieldOf("min_flow_mass")
+                            .forGetter(BodyData::minMass),
+                    Codec.FLOAT.optionalFieldOf("max_mass")
                             .forGetter(BodyData::maxMass)
             ).apply(instance, BodyData::new)
     );
@@ -138,40 +130,28 @@ public final class MaterialCodec {
             throw new IllegalArgumentException(
                     "material " + id + ": pinned=true requires default_temperature");
         }
-        if (bd.state() == Material.State.GAS && !(bd.minFlowMass() > 0f)) {
-            throw new IllegalArgumentException(
-                    "material " + id + ": state=gas requires min_flow_mass > 0 (crash-guard: a gas cell "
-                            + "must never have zero density)");
-        }
-        // §11 Phase A: air is now a finite, compressible, conserved gas. It needs the same
-        // well-defined donor floor as a tracked gas so the kernel never drains a cell to a
-        // zero-density (undefined) state.
-        if (bd.state() == Material.State.AIR && !(bd.minFlowMass() > 0f)) {
-            throw new IllegalArgumentException(
-                    "material " + id + ": state=air requires min_flow_mass > 0 (crash-guard: an air "
-                            + "cell is a finite gas and must never have zero density)");
-        }
         Identifier maxTarget = bd.maxTarget().orElse(null);
         if (maxTarget == null && Float.isFinite(bd.maxTemp())) {
             maxTarget = Identifier.fromNamespaceAndPath("minecraft", "air");
         }
-        return new Material(
-                id,
-                bd.thermalConductivity(),
-                bd.heatCapacity(),
-                bd.viscosity(),
-                bd.defaultMass(),
-                bd.molarMass(),
-                bd.maxTemp(),
-                bd.minTemp(),
-                maxTarget,
-                bd.minTarget().orElse(null),
-                bd.representativeBlock().orElse(null),
-                bd.defaultTemperature(),
-                bd.pinned(),
-                bd.state(),
-                bd.minFlowMass(),
-                bd.maxMass()
-        );
+        // Builder applies the canonical absent-defaults (viscosity→+∞, min/maxMass→defaultMass,
+        // repr→minecraft:air). default_temperature defaults to NaN here so old JSON without it still
+        // loads; Task 1.2 makes that a hard required field.
+        Material.Builder b = Material.builder(id)
+                .thermalConductivity(bd.thermalConductivity())
+                .heatCapacity(bd.heatCapacity())
+                .molarMass(bd.molarMass())
+                .defaultMass(bd.defaultMass())
+                .defaultTemperature(bd.defaultTemperature())
+                .minTemp(bd.minTemp())
+                .maxTemp(bd.maxTemp())
+                .pinned(bd.pinned());
+        bd.viscosity().ifPresent(b::viscosity);
+        bd.minMass().ifPresent(b::minMass);
+        bd.maxMass().ifPresent(b::maxMass);
+        if (bd.minTarget().isPresent()) b.minTarget(bd.minTarget().get());
+        if (maxTarget != null) b.maxTarget(maxTarget);
+        bd.representativeBlock().ifPresent(b::representativeBlock);
+        return b.build();
     }
 }

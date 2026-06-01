@@ -12,20 +12,21 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * TDD tests for {@link Material.State#AIR}.
+ * The canonical schema removes the {@code State} enum and the air/fluid/gas/solid distinction:
+ * movability is the single derived test ({@code movable() ⟺ viscosity finite}). What was the
+ * "first-class air state" is now just a material; the bundled orge:air still loads, carrying its
+ * canonical mass/molar data.
  *
- * <p>{@code State.AIR} is the first-class air state: it is NON-fluid and NON-gas,
- * so {@code air()==true} while {@code fluid()==false} and {@code gas()==false}.
- * It is only ever set via the datapack {@code "state": "air"}; a material with no
- * {@code state} field still defaults to {@link Material.State#SOLID}.
+ * <p>NOTE(Task 1.3): the bundled air JSON carries no {@code viscosity} key yet, so air currently
+ * loads frozen (immovable). Task 1.3 adds an explicit viscosity to make it a movable gas again.</p>
  */
 class MaterialAirStateTest {
 
     private static final Identifier ID = Identifier.fromNamespaceAndPath("orge", "air");
 
-    /** The bundled orge:air datapack material resolves to State.AIR (non-fluid, non-gas). */
+    /** The bundled orge:air datapack material loads with its canonical mass data. */
     @Test
-    void realResourceAirMaterialResolvesToAirState() throws Exception {
+    void realResourceAirMaterialLoads() throws Exception {
         String path = "/data/orge/orge/materials/air.json";
         try (InputStream is = getClass().getResourceAsStream(path)) {
             assertNotNull(is, "Resource must exist: " + path);
@@ -33,23 +34,21 @@ class MaterialAirStateTest {
                     new InputStreamReader(is, StandardCharsets.UTF_8));
             Material m = MaterialCodec.fromJson(ID, body);
 
-            assertEquals(Material.State.AIR, m.state(), "orge:air should resolve to State.AIR");
-            assertTrue(m.air(), "air() should be true for State.AIR");
-            assertFalse(m.fluid(), "State.AIR must be NON-fluid");
-            assertFalse(m.gas(), "State.AIR must be NON-gas");
+            assertEquals(1.2f, m.defaultMass(), 1e-4f, "resting density");
+            assertEquals(0.001f, m.minMass(), 1e-6f, "air's flow floor (legacy min_flow_mass key)");
+            assertEquals(1000f, m.maxMass(), 1e-4f, "air's compression cap");
+            // TODO(Task 1.3): air JSON lacks a viscosity key, so it loads frozen for now.
+            assertFalse(m.movable(), "air JSON has no viscosity yet -> frozen until Task 1.3");
         }
     }
 
-    /** A material with no {@code state} field still defaults to SOLID (regression guard). */
+    /** A material with no viscosity key loads frozen (absent viscosity -> +INF). */
     @Test
-    void absentStateDefaultsToSolid() {
+    void absentViscosityIsFrozen() {
         String json = """
                 { "thermal_conductivity": 1.0, "heat_capacity": 500.0, "default_mass": 1000.0 }
                 """;
         Material m = MaterialCodec.fromJson(ID, JsonParser.parseString(json));
-        assertEquals(Material.State.SOLID, m.state(), "absent state -> SOLID");
-        assertFalse(m.air(), "SOLID material is not air");
-        assertFalse(m.fluid(), "SOLID material is not fluid");
-        assertFalse(m.gas(), "SOLID material is not gas");
+        assertFalse(m.movable(), "absent viscosity -> frozen (immovable)");
     }
 }

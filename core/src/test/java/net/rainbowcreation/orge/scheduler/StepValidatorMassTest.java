@@ -47,11 +47,13 @@ class StepValidatorMassTest {
     }
 
     private static Material air() {
-        // Real orge:air: State.AIR (air()==true), NON-fluid, ~1.2 kg per cell. Built via the canonical
-        // 16-arg ctor so the State.AIR path is taken (the compat ctors only fold into FLUID/SOLID/GAS).
-        return new Material(Identifier.fromNamespaceAndPath("orge", "air"),
-                1f, 1f, 0f, 1.2f, 0f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY,
-                null, null, null, Float.NaN, false, Material.State.AIR, 0f, 0f);
+        // Real orge:air: a movable finite gas (~1.2 kg per cell). Under the canonical schema there is
+        // no separate AIR state — finite viscosity makes it movable (a tracked advection species).
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "air"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(1.2f).defaultTemperature(Float.NaN)
+                .viscosity(0f)
+                .build();
     }
 
     /** VOID=0, water=1, generic_solid=2, lava=3, steam=4, air=5. */

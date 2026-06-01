@@ -33,9 +33,9 @@ public final class MaterialChangeReseed {
 
     private MaterialChangeReseed() {}
 
-    /** True when {@code live} is a fluid whose id differs from {@code prior} (the cell's stored values are stale). */
+    /** True when {@code live} is a movable material whose id differs from {@code prior} (stored values are stale). */
     public static boolean reseeds(Identifier prior, Material live) {
-        return prior != null && live.fluid() && !live.id().equals(prior);
+        return prior != null && live.movable() && !live.id().equals(prior);
     }
 
     /**
@@ -51,8 +51,12 @@ public final class MaterialChangeReseed {
      * air, recorded from the engine OUTPUT signature) is NOT re-vacuumed, so the reseed guard never
      * fights the gas fill ([[orge-reseed-misfire-fix]]).</p>
      */
+    // TODO(Task 1.2/3.x): the old air/fluid distinction is gone (air is now just a movable gas), so
+    // this collapses to movable() like reseeds(). With reseeds() checked first in apply(), the void
+    // branch is currently shadowed; the broken-block→vacuum policy is reworked when the new engine
+    // advection lands. Mapped to movable() to preserve compilation + the §11 finite-gas model.
     public static boolean voids(Identifier prior, Material live) {
-        return prior != null && live.air() && !live.id().equals(prior);
+        return prior != null && live.movable() && !live.id().equals(prior);
     }
 
     /**

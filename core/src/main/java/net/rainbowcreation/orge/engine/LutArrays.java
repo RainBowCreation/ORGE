@@ -20,16 +20,24 @@ public record LutArrays(float[] cond, float[] heatCap, float[] visc, float[] ful
         float[] minFlow = new float[m], maxMass = new float[m], molar = new float[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
+            // TODO(Task 2.1): repack to six physics arrays, drop the flag arrays, marshal absent
+            // viscosity as +∞, and change the orgeStepWorld JNI signature. For now keep the current
+            // array shapes and source movability from the single movable() test.
             cond[i] = mat.thermalConductivity();
             heatCap[i] = mat.heatCapacity();
             visc[i] = mat.viscosity();
             fullMass[i] = mat.defaultMass();
-            // §11 air flag-flip (engine-LUT view ONLY; Material.fluid()/gas() unchanged):
-            fluid[i] = (mat.fluid() || mat.air()) ? (byte) 1 : (byte) 0;
-            minFlow[i] = mat.minFlowMass();
+            // Movability is now the single test (spec invariant 1): movable ⟺ viscosity finite.
+            // The old fluid/gas/air flag trichotomy is gone from the record, so for this interim the
+            // engine sees every movable material as a liquid (fluid=movable, gas/air=0). Gas buoyancy
+            // and the air sink are reintroduced via the molar-mass-sorted advection in Task 3.x; the
+            // flag arrays themselves are dropped in Task 2.1.
+            byte mv = mat.movable() ? (byte) 1 : (byte) 0;
+            fluid[i] = mv;
+            minFlow[i] = mat.minMass();
             maxMass[i] = mat.maxMass();
-            gas[i] = (mat.gas() || mat.air()) ? (byte) 1 : (byte) 0;
-            air[i] = mat.air() ? (byte) 1 : (byte) 0;
+            gas[i] = (byte) 0;
+            air[i] = (byte) 0;
             molar[i] = mat.molarMass();
         }
         fullMass[0] = AIR_DENSITY; // VOID/ambient sentinel density label

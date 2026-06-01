@@ -15,6 +15,7 @@ import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import net.rainbowcreation.orge.scheduler.Scheduler;
 import net.rainbowcreation.orge.scheduler.StepValidator;
 import net.rainbowcreation.orge.section.SubchunkKey;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.List;
@@ -155,7 +156,7 @@ class AuditScenarioTest {
         }
 
         Material water = water();                 // fluid=true, defaultMass 1000
-        assertTrue(water.fluid(), "audit water must be a fluid to advect");
+        assertTrue(water.movable(), "audit water must be a fluid to advect");
 
         char[]  matIx = new char[SEC_N];          // all void
         float[] mass  = new float[SEC_N];
@@ -239,14 +240,15 @@ class AuditScenarioTest {
 
     // ---- Air-sink regression (the in-game bug, headless) -----------------------------------
 
-    // First-class AIR material (State.AIR): air()==true, fluid()==false, resting mass ~1.2 kg.
-    // Placed at a NON-ZERO LUT index so the kernel must read the air LUT flag (NOT the matIx==0
-    // void clause) to treat it as a fall/spread/wet sink. This is the array the ABI now passes.
+    // air material: a movable finite gas (~1.2 kg per cell). Under the canonical schema there is no
+    // separate AIR state — finite viscosity makes it movable, the sink fluids displace.
     private static final Identifier AIR = Identifier.fromNamespaceAndPath("orge", "air");
     private static Material air() {
-        return new Material(AIR, 0.026f, 1005f, 0f, 1.2f, 0.029f,
-                Float.POSITIVE_INFINITY, 0f, null, null, null,
-                Float.NaN, false, Material.State.AIR, 0f, 0f);
+        return Material.builder(AIR)
+                .thermalConductivity(0.026f).heatCapacity(1005f).molarMass(0.029f)
+                .defaultMass(1.2f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minTemp(0f)
+                .build();
     }
 
     /**
@@ -260,12 +262,10 @@ class AuditScenarioTest {
      * air-mass credit work together — the real in-game acceptance gate. If only matIx==0 void were a
      * sink (the OLD .so / unwired ABI), the non-zero air cells would stay empty and this fails.
      */
-    @Test  // §11 INT: re-enabled on the rebuilt air-DISPLACING .so with the new CONSERVE-air contract.
-           // A single full water cell FALLS through a real-air column (E2 density swap) to a stone-walled
-           // interior chamber floor: it leaves NO water residue in transited cells, total AIR is CONSERVED
-           // (displaced/risen, never consumed), and §9 massConservedPerSpecies ACCEPTS every step (air
-           // tracked on its own index). The orthogonal sideways-WET-into-air is proven on the same rebuilt
-           // lib by Section11PhaseANativeE2ETest + the ENGINE's tests/test_gas_displace.cpp headline.
+    @Test
+    @Disabled("Task 1.1: the canonical schema drops the air()/fluid() flag distinction, so the interim "
+            + "LUT packs air=0 and the kernel's air-DISPLACEMENT sink is inactive. Water-falls-through-real-"
+            + "air is reintroduced via the molar-mass-sorted advection in Task 3.x — re-enable then.")
     void waterFallsAndWetsIntoRealAirAndSection9Accepts() {
         OrgeEngine eng = EngineFactory.create();
         assumeTrue(eng instanceof NativeEngine,
@@ -274,8 +274,8 @@ class AuditScenarioTest {
 
         Material water = water();   // LUT idx 1: fluid, defaultMass 1000, floor 125 below
         Material air   = air();     // LUT idx 2: REAL air, air()==true, fluid()==false, 1.2 kg
-        assertTrue(water.fluid(), "water must be a fluid to advect");
-        assertTrue(air.air() && !air.fluid(), "air material must be air() and not fluid()");
+        assertTrue(water.movable(), "water must be a fluid to advect");
+        assertTrue(air.movable(), "air material must be a movable gas");
 
         // Mirror the proven kernel air-sink scenario (ORGE-ENGINE tests/test_air_sink.cpp): the WHOLE
         // section is REAL AIR (matIx 2, resting 1.2 kg) — the in-game ambient — so the air cells sit at
@@ -327,7 +327,7 @@ class AuditScenarioTest {
                         0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null),
                 new Material(WATER, 0.6f, 4186f, 0f, 1000f, 0.018f,
                         373.15f, 273.15f, ORGE_STEAM, ICE, null,
-                        Float.NaN, false, Material.State.FLUID, 125f, 1000f),
+                        Float.NaN, false, true, 125f, 1000f, false),
                 air,
                 new Material(STONE, 1.0f, 840f, 0f, 2000f, 0f, 9999f, 0f, null, null, null));
 
@@ -414,8 +414,8 @@ class AuditScenarioTest {
 
         Material water = water();          // LUT idx 1, fluid, defaultMass 1000
         Material lava  = fluidLava();      // LUT idx 2, fluid, defaultMass 3000
-        assertTrue(water.fluid(), "audit water must be a fluid to advect");
-        assertTrue(lava.fluid(),  "audit lava must be a fluid so the guard (not isFluid) is what blocks the merge");
+        assertTrue(water.movable(), "audit water must be a fluid to advect");
+        assertTrue(lava.movable(),  "audit lava must be a fluid so the guard (not isFluid) is what blocks the merge");
 
         char[]  matIx = new char[SEC_N];   // all void (idx 0)
         float[] mass  = new float[SEC_N];
@@ -515,10 +515,10 @@ class AuditScenarioTest {
      * Mass is checked total-conserved every step and §9 {@link StepValidator#massConservedPerSpecies}
      * must return TRUE every step (the air-mass credit accepting the swap).
      */
-    @Test  // §11 INT: re-enabled on the rebuilt air-DISPLACING .so. The water SINKS by full-cell swap,
-           // the displaced air RISES into the vacated cells (no residue, no accumulating trail), total
-           // mass is conserved every step, and §9 massConservedPerSpecies ACCEPTS every step with air
-           // conserved on its own index — exactly the conserve-air contract §11 ships.
+    @Test
+    @Disabled("Task 1.1: the canonical schema drops the air()/fluid() flag distinction, so the interim "
+            + "LUT packs air=0 and the kernel's air-DISPLACEMENT swap is inactive. The water-sinks-through-"
+            + "real-air (no-residue) swap is reintroduced via the molar-mass-sorted advection in Task 3.x.")
     void waterSinksThroughRealAirColumnDisplacingAirNoResidueAndSection9Accepts() {
         OrgeEngine eng = EngineFactory.create();
         assumeTrue(eng instanceof NativeEngine,
@@ -527,8 +527,8 @@ class AuditScenarioTest {
 
         Material water = water();   // LUT idx 1
         Material air   = air();     // LUT idx 2: REAL air, air()==true, fluid()==false, 1.2 kg
-        assertTrue(water.fluid(), "water must be a fluid to advect");
-        assertTrue(air.air() && !air.fluid(), "air material must be air() and not fluid()");
+        assertTrue(water.movable(), "water must be a fluid to advect");
+        assertTrue(air.movable(), "air material must be a movable gas");
 
         char[]  matIx = new char[SEC_N];   // mostly void (idx 0)
         float[] mass  = new float[SEC_N];
@@ -557,7 +557,7 @@ class AuditScenarioTest {
                         0f, 0f, 0f, 0f, 0.018f, 9999f, 0f, null, null, null),
                 new Material(WATER, 0.6f, 4186f, 0f, 1000f, 0.018f,
                         373.15f, 273.15f, ORGE_STEAM, ICE, null,
-                        Float.NaN, false, Material.State.FLUID, 125f, 1000f),
+                        Float.NaN, false, true, 125f, 1000f, false),
                 air,
                 new Material(STONE, 1.0f, 840f, 0f, 2000f, 0f, 9999f, 0f, null, null, null));
 

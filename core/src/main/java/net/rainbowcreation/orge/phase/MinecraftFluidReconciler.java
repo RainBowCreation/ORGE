@@ -98,8 +98,8 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
             // Reconcile a cell when EITHER the world block is a managed fluid OR the engine says it is
             // now a fluid (wetting an air cell). Skip cells that are and stay non-fluid.
-            boolean worldIsFluid = worldMaterial.fluid();
-            boolean becameFluid = outMat != null && outMat.fluid();
+            boolean worldIsFluid = worldMaterial.movable();
+            boolean becameFluid = outMat != null && outMat.movable();
             if (!worldIsFluid && !becameFluid) {
                 continue;
             }

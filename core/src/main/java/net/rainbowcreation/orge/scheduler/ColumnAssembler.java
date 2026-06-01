@@ -63,7 +63,7 @@ public final class ColumnAssembler {
                         // Seed a fresh fluid cell ONLY when its label is NEW relative to last cycle's
                         // engine-output species. A genuine placement: prior (void/other) != mat ⇒ seed.
                         // An engine-drained-but-still-fluid cell: prior == mat ⇒ keep 0, no fabrication.
-                        if (m.fluid() && storedMass <= 0f && prior != mat) {
+                        if (m.movable() && storedMass <= 0f && prior != mat) {
                             seeded = m.defaultMass();              // fresh-fluid seed (once)
                         } else {
                             seeded = storedMass;

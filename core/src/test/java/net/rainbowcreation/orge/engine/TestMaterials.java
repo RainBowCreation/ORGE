@@ -19,18 +19,24 @@ public final class TestMaterials {
     private static final Identifier STONE = Identifier.fromNamespaceAndPath("minecraft", "stone");
     private static final Identifier VOIDID = Identifier.fromNamespaceAndPath("orge", "void");
 
-    /** Live datapack roster: orge:air — state=air, min 0.001, default 1.2, max 1000, M 0.029. */
+    /** Live datapack roster: orge:air — a movable finite gas, min 0.001, default 1.2, max 1000, M 0.029. */
     public static Material air() {
-        return new Material(AIR, 0.026f, 1005f, 0f, 1.2f, 0.029f,
-                Float.POSITIVE_INFINITY, 0f, null, null, null,
-                Float.NaN, false, Material.State.AIR, 0.001f, 1000f);
+        return Material.builder(AIR)
+                .thermalConductivity(0.026f).heatCapacity(1005f).molarMass(0.029f)
+                .defaultMass(1.2f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(0.001f).maxMass(1000f)
+                .minTemp(0f)
+                .build();
     }
 
-    /** Live water: fluid, default/cap 1000, floor 125. */
+    /** Live water: movable, default/cap 1000, floor 125. */
     public static Material water() {
-        return new Material(WATER, 0.6f, 4186f, 0f, 1000f, 0.018f,
-                373.15f, 273.15f, STEAM, ICE, null,
-                Float.NaN, false, Material.State.FLUID, 125f, 1000f);
+        return Material.builder(WATER)
+                .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(125f).maxMass(1000f)
+                .minTemp(273.15f).maxTemp(373.15f).maxTarget(STEAM).minTarget(ICE)
+                .build();
     }
 
     /** Inert solid (stone): a no-flow wall that is not an air sink. */

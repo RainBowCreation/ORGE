@@ -26,7 +26,7 @@ public final class StepValidator {
      * contributes 0 to every sum.
      */
     private static boolean isTracked(Material m) {
-        return m.fluid() || m.air();
+        return m.movable();
     }
 
     /**
@@ -94,8 +94,8 @@ public final class StepValidator {
         double sumA = 0, sumB = 0;
         float cellEps = MASS_EPSILON_PER_CELL;
         for (int i = 0; i < after.length; i++) {
-            if (lut != null && !lut.get(matIx[i]).fluid()) {
-                continue; // solids/air: not an advection mass, exempt from conservation + bound
+            if (lut != null && !lut.get(matIx[i]).movable()) {
+                continue; // immovable cells: not an advection mass, exempt from conservation + bound
             }
             if (!Float.isFinite(after[i])) return false;
             if (after[i] < -cellEps || after[i] > fullMassBound + cellEps) return false;

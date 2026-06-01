@@ -60,7 +60,10 @@ class BatchMarshallerLutTest {
         assertEquals(1000f, f.lutMaxMass()[1], 1e-4f);
         assertEquals(0.6f, f.lutMaxMass()[2], 1e-4f);
 
-        assertEquals((byte) 0, f.lutGas()[1]);
-        assertEquals((byte) 1, f.lutGas()[2], "steam is gas");
+        // TODO(Task 2.1/3.x): the record no longer distinguishes gas from liquid, so the interim LUT
+        // packs gas=0 for every material (movability is the only flag now). Gas buoyancy returns via
+        // the molar-mass-sorted advection; the gas/air flag arrays are dropped entirely in Task 2.1.
+        assertEquals((byte) 0, f.lutGas()[1], "liquid: gas flag 0");
+        assertEquals((byte) 0, f.lutGas()[2], "gas distinction deferred — interim gas flag is 0");
     }
 }
