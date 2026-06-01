@@ -117,10 +117,6 @@ class SchedulerTest {
      */
     private static OrgeEngine deltaEngine(float delta, double millis) {
         return new OrgeEngine() {
-            @Override public List<StepResult> step(List<net.rainbowcreation.orge.engine.StepTask> tasks,
-                    List<Material> lut, double dt, int passes) {
-                throw new UnsupportedOperationException("column path only");
-            }
             @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
                     double dt, int passes) {
                 boolean conduction = (passes & PASS_CONDUCTION) != 0;

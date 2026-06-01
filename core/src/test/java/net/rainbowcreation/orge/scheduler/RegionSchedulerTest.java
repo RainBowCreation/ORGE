@@ -6,7 +6,6 @@ import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.StepResult;
-import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import org.junit.jupiter.api.Test;
 
@@ -73,9 +72,6 @@ class RegionSchedulerTest {
         final float transfer;
         SeamEngine(boolean conserve, int cellA, int cellB, float transfer) {
             this.conserve = conserve; this.cellA = cellA; this.cellB = cellB; this.transfer = transfer;
-        }
-        @Override public List<StepResult> step(List<StepTask> tasks, List<Material> lut, double dt, int passes) {
-            throw new UnsupportedOperationException("column path only");
         }
         @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
                 double dt, int passes) {

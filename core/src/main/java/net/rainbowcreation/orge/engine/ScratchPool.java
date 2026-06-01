@@ -4,8 +4,8 @@ package net.rainbowcreation.orge.engine;
  * Per-worker reusable scratch arrays for the native step's flat outputs (DESIGN §10 Decision 13c).
  * The engine runs single-threaded on the runner's background thread, so one buffer set (no
  * {@link ThreadLocal}) suffices. Arrays grow to the batch high-water mark and are kept, so a steady 4 Hz
- * cadence allocates nothing after warm-up — the result slices ({@code BatchMarshaller.slice*}) copy the
- * per-section data out before the next step reuses the scratch.
+ * cadence allocates nothing after warm-up — the result slices ({@code RegionMarshaller.slice}) copy the
+ * per-column data out before the next step reuses the scratch.
  *
  * <p>Not thread-safe by design: confined to the single engine worker thread.</p>
  */

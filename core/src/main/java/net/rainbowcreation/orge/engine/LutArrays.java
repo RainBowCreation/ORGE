@@ -5,8 +5,8 @@ import java.util.List;
 
 /**
  * Flat per-material LUT carrying EXACTLY the six physics floats the unified fluid engine needs,
- * shared by {@link RegionMarshaller} (whole-region, production) and {@link BatchMarshaller}
- * (per-section, dormant/test-only). One array per physics field, indexed by LUT slot.
+ * packed by {@link RegionMarshaller} (the whole-region production path). One array per physics
+ * field, indexed by LUT slot.
  *
  * <p>There is NO movability flag: immovability falls out of {@code visc == +∞} (spec invariant 1).
  * An absent viscosity is already {@link Float#POSITIVE_INFINITY} (frozen) on the {@link Material},
