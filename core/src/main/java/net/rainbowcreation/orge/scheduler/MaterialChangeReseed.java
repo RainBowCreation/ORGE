@@ -13,18 +13,21 @@ import java.util.List;
  * replacing water, /setblock — the persisted values still belong to the OLD block (e.g. a formerly-air
  * cell stored {@code air.default_mass} = 1.2 kg and ambient temperature). The snapshot re-reads the
  * live material every cycle; this unit compares it to the {@link CellMaterialTracker} signature and,
- * for every cell that became a <b>different fluid</b>, corrects the stale temperature to its
+ * for every cell that became a <b>different movable material</b>, corrects the stale temperature to its
  * {@link AmbientSeeder} value (a source's {@code default_temperature}, otherwise biome ambient) and
  * <b>clears the stale stored mass to 0</b> — it does NOT fabricate {@link Material#defaultMass()} here.
- * The single surviving mass seed lives in {@link ColumnAssembler} ({@code fluid && stored <= 0 ⇒
- * defaultMass}); clearing to 0 routes a freshly-changed fluid cell through that one seed, so the Java
+ * The single surviving mass seed lives in {@link ColumnAssembler} ({@code movable && stored <= 0 ⇒
+ * defaultMass}); clearing to 0 routes a freshly-changed movable cell through that one seed, so the Java
  * layer never fabricates mass on a material change (DESIGN 2026-06-01 §6, R3).
  *
- * <p>Scope is deliberately <b>fluid materials only</b>. ORGE's own phase transitions all yield
- * non-fluid blocks (water→ice/steam, lava→stone), so gating on {@code live.fluid()} leaves the
- * post-transition state §7 wrote untouched without this unit needing to know which changes were
- * ORGE's. Solids carry stale thermal mass after an external swap, but that does not drive advection
- * and is a separate, lower-impact follow-on. Pure and array-mutating.</p>
+ * <p>Scope is the unified-model <b>movability gate</b> ({@code live.movable()} — viscosity finite):
+ * any cell that became a different movable material (water, air, steam, …) is re-seeded. ORGE's cold
+ * phase targets are <b>frozen</b> (ice/stone have no viscosity, so {@code +inf}), so {@code movable()}
+ * naturally leaves the post-transition state §7 wrote untouched, without this unit needing to know
+ * which changes were ORGE's. A genuine void/vacuum cell (matIx 0) is excluded by an explicit guard:
+ * VOID is itself a finite-viscosity (movable) sentinel, so without the guard it would spuriously
+ * reseed. Frozen solids carry stale thermal mass after an external swap, but that does not drive
+ * advection and is a separate, lower-impact follow-on. Pure and array-mutating.</p>
  */
 public final class MaterialChangeReseed {
 
