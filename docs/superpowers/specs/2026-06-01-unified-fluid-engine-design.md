@@ -98,23 +98,38 @@ Two emergent behaviours, no branches:
 fields.** A material's JSON (`data/orge/orge/materials/<name>.json`), the `Material` record, the loader, the
 engine LUT, and the phase system all conform to this:
 
+**REQUIRED — the loader errors if any is missing** (clean data is mandatory):
+
 | field | type | who uses it | meaning |
 |---|---|---|---|
 | `thermal_conductivity` | float | **engine** (conduction) | W/(m·K) |
 | `heat_capacity` | float | **engine** (conduction) | J/(kg·K) |
-| `default_mass` | float | Java (seed) | kg placed in a cell when this material is first created |
 | `molar_mass` | float | **engine** (sort) | gravitational sort key — higher sinks |
-| `max_mass` | float | **engine** (advection) | per-cell compression ceiling (kg); a cell never exceeds this |
-| `min_mass` | float | **engine** (advection) | relaxed per-cell mass (kg); a free body expands until cells near this. **Replaces `min_flow_mass`.** |
-| `state` | enum | **Java render ONLY** | `solid` \| `liquid` \| `fluid` — picks how Java renders it; the engine never reads it. See note below. |
-| `viscosity` | float | **engine** (advection) | mobility coefficient: `0` = immovable (most solids), higher = flows more readily. **Note: this is inverted from textbook viscosity** — rename pending (see note). |
-| `default_temp` | float | Java (seed) | natural/seed temperature (K) |
-| `pinned` | bool | Java (Dirichlet) | when true, the cell temperature is held at `default_temp` every tick (heat source/sink) |
-| `min_temp` | float | Java (phase) | below this the cell becomes `min_target` |
-| `max_temp` | float | Java (phase) | above this the cell becomes `max_target` |
-| `min_target` | **material id** | Java (phase) | material to become below `min_temp` (e.g. `orge:ice`) — **a material id, never a block id** |
-| `max_target` | **material id** | Java (phase) | material to become above `max_temp` (e.g. `orge:steam`) |
-| `representative_block` | **block id** | Java render | the Minecraft block that renders this material (e.g. `minecraft:air`) |
+| `default_mass` | float | Java (seed) | kg placed in a cell when this material is first created |
+| `default_temperature` | float | Java (seed) | natural/seed temperature (K) |
+
+**OPTIONAL — each has a default when absent** (keeps JSON minimal):
+
+| field | type | who uses it | absent ⇒ default | meaning |
+|---|---|---|---|---|
+| `viscosity` | float | **engine** (advection) | **unflowable** (marshalled as `0`) | mobility: `0` = immovable (solids), higher = flows more readily. Omit it entirely for a static solid. |
+| `min_mass` | float | **engine** (advection) | `= default_mass` | relaxed per-cell mass; a free body expands until cells near this. (Replaces `min_flow_mass`.) |
+| `max_mass` | float | **engine** (advection) | `= default_mass` | per-cell compression ceiling; a cell never exceeds this. |
+| `min_temp` | float | Java (phase) | no cold phase change | below this the cell becomes `min_target`. **If present, `min_target` is required.** |
+| `max_temp` | float | Java (phase) | no hot phase change | above this the cell becomes `max_target`. **If present, `max_target` is required.** |
+| `min_target` | **material id** | Java (phase) | — | material to become below `min_temp` (e.g. `orge:ice`) — a **material id, never a block id**. |
+| `max_target` | **material id** | Java (phase) | — | material to become above `max_temp` (e.g. `orge:steam`). |
+| `representative_block` | **block id** | Java render | **`minecraft:air`** | the Minecraft block drawn for this material. **Not the identity** — see note. |
+| `pinned` | bool | Java (Dirichlet) | `false` | when true, the cell temperature is held at `default_temperature` every tick (heat source/sink). |
+| `state` | enum | **Java render** | *(pending — may be dropped)* | `solid`\|`liquid`\|`gas` render style. The engine NEVER reads it. See open question. |
+
+### `representative_block` is NOT the material identity
+
+A cell's identity is its **material id**; `representative_block` is only what's *drawn*. Multiple distinct
+materials may share one representative block. An **invisible gas** is exactly this: `representative_block:
+minecraft:air`, yet a unique material with its own `molar_mass`/`viscosity`/etc. — each cell stays that gas,
+physically distinct from real air, even though both render as `minecraft:air`. Identity lives in the material,
+never in the block.
 
 ### The material-id ⇄ block-id indirection (the core fix)
 
@@ -125,31 +140,31 @@ a material JSON (`air.json`); that material's `representative_block` (`minecraft
 e.g. `water.json` has `"min_target": "minecraft:ice"` (a **block** id). It must become a **material** id
 (`orge:ice`), and an `ice` material must exist with `representative_block: minecraft:ice`.
 
-### `state` is RENDER-ONLY; immovability comes from `viscosity == 0`
+### Movement is `viscosity` only; `state` (if kept) is render-only
 
-The engine never reads `state`. Whether a cell can move is decided entirely by `viscosity`: `viscosity == 0`
-⇒ a wall (never advected, sorted, or displaced — terrain stays put); `viscosity > 0` ⇒ it participates in the
-flow passes like everything else. `state` exists only so Java knows how to render the material (which block,
-which particle, liquid vs airy look), via `representative_block`.
+The engine never reads `state`. Whether a cell can move is decided entirely by `viscosity`: **absent /
+`0` ⇒ a wall** (never advected, sorted, or displaced — terrain stays put); `> 0` ⇒ it participates in the
+flow passes like everything else. The field keeps the name `viscosity` but acts as a *mobility* coefficient
+(higher = flows more readily — inverted from textbook viscosity, accepted).
 
-> **Open question 1 (naming — render enum):** the third value is `fluid`, which collides with our umbrella
-> "fluid = liquid-or-gas". I read it as "the gas/airy render" (air, steam = `fluid`; water, lava = `liquid`).
-> Prefer `{solid, liquid, gas}`? It's a render-side naming choice only.
->
-> **Open question 2 (naming — mobility field):** `viscosity` is used here as a *mobility* coefficient
-> (`0` = immovable), the inverse of textbook viscosity. Recommend renaming to `fluidity` (or `mobility`).
-> Your call; the field's role is unchanged either way.
+> **OPEN QUESTION (state):** With `representative_block` choosing the draw block and `viscosity` deciding
+> movement, `state` may be **redundant**. Recommendation: drop it. Keep it only if Java needs a render *style*
+> hint beyond "which block" (animate as a liquid level vs a static block). If kept, the enum is
+> `{solid, liquid, gas}` (not `fluid`, to avoid clashing with the umbrella term).
 
 ### What's wrong with the current data (the refactor checklist)
 
-1. `min_flow_mass` → **rename to `min_mass`** (and drop the `Material.maxMass()` "0 means fall back to
-   default" hack — `min_mass`/`max_mass` are always explicit).
+1. `min_flow_mass` → **rename to `min_mass`** (absent ⇒ `default_mass`); drop the `Material.maxMass()`
+   "0 means fall back to default" hack — defaulting is the loader's job, not a getter's.
 2. `min_target`/`max_target` hold **block** ids (`minecraft:ice`, `minecraft:water`) → must be **material**
    ids (`orge:ice`, `orge:water`); create the missing target materials.
-3. `state` enum `{SOLID, FLUID, GAS, ENTITY, AIR}` → **`{solid, liquid, fluid}`**; remap (water `fluid`→
-   `liquid`; steam/air `gas`→`fluid`); add `state` to solids (currently absent, e.g. `generic_solid.json`).
-4. `default_temp` and `pinned` missing on most files → present on every material.
-5. Remove every field not in the table above; add every field that is.
+3. `viscosity` becomes optional: **omit it for static solids** (`generic_solid.json` should have NO viscosity
+   = unflowable). A movable solid (sand) gets `viscosity > 0` + `min_mass ≈ max_mass`.
+4. `default_temperature` is now **required on every material** (no `NaN`/absent); the loader errors if a
+   required field is missing.
+5. `state` (if kept per the open question) is **render-only**, enum `{solid, liquid, gas}`. The old `State`
+   enum `{SOLID, FLUID, GAS, ENTITY, AIR}` and every boolean `fluid`/`gas`/`air` flag are removed.
+6. Remove every field not in the schema above; add every field that is.
 
 ## Sort key = molar mass ONLY (locked)
 
