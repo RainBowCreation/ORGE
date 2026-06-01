@@ -1,7 +1,7 @@
 {
   "thermal_conductivity": 0.025,
   "heat_capacity": 2080,
-  "molar_mass": 0.018,
+  "molar_mass": 0.001,
   "default_mass": 0.6,
   "default_temperature": 400,
   "viscosity": 0.0001,

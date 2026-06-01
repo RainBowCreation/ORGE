@@ -141,4 +141,32 @@ class AllMaterialsLoadTest {
         assertTrue(air.movable());
         assertTrue(air.molarMass() < 0.05f, "air has a low molar_mass (light gas), got " + air.molarMass());
     }
+
+    // -------------------------------------------------------------------------
+    // (f) molar_mass is the gravitational sort key — heavier sinks lower.
+    //     Lock the intended buoyancy chain so the SI-molar-mass inversion
+    //     (air 0.029 > water 0.018, which floats water on air) can't regress:
+    //         lava 0.060 > water 0.018 > air 0.002 > steam 0.001 > void 0
+    // -------------------------------------------------------------------------
+
+    @Test
+    void molarMassPreservesBuoyancyOrder() throws Exception {
+        MaterialRegistry reg = loadAll();
+        Material lava  = reg.get(orge("lava")).orElseThrow();
+        Material water = reg.get(orge("water")).orElseThrow();
+        Material air   = reg.get(orge("air")).orElseThrow();
+        Material steam = reg.get(orge("steam")).orElseThrow();
+
+        // The core invariant: water must sink below air.
+        assertTrue(air.molarMass() < water.molarMass(),
+                "air must be lighter than water so water sinks below air; air=" + air.molarMass()
+                        + " water=" + water.molarMass());
+        // Steam is the lightest gas — it rises above air.
+        assertTrue(steam.molarMass() < air.molarMass(),
+                "steam must be lighter than air so steam rises above air; steam=" + steam.molarMass()
+                        + " air=" + air.molarMass());
+        // Full descending chain (heavier sinks lower).
+        assertTrue(lava.molarMass() > water.molarMass(), "lava sinks below water");
+        assertTrue(steam.molarMass() > 0f, "steam is heavier than void (0)");
+    }
 }

@@ -32,7 +32,8 @@ class MaterialAirGasM1Test {
             assertEquals(1.0f, air.minMass(), 1e-6f, "air's canonical relaxed floor (~1 kg, spec air-ish example)");
             assertEquals(1000f, air.maxMass(), 1e-4f, "air's 1000 kg compression cap (wide compressible band)");
             assertEquals(1.2f, air.defaultMass(), 1e-4f, "resting density unchanged");
-            assertEquals(0.029f, air.molarMass(), 1e-6f, "molar mass preserved (threaded to engine)");
+            assertEquals(0.002f, air.molarMass(), 1e-6f,
+                    "molar_mass is the gravitational sort key (air-ish=2 mg/mol): lighter than water so water sinks below air");
             assertTrue(air.movable(), "canonical air carries a finite viscosity -> movable gas");
         }
     }
