@@ -66,8 +66,10 @@ tick, but redirected to `SectionStore` mass moves instead of block spawns:
 - **Source must hold a full quantum** — require `mass(top) ≥ min_mass(top)` before a drip
   (else partial/zero), so the cell can't drip itself below cohesion in a way that
   manufactures a fractional cell.
-- **Cauldron interaction** — keep vanilla cauldron filling (as a mass sink that *consumes*
-  the dripped `ΔM`), or treat the cauldron as just another receiving cell?
+- **Cauldron interaction — RESOLVED:** a cauldron under the stalactite is the receiver;
+  each drip deposits one `min_mass` quantum into it (a 1000 kg contained cell) per
+  [[2026-06-02-fluid-containers]]. The cauldron is just another receiving cell with walls,
+  so the molar-sort gate still applies.
 - **Lava dripstone** — vanilla lava+pointed dripstone over a cauldron makes lava; here it
   becomes a lava trickle gated by the same rule. Desired?
 - **Suppression** — like the vanilla-fluid suppression we already do (`FlowingFluid#tick`),

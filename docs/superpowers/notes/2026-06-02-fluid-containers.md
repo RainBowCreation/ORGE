@@ -16,6 +16,7 @@ carrying temperature with the mass — consistent with the finite-water/unified-
 |---|---|---|
 | **Bucket** | `1000 kg` | **any flowable material** (water, lava, steam, …) — capacity is by mass, regardless of the material's per-cell density |
 | **Glass bottle** | `250 kg` | water (and other drinkable/flowable fluids — see open Qs) |
+| **Cauldron** (block) | `1000 kg` | **any flowable material** — a placed *block* container, fed by pour/drip/rain (see below) |
 
 `1000 kg` = exactly one full water cell (`default_mass`); `250 kg` = ¼ cell (= 2 × water
 `min_mass` of 125 kg). Partial fills are allowed — a container can hold any amount up to
@@ -49,6 +50,29 @@ texture assets):
   bar; empty → no bar / empty).
 - Could tint the bar by material later (blue water, orange lava) using the existing
   damage-bar color hook — optional.
+
+## Block container — the Cauldron (1000 kg)
+A cauldron is the **block** member of the family: model its interior as a **contained
+`SectionStore` cell** — a cell with walls (no lateral or downward outflow) and an **open
+top**, capacity `1000 kg`. It holds one flowable material at a time, carries temperature,
+and never creates/destroys mass.
+
+- **Inflows:**
+  - **Dripstone drip** — a stalactite over a cauldron drips one `min_mass` quantum per
+    event into it (the resolved receiver for [[2026-06-02-dripstone-conduit]]),
+    accumulating toward 1000 kg.
+  - **Pour from bucket/bottle** — deposit stored contents into the cauldron cell.
+  - **Rain** — open cauldrons collect rain mass via [[2026-05-31-rain-mass-seeding]]
+    (vanilla already fills cauldrons in rain; here it adds real water mass).
+- **Outflows:**
+  - **Fill a bucket/bottle** from the cauldron.
+  - **Drink** directly (cup-from-cell) → refills thirst (see Integration).
+- **Fill indicator:** reuse the **vanilla cauldron's own level rendering** (its 1/3·2/3·full
+  visual states) mapped from `mass_kg / 1000` — no new assets. (Finer granularity is
+  possible later, but the 3-step vanilla look is free.)
+- Because the interior is just a walled cell, the engine's normal conduction still applies
+  (a cauldron of lava radiates heat to neighbours; water in a cauldron over fire heats up
+  and can phase-change per §7).
 
 ## Integration
 - **Drinking / thirst:** a water-filled **glass bottle is the "water bottle item"** from
