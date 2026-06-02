@@ -59,26 +59,39 @@ acceleration); (4) bit-identical behaviour at the default `dt=0.25`.
 
 ## Part A — Engine: `rate·dt` unified flux
 
-### A1. The one flux formula
+### A1. Unified at the viscosity source — amount for diffusion, frequency for the frontier
 
-Every horizontal/displacement transfer across a face — **same-material (Pass B) AND
-into-a-lower-molar-mass neighbour (Pass B′)** — uses the identical calculation:
+Reading the code, viscosity drives flow through **two** expressions, both derived from the
+**same** viscosity→speed curve (`spread_fraction`/`advance_period`). CFL forbids amount-scaling
+a 1-cell-per-step propagation event (and the documented deadlock at `:68-79` confirms it), so
+the two expressions are necessary — they are NOT one literal formula:
 
+**(i) Continuous diffusive leveling** — the only amount-scaled transfer, in Pass B's BOXED
+branch (`sim_engine.hpp:802`):
 ```
 pressure(cell) = max(0, mass − min_mass)
-Δ              = donor.pressure − receiver.pressure          // donor = higher-pressure side
-fraction       = clamp( rate(donor.viscosity) · dt , 0 , 0.5 )
-dm             = fraction · Δ
+Δ              = |donor.pressure − receiver.pressure|        // donor = higher-pressure side
+dm             = clamp( rate(donor.viscosity) · dt , 0 , 0.5 ) · Δ
 ```
+- `0.5` = no-overshoot ceiling (cannot transfer more than reaches equilibrium).
+- At `dt=0.25` this equals today's `spread_fraction(v)·0.5·Δ` exactly (A2).
 
-- The donor's viscosity governs the rate in both cases (water displaces air fast; lava
-  slowly — emergent, no special-casing).
-- `0.5` is the no-overshoot ceiling (cannot transfer more than reaches equilibrium).
-- Pass B and Pass B′ collapse into **one routine**; they differ ONLY in the face-validity
-  predicate (same-species OR receiver-has-strictly-lower-molar-mass). The transfer math is
-  shared. Existing B′ specifics retained: the vacuum-adopt single-donor CLAIM, the
-  frontier-distance concentration field (budding to `floor(M/min)`), and the
-  antisymmetric `BAccum` ledger (donor `−dm`, receiver `+dm`, enthalpy `dm·T`).
+**(ii) Discrete atomic frontier / displacement** — fixed-amount events whose *speed* is
+governed by **frequency**, not amount:
+- Pass B vacuum-open (`:758`, atomic `min_mass` dose) and concentrate-pour (`:798`).
+- Pass B′ into-lighter displacement (`:1028-1031`, atomic `min_mass` dose) — Pass B′ has **no**
+  continuous amount term; it is entirely atomic.
+- All of these are gated by the **time-based cadence** `advanced(v, t0, t1)` (A3), so a viscous
+  fluid opens/displaces less often (full dose when it does), reaching the same `floor(M/min)`
+  reach over proportionally more time.
+
+So "same calculation from the viscosity flowrate" is honoured by deriving BOTH expressions from
+the one viscosity curve. Same-material flow uses (i) when boxed and (ii) at its frontier;
+into-lighter displacement uses (ii). Existing B′ specifics retained: the vacuum-adopt
+single-donor CLAIM, the frontier-distance concentration field (budding to `floor(M/min)`), the
+deterministic escape-direction hash, and the antisymmetric `BAccum` ledger (donor `−dm`,
+receiver `+dm`, enthalpy `dm·T`). The pass routines stay separate; only the rate term and the
+cadence become time-based.
 
 ### A2. The rate function
 
@@ -197,8 +210,9 @@ longer-than-5-tick in-flight window) are unchanged.
    the sim-time keying, A3).
 2. **Sub-cycling correctness:** `advect(dt=0.5)` ≡ two `advect(dt=0.25)` steps (same final
    state).
-3. **Unified flux equivalence:** same-material and into-lighter transfers produce the same
-   `dm` for equal `(viscosity, dt, Δpressure)`.
+3. **Shared viscosity source:** the diffusive leveling amount equals `clamp(rate(v)·dt,0,0.5)·Δ`
+   (unit test on the formula), and Pass B's frontier and Pass B′'s displacement both gate on
+   the *same* `advanced(v, t0, t1)` cadence function (no separate per-pass speed law).
 4. **Conservation:** mass oracle `== 1000.0` across all flow scenarios; antisymmetric ledger
    holds across chunk seams.
 5. **Kernel / `sim_engine` parity:** the shared `rate()` / flux helpers keep both paths
