@@ -93,4 +93,18 @@ public final class OrgeFluidPolicy {
     public static boolean allowInfiniteWater() {
         return false;
     }
+
+    /**
+     * Whether vanilla lava solidification on fluid contact is allowed. This covers every solidifying
+     * branch inside {@code LiquidBlock#shouldSpreadLiquid}: lava&harr;water &rarr; obsidian (source) /
+     * cobblestone (flowing), and lava&harr;blue-ice &rarr; basalt (the "lava-ice" interaction). Always
+     * {@code false} for now: ORGE owns lava cooling, so the per-loader {@code shouldSpreadLiquid} mixin
+     * forces that method onto its non-solidifying branch <b>globally</b> (placed lava stays lava, no
+     * obsidian / cobblestone / basalt). This is a global (not section-scoped) disable &mdash; it also
+     * closes the managed/unmanaged async window where vanilla physics could solidify a just-placed
+     * lava cell before ORGE adopts it. A future lava-cooling branch flips this on under ORGE control.
+     */
+    public static boolean allowVanillaLavaSolidification() {
+        return false;
+    }
 }

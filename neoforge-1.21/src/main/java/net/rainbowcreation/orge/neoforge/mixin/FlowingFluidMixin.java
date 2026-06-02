@@ -21,12 +21,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * callback and delegates to the loader-free {@link OrgeFluidSuppressionBridge} &rarr;
  * {@code OrgeFluidPolicy}.</p>
  *
- * <p><b>Obsidian intentionally disabled for managed fluids.</b> ORGE is now authoritative over the
- * water/lava it simulates, so this tick is cancelled for managed cells unconditionally (no
- * adjacent-interacting-fluid carve-out). Vanilla lava&harr;water solidification (obsidian /
- * cobblestone / basalt) therefore no longer fires inside managed sections &mdash; lava cools to
- * stone thermally via ORGE's phase system, and a future lava-cooling branch reintroduces obsidian.
- * Unmanaged regions are untouched. Server-side only.</p>
+ * <p>This mixin cancels only the scheduled <b>flow/spread</b> tick for managed cells. It does
+ * <b>not</b> stop vanilla lava solidification: lava&harr;water &rarr; obsidian/cobblestone and
+ * lava&harr;blue-ice &rarr; basalt are decided in {@code LiquidBlock#shouldSpreadLiquid}
+ * (a {@code onPlace}/{@code neighborChanged} side effect), not in {@code Fluid#tick}. Disabling that
+ * solidification is the job of the separate {@code LiquidBlockMixin} (global, via
+ * {@code OrgeFluidPolicy#allowVanillaLavaSolidification()}). Unmanaged regions are untouched here.
+ * Server-side only.</p>
  */
 @Mixin(net.minecraft.world.level.material.FlowingFluid.class)
 public abstract class FlowingFluidMixin {

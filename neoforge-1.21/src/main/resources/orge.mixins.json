@@ -6,6 +6,7 @@
   "refmap": "orge.refmap.json",
   "mixins": [
     "FlowingFluidMixin",
+    "LiquidBlockMixin",
     "WaterFluidMixin"
   ],
   "injectors": {

@@ -64,6 +64,16 @@ final class OrgeFluidPolicyTest {
         assertFalse(OrgeFluidPolicy.allowInfiniteWater());
     }
 
+    // --- lava solidification (obsidian / cobblestone / basalt) ---------------------------------
+
+    @Test
+    void vanillaLavaSolidification_isDisabledGlobally() {
+        // LiquidBlock#shouldSpreadLiquid turns lava<->water into obsidian/cobblestone and
+        // lava<->blue-ice into basalt. ORGE owns lava cooling, so this is disabled globally for now
+        // (placed lava stays lava); a future lava-cooling branch reintroduces it under ORGE control.
+        assertFalse(OrgeFluidPolicy.allowVanillaLavaSolidification());
+    }
+
     // --- managed-section predicate seam --------------------------------------------------------
 
     @Test
