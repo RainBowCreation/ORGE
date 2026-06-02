@@ -184,6 +184,22 @@ class SchedulerTest {
     }
 
     @Test
+    void overrunHoldsWithoutSecondSubmitOrCancel() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);   // submit #1 at tick 5
+        runner.done = false;                                                        // job never completes (overruns)
+        // Cross several 5-tick boundaries while still in flight: the AWAITING gate must hold —
+        // no new snapshot/submit, and no hard-cancel until the 2*TICKS_PER_STEP grace window.
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS * 3; i++) s.onServerTick(true); // ticks 6..20 (<40 grace)
+        assertEquals(1, world.snapshots, "no second submit while in flight (exactly one snapshot)");
+        assertFalse(runner.cancelled, "no hard-cancel before the grace window");
+    }
+
+    @Test
     void combinedStepWritesBackConductedResult() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
@@ -331,7 +347,7 @@ class SchedulerTest {
         assertEquals(0.25, engine.calls.get(0).dt, 1e-9, "on-pace dt = 0.25");
         // Overrun: job not done for 15 ticks, then completes -> next submit dt clamps to 0.5.
         runner.done = false;
-        for (int i = 0; i < 15; i++) s.onServerTick(true);
+        for (int i = 0; i < 15; i++) s.onServerTick(true); // >10 ticks of accumulation so the un-clamped dt (>0.5) hits the MAX_CATCHUP ceiling
         runner.done = true; s.onServerTick(true);          // completes late
         for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
         runner.done = true; s.onServerTick(true);
