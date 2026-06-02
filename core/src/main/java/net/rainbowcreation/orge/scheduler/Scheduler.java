@@ -18,22 +18,14 @@ import java.util.List;
  * sole worker. Driven by {@link #onServerTick()} once per server tick, it runs a small
  * IDLE→AWAITING state machine over a single in-flight {@link StepRunner} step.
  *
- * <p>Two decoupled cadences (DESIGN §10 Decision 2) ride the free-running {@link #tickCounter}
- * on the global 20-tick grid:</p>
- * <ul>
- *   <li><b>Conduction</b> fires on the {@link #TICKS_PER_STEP}-tick boundary ({@code dt = 1.0 s},
- *       {@link OrgeEngine#PASS_CONDUCTION}): within-cell heat exchange, then §9 validate(T),
- *       writeBack(T), {@link PhaseChanger} (§7).</li>
- *   <li><b>Advection</b> fires every {@link #ADVECTION_TICKS} ticks ({@code dt = 0.25 s},
- *       {@link OrgeEngine#PASS_ADVECTION}): bulk mass movement, then §9 validate(+Σmass),
- *       writeBack(T + mass), {@link FluidReconciler} (mass → render level).</li>
- * </ul>
- *
- * <p>Each cadence boundary submits exactly ONE runner job (keeping the single-in-flight machine).
- * On the coincident 20-tick boundary the job runs conduction first, then advection ON the
- * post-conduction temperature field — within-cell heat exchange precedes bulk mass movement
- * (documented coincident-tick order). Off the 20-tick boundary (ticks 5,10,15) the job runs
- * advection only.</p>
+ * <p>A single combined step fires every {@link #ADVECTION_TICKS} ticks: ONE
+ * {@link OrgeEngine#stepWorld} call running conduction + advection together
+ * ({@link OrgeEngine#PASS_CONDUCTION} | {@link OrgeEngine#PASS_ADVECTION}). The native engine
+ * sub-cycles the dt into DT_CFL quanta and interleaves heat→flow per sub-step internally
+ * (spec 2026-06-02 A5/B1), so temperature and mass advance by the same simulated time. The
+ * result is then §9 validated, written back, and handed to {@link PhaseChanger} (§7) and
+ * {@link FluidReconciler} (mass → render level). Each boundary submits exactly ONE runner job,
+ * keeping the single-in-flight machine.</p>
  *
  * <ul>
  *   <li><b>IDLE</b>: count ticks; at each 5-tick cadence boundary ask the {@link ThermalWorld}
@@ -146,20 +138,16 @@ public final class Scheduler {
         if (!gameAdvancing) {
             return; // frozen: hold the simulation clock in lockstep with the game
         }
-        // tickCounter free-runs 1..TICKS_PER_STEP on the global 20-tick grid. The advection
-        // cadence fires when it is a multiple of ADVECTION_TICKS (ticks 5,10,15,20); conduction
-        // fires on the 20-tick boundary (tick 20), which is also an advection boundary.
+        // tickCounter free-runs; a combined conduction+advection step fires every ADVECTION_TICKS
+        // (ticks 5,10,15,20,...). Conduction no longer has its own 20-tick boundary — the engine
+        // sub-cycles + interleaves heat→flow internally (spec 2026-06-02 A5/B1).
         tickCounter++;
-        boolean conductionBoundary = (tickCounter >= TICKS_PER_STEP);
-        boolean advectionBoundary = (tickCounter % ADVECTION_TICKS == 0);
-        if (conductionBoundary) {
-            tickCounter = 0;
-        }
+        boolean boundary = (tickCounter % ADVECTION_TICKS == 0);
         if (state == State.AWAITING) {
             ticksSinceSubmit++;
             if (pending.isDone()) {
-                // A step finishing exactly at the grace boundary still writes back (counted
-                // late); the cancel below only fires for a step that is STILL not done.
+                // A step finishing within the grace window still writes back (counted late if it
+                // overran the deadline); the cancel below only fires for a step STILL not done.
                 complete(ticksSinceSubmit <= TICKS_PER_STEP);
             } else if (ticksSinceSubmit >= TICKS_PER_STEP * 2) {
                 pending.cancel();
@@ -168,19 +156,18 @@ public final class Scheduler {
             }
             return; // never submit in the same tick we serviced an in-flight step
         }
-        if (advectionBoundary) {
-            // ONE job per cadence boundary. On the coincident 20-tick boundary it runs conduction
-            // first then advection (documented order); otherwise advection only.
-            submit(conductionBoundary, true);
+        if (boundary) {
+            submit(); // both passes, one combined call
         }
     }
 
     /**
-     * Submit one runner job for this cadence boundary. {@code conduction}/{@code advection} flag
-     * which passes the job runs. On the coincident tick the job runs conduction (dt = 1.0) first,
-     * then advection (dt = 0.25) ON the post-conduction temperatures; otherwise advection only.
+     * Submit one combined runner job for this cadence boundary: a SINGLE
+     * {@code stepWorld(PASS_CONDUCTION | PASS_ADVECTION, dt)} call. The native engine sub-cycles
+     * the dt into DT_CFL quanta and interleaves conduction→advection per sub-step internally
+     * (spec 2026-06-02 A5/B1), so heat and flow advance by the same simulated time.
      */
-    private void submit(boolean conduction, boolean advection) {
+    private void submit() {
         // Measure the server-thread cost of assembling the column snapshot (active+apron, full-height
         // columns): a dominant per-cycle cost ON the server thread that must feed the health throttle.
         long snapStart = System.nanoTime();
@@ -193,43 +180,27 @@ public final class Scheduler {
         for (ThermalWorld.ColumnEntry e : batch.entries()) input.add(e.task());
         List<Material> lut = batch.lut();
         pendingMaterials = lut;
-        pendingConduction = conduction;
-        pendingAdvection = advection;
+        pendingConduction = true;
+        pendingAdvection = true;
         pendingColumns = batch.entries();
         pendingColumnResults = null;
+        final double dt = nextDt();
         pending = runner.submit(() -> {
-            // Whole-region World step (DESIGN 2026-06-01 §4/§7). Conduction then advection on the
-            // post-conduction field, honouring the existing cadence flags. Results ride a field (the
-            // runner is typed to StepResult); the empty StepResult list satisfies that contract.
-            List<ColumnResult> current = input.isEmpty() ? List.of() : null;
-            List<ColumnTask> stepInput = input;
-            if (conduction) {
-                current = engine.stepWorld(stepInput, lut, STEP_DT_SECONDS, OrgeEngine.PASS_CONDUCTION);
-                if (advection) {
-                    stepInput = withTemperatures(input, current);
-                }
-            }
-            if (advection) {
-                current = engine.stepWorld(stepInput, lut, ADVECTION_DT_SECONDS, OrgeEngine.PASS_ADVECTION);
-            }
-            pendingColumnResults = current;
+            // ONE combined call: orgeStepWorld sub-cycles n=round(dt/0.25) interleaved
+            // conduction(sub_dt) -> advection(sub_dt) sub-steps (spec 2026-06-02 A5/B1).
+            pendingColumnResults = input.isEmpty() ? List.of()
+                : engine.stepWorld(input, lut, dt,
+                                   OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION);
             return List.of();
         });
         ticksSinceSubmit = 0;
         state = State.AWAITING;
     }
 
-    /** Build advection input columns: each column's original geometry/mass, but the post-conduction
-     *  temperatures from {@code conduction} (mass carried through — conduction does not move mass). */
-    private static List<ColumnTask> withTemperatures(List<ColumnTask> tasks, List<ColumnResult> conduction) {
-        int n = Math.min(tasks.size(), conduction.size());
-        List<ColumnTask> out = new ArrayList<>(tasks.size());
-        for (int i = 0; i < tasks.size(); i++) {
-            ColumnTask t = tasks.get(i);
-            float[] postT = i < n ? conduction.get(i).temperature() : t.temperature();
-            out.add(new ColumnTask(t.cx(), t.cz(), t.matIx(), t.mass(), postT));
-        }
-        return out;
+    /** Simulated seconds for the next combined step. Task 8 replaces this with the clamped
+     *  catch-up accumulator; for now it is the fixed base quantum. */
+    private double nextDt() {
+        return ADVECTION_DT_SECONDS;
     }
 
     private void complete(boolean metDeadline) {

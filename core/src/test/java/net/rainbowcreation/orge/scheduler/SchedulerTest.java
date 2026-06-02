@@ -132,6 +132,20 @@ class SchedulerTest {
         };
     }
 
+    private static final class RecordingEngine implements OrgeEngine {
+        static final class Call { final int passes; final double dt; Call(int p, double d) { passes = p; dt = d; } }
+        final List<Call> calls = new ArrayList<>();
+        @Override public List<ColumnResult> stepWorld(List<ColumnTask> in, List<Material> lut,
+                                                      double dtSeconds, int passes) {
+            calls.add(new Call(passes, dtSeconds));
+            List<ColumnResult> out = new ArrayList<>(in.size());
+            for (ColumnTask t : in)                       // ColumnResult is (matIx, mass, temperature) — no cx/cz
+                out.add(new ColumnResult(t.matIx().clone(), t.mass().clone(), t.temperature().clone()));
+            return out;
+        }
+        @Override public double lastStepMillis() { return 0.0; }
+    }
+
     private static void tickCompleting(Scheduler s, FakeRunner runner, int count) {
         for (int i = 0; i < count; i++) {
             runner.done = true;
@@ -154,18 +168,35 @@ class SchedulerTest {
     }
 
     @Test
-    void conductionStepWritesBackValidatedResultAtTheCoincidentBoundary() {
+    void combinedStepRunsBothPassesEveryFiveTicks() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = true;
+        s.onServerTick(true);                              // service the in-flight job
+        assertEquals(1, engine.calls.size(), "exactly one combined stepWorld call");
+        int passes = engine.calls.get(0).passes;
+        assertTrue((passes & OrgeEngine.PASS_CONDUCTION) != 0, "conduction ran");
+        assertTrue((passes & OrgeEngine.PASS_ADVECTION) != 0, "advection ran");
+    }
+
+    @Test
+    void combinedStepWritesBackConductedResult() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
         world.batch = oneColumnBatch(300f);
         Worker w = worker();
         Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
 
-        // Ticks 5,10,15 are advection-only (identity T); tick 20 runs conduction (+5) then advection.
+        // Conduction now fires on EVERY 5-tick boundary (combined step), so every completed step
+        // applies +5; FakeWorld re-snapshots 300 each cycle, so the last write-back is 305.
         tickCompleting(s, runner, 21);
 
         float lastT = world.writtenResults.get(world.writtenResults.size() - 1).temperature()[0];
-        assertEquals(305f, lastT, "conduction input 300 + delta 5, validated, written at tick 20");
+        assertEquals(305f, lastT, "conduction input 300 + delta 5, validated, written on every boundary");
         assertTrue(w.onTimeStreak() >= 1, "on-time, under-budget steps advanced the streak");
     }
 
