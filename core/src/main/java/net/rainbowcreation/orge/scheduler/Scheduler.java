@@ -51,6 +51,11 @@ public final class Scheduler {
     public static final int ADVECTION_TICKS = 5;
     public static final double ADVECTION_DT_SECONDS = 0.25;
 
+    /** Max simulated seconds a single combined step may catch up (spec 2026-06-02 B4). Bounds
+     *  per-job work so catch-up cannot spiral; beyond it, real-time debt is dropped (graceful
+     *  slow-motion). Audit-tunable. */
+    public static final double MAX_CATCHUP_SECONDS = 0.5;
+
     /** Range bounds + health-throttle tunables (DESIGN §8; v1 constants). */
     public static final int DEFAULT_RANGE = 2;
     public static final int MAX_RANGE = 4;
@@ -79,6 +84,11 @@ public final class Scheduler {
     private State state = State.IDLE;
     private int tickCounter;
     private int ticksSinceSubmit;
+    /** Real ticks elapsed since the last step was DISPATCHED (reset at submit, not at writeback).
+     *  Consumed by {@link #nextDt()} as the next step's simulated dt: on-pace this is the 5-tick
+     *  cadence (→ 0.25 s); while an overrun blocks new submits it grows, so the next dispatched
+     *  step catches up — clamped to {@link #MAX_CATCHUP_SECONDS}, beyond which debt is dropped. */
+    private int ticksSinceLastDispatch;
     private StepRunner.Handle pending;
 
     /** The in-flight cycle's column inputs (captured at submit) + the engine's per-column outputs
@@ -88,8 +98,7 @@ public final class Scheduler {
     private List<ThermalWorld.ColumnEntry> pendingColumns;
     private List<ColumnResult> pendingColumnResults;
 
-    /** Which passes the in-flight job ran (captured at submit), to pick the writeback set. */
-    private boolean pendingConduction;
+    /** Whether the in-flight job ran advection (captured at submit), to pick the writeback set. */
     private boolean pendingAdvection;
     /** Batch material table (captured at submit): the region-wide §9 ledger keys species off it. */
     private List<Material> pendingMaterials;
@@ -142,6 +151,7 @@ public final class Scheduler {
         // (ticks 5,10,15,20,...). Conduction no longer has its own 20-tick boundary — the engine
         // sub-cycles + interleaves heat→flow internally (spec 2026-06-02 A5/B1).
         tickCounter++;
+        ticksSinceLastDispatch++;
         boolean boundary = (tickCounter % ADVECTION_TICKS == 0);
         if (state == State.AWAITING) {
             ticksSinceSubmit++;
@@ -180,7 +190,6 @@ public final class Scheduler {
         for (ThermalWorld.ColumnEntry e : batch.entries()) input.add(e.task());
         List<Material> lut = batch.lut();
         pendingMaterials = lut;
-        pendingConduction = true;
         pendingAdvection = true;
         pendingColumns = batch.entries();
         pendingColumnResults = null;
@@ -194,13 +203,17 @@ public final class Scheduler {
             return List.of();
         });
         ticksSinceSubmit = 0;
+        ticksSinceLastDispatch = 0; // reset at dispatch: a blocked-submit overrun window inflates the next catch-up dt
         state = State.AWAITING;
     }
 
-    /** Simulated seconds for the next combined step. Task 8 replaces this with the clamped
-     *  catch-up accumulator; for now it is the fixed base quantum. */
+    /** Simulated seconds for the next combined step: real time since the last dispatch (ticks/20),
+     *  floored at the base quantum and capped at the catch-up ceiling (spec 2026-06-02 B4). */
     private double nextDt() {
-        return ADVECTION_DT_SECONDS;
+        double secs = ticksSinceLastDispatch / 20.0;      // real seconds since the last dispatched step
+        if (secs < ADVECTION_DT_SECONDS) secs = ADVECTION_DT_SECONDS;
+        if (secs > MAX_CATCHUP_SECONDS)  secs = MAX_CATCHUP_SECONDS;
+        return secs;
     }
 
     private void complete(boolean metDeadline) {
@@ -281,7 +294,7 @@ public final class Scheduler {
         pendingColumnResults = null;
         ticksSinceSubmit = 0;
         state = State.IDLE;
-        // tickCounter is NOT reset here: it free-runs on the global 20-tick grid so the cadences
+        // tickCounter is NOT reset here: it free-runs on the 5-tick cadence grid so the cadences
         // stay on the same phase regardless of how long the previous step took.
     }
 }

@@ -319,6 +319,27 @@ class SchedulerTest {
     }
 
     @Test
+    void catchUpDtClampsToMaxCatchup() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        // On-pace: 5 ticks -> dt == 0.25.
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = true; s.onServerTick(true);
+        assertEquals(0.25, engine.calls.get(0).dt, 1e-9, "on-pace dt = 0.25");
+        // Overrun: job not done for 15 ticks, then completes -> next submit dt clamps to 0.5.
+        runner.done = false;
+        for (int i = 0; i < 15; i++) s.onServerTick(true);
+        runner.done = true; s.onServerTick(true);          // completes late
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = true; s.onServerTick(true);
+        double catchUp = engine.calls.get(engine.calls.size()-1).dt;
+        assertEquals(Scheduler.MAX_CATCHUP_SECONDS, catchUp, 1e-9, "catch-up dt clamps to MAX_CATCHUP");
+    }
+
+    @Test
     void throttleBacksOffWhenServerThreadSnapshotIsExpensive() {
         FakeRunner runner = new FakeRunner();
         FakeWorld world = new FakeWorld();
