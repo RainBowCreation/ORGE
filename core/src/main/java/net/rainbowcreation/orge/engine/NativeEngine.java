@@ -15,6 +15,13 @@ public final class NativeEngine implements OrgeEngine {
     private double lastStepMillis = 0.0;
     private final ScratchPool scratch = new ScratchPool();
 
+    // Empty injection channel until Plan 2 wires the placement queue. With injCount==0 the native
+    // skips the whole injection block and never reads/writes these, so shared immutable empties
+    // (incl. ledgerOut) avoid per-step hot-path garbage.
+    private static final int[] EMPTY_INT = new int[0];
+    private static final char[] EMPTY_CHAR = new char[0];
+    private static final float[] EMPTY_FLOAT = new float[0];
+
     static {
         NativeLoader.load();
     }
@@ -31,6 +38,11 @@ public final class NativeEngine implements OrgeEngine {
      * lutAir} arrays are gone — immovability is {@code visc == +∞}, not a flag.</p>
      *
      * <p>Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.</p>
+     *
+     * <p>The trailing injection channel ({@code injCount}, the five {@code inj*} arrays, and
+     * {@code ledgerOut}) is the placement displace-and-inject path. It is passed EMPTY
+     * ({@code injCount==0}) until Plan 2 wires the real placement queue; {@code injCount==0} skips
+     * the whole injection block in the native, so behavior is byte-identical to before this channel.</p>
      */
     private static native double orgeStepWorld(
             int nCols, int[] cx, int[] cz,
@@ -38,7 +50,11 @@ public final class NativeEngine implements OrgeEngine {
             float[] lutCond, float[] lutHeatCap, float[] lutMolar,
             float[] lutMinMass, float[] lutMaxMass, float[] lutVisc,
             int passes, double dtSeconds,
-            float[] tOut, float[] massOut, char[] matOut);
+            float[] tOut, float[] massOut, char[] matOut,
+            int injCount,
+            int[] injColumn, int[] injCell,
+            char[] injSpecies, float[] injMass, float[] injTemp,
+            float[] ledgerOut);
 
     @Override
     public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
@@ -53,7 +69,11 @@ public final class NativeEngine implements OrgeEngine {
         lastStepMillis = orgeStepWorld(
                 f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
                 L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
-                passes, dtSeconds, tOut, massOut, matOut);
+                passes, dtSeconds, tOut, massOut, matOut,
+                0,
+                EMPTY_INT, EMPTY_INT,
+                EMPTY_CHAR, EMPTY_FLOAT, EMPTY_FLOAT,
+                EMPTY_FLOAT);
         return RegionMarshaller.slice(matOut, massOut, tOut, f.nCols());
     }
 
