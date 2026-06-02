@@ -92,7 +92,7 @@ conduction FLOPs to clients is the entire point of the rebuild.
     heat source), or
   - **FULL** — `deflate/zstd(T[4096])` + `deflate/zstd(mass[4096])`, once a gradient
     forms.
-- A never-simulated section is implicitly `UNIFORM(biome-ambient T, material defaultMass)`
+- A never-simulated section is implicitly `UNIFORM(biome-ambient T, material default_mass)`
   and costs ~nothing. Ambient T is derived from biome temperature at generation, with a
   fixed fallback (~285 K).
 - `mass` is treated as **fluid level** from day one (1000 kg ≈ a full 1 m³ water block),
@@ -101,27 +101,48 @@ conduction FLOPs to clients is the entire point of the rebuild.
 ## 6. Material model
 
 Flat **constants** per material — properties do not vary with temperature (by design,
-not a v1 limitation):
+not a v1 limitation). The canonical schema below is authoritative: the JSON
+(`data/<ns>/orge/materials/<id>.json`), the `Material` record, the loader, the engine LUT,
+and the phase system all conform to it — **no more, no fewer fields** (full spec:
+`docs/superpowers/specs/2026-06-01-unified-fluid-engine-design.md`).
 
-| field | meaning |
-|---|---|
-| `thermalConductivity` | W/(m·K) |
-| `heatCapacity` | J/(kg·K) |
-| `viscosity` | Pa·s (reserved for Phase-2 fluid flow) |
-| `defaultMass` | kg per 1 m³ cell |
-| `molarMass` | kg/mol |
-| `boilingPoint` / `freezingPoint` | K |
-| `boilingTarget` / `freezingTarget` | material id to become |
-| representative block | block placed when something *becomes* this material |
+**REQUIRED** (the loader errors if any is missing — clean data is mandatory):
+
+| field | who uses it | meaning |
+|---|---|---|
+| `thermal_conductivity` | engine (conduction) | W/(m·K) |
+| `heat_capacity` | engine (conduction) | J/(kg·K) |
+| `molar_mass` | engine (sort) | gravitational sort key — **higher sinks** |
+| `default_mass` | Java (seed) | kg placed in a cell when this material is first created |
+| `default_temperature` | Java (seed) | natural/seed temperature (K) |
+
+**OPTIONAL** (each defaults when absent — keeps JSON minimal):
+
+| field | absent ⇒ | meaning |
+|---|---|---|
+| `viscosity` | **frozen** (`+∞`) | flow resistance: `0` = fastest, higher = slower ooze. **Omit for a static solid.** Movable ⟺ viscosity finite. |
+| `min_mass` | `= default_mass` | relaxed per-cell mass; a free body expands until cells near this |
+| `max_mass` | `= default_mass` | per-cell compression ceiling; a cell never exceeds this |
+| `min_temp` / `max_temp` | no phase change | below `min_temp` → `min_target`; above `max_temp` → `max_target` |
+| `min_target` / `max_target` | — | **material id** (not block id) to become; required if its temp is set |
+| `representative_block` | `minecraft:air` | block **drawn** for this material — *not* its identity (see below) |
+| `pinned` | `false` | hold cell temperature at `default_temperature` every tick (Dirichlet heat source/sink) |
+
+- **Identity is the material id, not the block.** `representative_block` is only what's
+  *drawn*; multiple materials may share one block (an invisible gas is just a material with
+  `representative_block: minecraft:air` but its own `molar_mass`/`viscosity`). Phase change
+  is **material → material**; rendering is a separate **material → block** lookup.
+- **No `state` field, no `min_flow_mass`** — `viscosity` covers movability, `representative_block`
+  covers rendering, `min_mass` replaces `min_flow_mass`.
 
 - **Heat transfer is constant-property forward-Euler conduction**, read directly from
   these constants each step (no curve lookup in the hot loop):
   - Per face, the effective conductivity is the **harmonic mean** of the two cells'
-    `thermalConductivity` (`keff = 2·k₁·k₂/(k₁+k₂)`, and `0` if either is ≤ 0 — that is
+    `thermal_conductivity` (`keff = 2·k₁·k₂/(k₁+k₂)`, and `0` if either is ≤ 0 — that is
     how inert/void cells block heat).
   - Each cell accumulates `dT += keff · (T_neighbor − T_cell) · inv_dx²` over its 6 faces.
-  - Thermal capacity is `Cth = mass_kg · heatCapacity` (current cell mass, not
-    `defaultMass`), and the new temperature is `T + (dt/Cth)·dT`, clamped to `[0, 6000] K`.
+  - Thermal capacity is `Cth = mass_kg · heat_capacity` (current cell mass, not
+    `default_mass`), and the new temperature is `T + (dt/Cth)·dT`, clamped to `[0, 6000] K`.
   - Double-buffered (`T_curr`/`T_next`, O(1) swap); this is the **only** thermodynamic
     model — no latent heat, no temperature-dependent curves. (The NIST Shomate /
     conductivity tables in `/old` are not used.)
@@ -139,23 +160,21 @@ not a v1 limitation):
 
 ## 7. Phase change
 
-- Evaluated **server-side at the second boundary**, after reading back new temps.
-- If a cell's temperature crosses its material's `boilingPoint` / `freezingPoint`, the
-  block is replaced with the **target material's representative block**, carrying
-  **mass and final temperature** across unchanged (mass is conserved exactly, even when
-  the resulting density is unrealistic).
+- Evaluated **server-side at the second boundary**, after reading back the engine's new
+  temperatures and material species (`matOut`).
+- If a cell's temperature crosses its material's `min_temp` / `max_temp`, the cell's
+  **material changes to `min_target` / `max_target`** — both are **material ids** (e.g.
+  `water` → `orge:steam`, `water` → `orge:ice`). The block actually drawn is then the new
+  material's `representative_block` (a separate material → block lookup). **Mass and
+  temperature carry across unchanged** — both are authoritative per-cell quantities in the
+  unified fluid model, conserved exactly across the transition.
 - No latent-heat plateau — phase change is an instantaneous threshold crossing by design.
-- **New blocks only for genuinely new concepts.** `boiling_target`/`freezing_target` name
-  the **block to place**. Targets that vanilla already has are **overrides, not new blocks**:
-  water → `minecraft:ice` (freeze) / ice → `minecraft:water` (melt), lava → `minecraft:stone`
-  (freeze). Core registers a **new block only for a concept vanilla lacks** — gases/fluids:
-  **`orge:steam`** (water → steam, steam → water). In v1 `orge:steam` is an **inert, non-ticking,
-  non-colliding marker** — its temperature lives in the per-cell `SectionData` arrays, not in
-  blockstate/NBT; it has no buoyancy/flow until Phase 2. Core adds **no decorative/solid blocks**.
-- **Carry temperature, not mass, in v1.** Temperature is the simulated authority (it lives in
-  `SectionData` untied to block identity, so it carries across a swap automatically). Mass
-  conservation is deferred to Phase 2, when mass becomes authoritative (§8 v1 derives per-cell
-  mass from `Material.defaultMass`).
+- **Phase is material → material; rendering is material → block.** Targets that vanilla can
+  already render reuse its block via `representative_block` (`orge:ice → minecraft:ice`,
+  `orge:stone → minecraft:stone`). Core registers a **new block only for a concept vanilla
+  lacks** — gases: **`orge:steam`**. Steam is a full fluid in the unified model (its own
+  `molar_mass`/`viscosity`/`min_mass`/`max_mass`), not an inert marker; it sorts and flows
+  like any other material.
 
 ## 8. Scheduler
 
