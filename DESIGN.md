@@ -191,24 +191,86 @@ Clients return temperatures the server persists as authoritative. The base mod d
 Stops accidental corruption and gross griefing while preserving the performance win.
 Recompute/cross-check verification is a possible future opt-in for hardened servers.
 
-## 10. Phase 2 (deferred)
+## 10. Phase 2 — fluid dynamics (DONE)
 
 - **Phase-2a (DONE):** a **fluid pass** in ORGE-ENGINE — after conduction, redistribute **mass** by
   gravity + viscosity-limited spread among same-material fluid cells. Mass = fluid level ⇒ finite water
   with **no source blocks**; Java reconciles cell mass back to water levels and suppresses vanilla flow.
-- **Phase-2b (NEXT — spec `docs/superpowers/specs/2026-05-30-fluid-displacement-phase2b-design.md`):**
-  density-driven **displacement** unifies "fluid spreads into air", "gas buoyancy", and "liquid sorting"
-  into one rule. Each material carries **three masses** `min_flow_mass ≤ default_mass ≤ max_mass`, and the
-  *phase of matter is just where the resting density sits between them* (liquid rests at its ceiling →
-  pools/incompressible; gas rests at its floor → expands/fills/compressible). Buoyancy/fall/sort all fall
-  out of comparing **current** cell density; cells flip identity (`air ↔ fluid`, the kernel reports
-  `matOut`). Performance comes from **section-level, per-pass dormancy** (a decaying-cell sleep/wake that
-  replaces the vanilla fluid-tick settling we suppressed). Gas is the *same* pass — never a separate layer;
-  full compressible gas later is a data change (`max_mass > default_mass`), not a rearchitecture.
-Phase 2 closes the physics roadmap. Heat transfer stays the constant-property
-finite-difference conduction of §2/§6 — no latent heat, no temperature-dependent
-material curves. Forward work past here is **distribution** (the §3 client-worker pool),
-not new thermodynamics.
+- **Phase-2b (DONE, then rebuilt):** density-driven **displacement** unified "fluid spreads into air",
+  "gas buoyancy", and "liquid sorting" into one rule. This was subsequently **superseded by the unified
+  fluid model** (`docs/superpowers/specs/2026-06-01-unified-fluid-engine-design.md`): one
+  section-agnostic, viscosity-gated, molar-mass-sorted advection — material = 6 physics floats
+  (`min_mass ≤ default_mass ≤ max_mass`, molar_mass, viscosity, conductivity, heat_capacity);
+  immovability is `viscosity == +∞`. The kernel reports `matOut`; mass is authoritative and conserved.
+
+**Phase 2 closes the *physics* roadmap.** Heat transfer stays the constant-property finite-difference
+conduction of §2/§6 — no latent heat, no temperature-dependent material curves. Everything past here
+(§11) is **gameplay content** on top of the frozen core, then **distribution** (§3) — not new
+thermodynamics.
+
+---
+
+## 11. Roadmap — Phase 3+ (what to do next)
+
+Phases 1–2 deliver the thermal + fluid **core** (single-node). The rest is **gameplay content
+first, distribution last**: the content layers are independent Java over `SectionStore`/item NBT
+and need **no engine change**, so they ship playable value on the current single-node sim; the §3
+client-worker distribution is the final, largest lift.
+
+Every item below is an idea note in `docs/superpowers/notes/`; **none has a spec/plan yet.** Each
+goes through the proven loop: `brainstorming → spec (docs/superpowers/specs) → writing-plans
+(docs/superpowers/plans) → subagent-driven-development`, committed per task on `rebuild`.
+
+### Phase 3 — World forcing (sources & sinks)
+Give the world dynamic heat and mass so the sim is *alive*, via one shared per-second heightmap pass.
+- **Solar / radiational thermal seeding** (`notes/2026-05-31-thermal-seeding-dimensions`): day/night
+  heat in-out; Overworld cycles, End = permanent heat sink, Nether = insulated.
+- **Rain mass seeding + evaporation** (`notes/2026-05-31-rain-mass-seeding`): rain adds surface water
+  mass; daytime evaporation removes it (biome-scaled). Shares the heightmap pass with solar.
+- **Thirsty farmland** (`notes/2026-05-31-thirsty-farmland`): farmland drains water mass on hydrate.
+- **Delivers:** living hydrology + a day/night thermal cycle. Foundation for survival (Phase 5).
+
+### Phase 4 — Fluid handling & containers
+Player-facing finite-fluid tools; all **mass-conservative** `SectionStore` ↔ NBT transfers carrying
+temperature.
+- **Dripstone conduit** (`notes/2026-06-02-dripstone-conduit`): moves one `min_mass` quantum
+  top→bottom, molar-sort gated, into a cauldron — instead of vanilla "fluid from nothing".
+- **Fluid containers** (`notes/2026-06-02-fluid-containers`): bucket (1000 kg, any flowable) · glass
+  bottle (250 kg) · cauldron (1000 kg block); fill shown via vanilla durability / cauldron-level
+  visuals (no new assets).
+- **Delivers:** carry / store / pour finite fluid. The glass bottle is the water source for Phase 5.
+
+### Phase 5 — Player & entity survival (homeostasis)
+- **Entity / player homeostasis** (`notes/2026-05-31-entity-homeostasis`): entities get body temp +
+  thermal mass + metabolism. Player bars (vanilla HUD assets, damage-only): **Hunger** = heating fuel,
+  **Thirst** = cooling fuel (refilled by the Phase-4 bottle / cup-from-cell), reworked mass-based
+  **Oxygen** (consumes 200 g air/s from the head cell; sealed rooms suffocate via the engine's Y-column
+  molar sort). Vanilla hunger-draining actions (sprint/jump/attack) add exercise heat.
+- **Depends on:** Phase 3 (meaningful ambient temps) + Phase 4 (drinking). **Delivers:** the survival
+  payoff that makes the thermal world matter.
+
+### Phase 6 — Geology
+- **Lava cooling branches** (`notes/2026-05-31-lava-cooling-branches`): phase-change target chosen by
+  cooling rate (fast→obsidian, mid→basalt, slow→stone) via material `cooling_branches[]`; flips the
+  `OrgeFluidPolicy` lava-cooling hook on under ORGE control.
+- Small §7 enrichment; independent, can slot earlier if desired.
+
+### Phase 7 — Distribution (the §3 rebuild goal)
+- **Client-worker networking**: server assigns sections, clients compute, results flow hub-and-spoke
+  over the Wire-protocol payloads below (`ASSIGN`/`GEOMETRY`/`STEP_INPUT`/`STEP_RESULT`/`HEALTH`).
+  Stubs already exist (`OrgePackets`, the client entrypoints, `OrgeNeoForge` handlers).
+- **§9 recompute / cross-check verification**: the anti-cheat opt-in (§9), now relevant because
+  untrusted clients compute results.
+- **Delivers:** the server-load reduction that motivated the whole rebuild. Largest lift, and **last**
+  because the single-node sim carries Phases 3–6.
+
+### Cross-cutting backlog (non-phased)
+- **Multi-platform native builds** (`notes/2026-05-29-native-packaging`): `.dll` / `.dylib` + all
+  `{os}×{arch}` `.so` via ORGE-ENGINE CI. Today only linux-x64 runs the real engine; other platforms
+  fall back to `StubEngine`.
+- **Engineering hardening / perf** (in-code TODOs): `SectionData` UNIFORM-demote on save; first-touch
+  promotion churn (`MinecraftThermalWorld.setAllTemperatures`); per-server-config read range
+  (`ReadRangeProvider`); deeply-immutable material snapshots (`ActiveMaterials`).
 
 ---
 
