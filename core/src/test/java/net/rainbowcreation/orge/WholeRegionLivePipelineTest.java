@@ -9,6 +9,7 @@ import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
 import net.rainbowcreation.orge.scheduler.StepValidator;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -40,6 +41,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * conservation over BOTH columns. Engine output is persisted VERBATIM per column (no reseed, trust
  * the engine).</p>
  */
+@Tag("integration")
 class WholeRegionLivePipelineTest {
 
     private static final char VOID = 0, WATER = 1, AIR = 2, STONE = 3;

@@ -20,6 +20,34 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:${rootProject.junit_platform_version}"
 }
 
+// Tests are split into two tiers (mirrors ORGE-ENGINE/tests/run_tests.sh):
+//   * the default `test` task runs the fast unit tests only — the iterate loop;
+//   * `integrationTest` runs the heavy live-pipeline tests (tagged "integration"),
+//     which drive the real liborge.so over whole-region columns (~27s of the suite).
+// `check` (and therefore `build`) depends on BOTH, so CI coverage is unchanged.
+def testForks = Math.max(1, (int) (Runtime.runtime.availableProcessors() / 2))
+
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags "integration"
+    }
+    maxParallelForks = testForks
+    maxHeapSize = "2g"
+}
+
+tasks.register("integrationTest", Test) {
+    description = "Runs the heavy live-pipeline integration tests (tag: integration)."
+    group = "verification"
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags "integration"
+    }
+    maxParallelForks = testForks
+    maxHeapSize = "2g"
+    shouldRunAfter test
+}
+
+tasks.named("check") {
+    dependsOn "integrationTest"
 }

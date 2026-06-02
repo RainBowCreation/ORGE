@@ -9,6 +9,7 @@ import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
 import net.rainbowcreation.orge.scheduler.StepValidator;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -45,6 +46,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <p>The {@code == 1000.0} (±1e-2) and per-species conservation assertions are the GATE — they encode
  * the GOAL, never the observed value.</p>
  */
+@Tag("integration")
 class UnifiedFluidLivePipelineTest {
 
     // LUT slot convention (matches the other live tests): 0 void, 1 water, 2 air, 3 stone.

@@ -9,6 +9,7 @@ import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
 import net.rainbowcreation.orge.scheduler.StepValidator;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -35,6 +36,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * and persist the engine output VERBATIM back into the fake store — NO reseed, NO geometry
  * re-derivation. The assertions encode the GOAL (1000.0), never the observed value.</p>
  */
+@Tag("integration")
 class Section11LivePipelineReproTest {
 
     // ---- LUT slot convention (matches ColumnAssembler/TestMaterials): 0 void, 1 water, 2 air, 3 stone.
