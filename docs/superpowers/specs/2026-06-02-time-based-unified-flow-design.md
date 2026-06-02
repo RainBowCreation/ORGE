@@ -23,11 +23,10 @@ Euler step is large enough to risk oscillation for high-conductivity / low-capac
 
 **Timing correctness:** make flow genuinely time-based (`rate·dt`) so a varying `dt`
 advances both passes by the same simulated time, and run both passes on the same 5-tick
-cadence with a correct catch-up policy. **Continuous flow behaviour at `dt=0.25` must be
-bit-identical to today** for fluids that did NOT use the frontier cadence (i.e. fast,
-low-viscosity fluids like water) — that is the calibration constraint. Two behaviours
-intentionally change: (a) viscous-fluid frontier timing, because the integer-step cadence
-is removed and slowness becomes purely rate-driven (A3); (b) heat cadence (B2).
+cadence with a correct catch-up policy. **Flow behaviour at `dt=0.25` must be bit-identical
+to today** — for both fast fluids (continuous transfer) and viscous fluids (the frontier
+cadence is preserved by keying it to sim-time, A3). That is the calibration constraint. The
+ONE behaviour that intentionally changes is **heat cadence** (B2: 1 Hz → 4 Hz).
 
 ## Non-Goals (YAGNI)
 
@@ -96,18 +95,38 @@ Calibrated so `rate(v)·0.25 == spread_fraction(v)·0.5` (today's per-step trans
 `rate()` and the flux formula live in `orge_kernel.hpp` (shared header) so `sim_engine.hpp`
 and any kernel path stay **bit-identical**.
 
-### A3. Viscosity folded into rate; cadence deleted
+### A3. Viscosity → rate (continuous) **and** a time-based frontier cadence
 
-`advances_this_step`, `advance_period`, and the internal `static std::atomic<long> advStep`
-counter are **removed**. Lava is slow purely because high viscosity → low `rate` → small
-flux → slow accumulation to the `2·min_mass` budding threshold. One slowness mechanism,
-fully dt-consistent. `spread_fraction()` is replaced by `rate()`; `SWAP_HYST` is unchanged.
+Viscosity drives **two** things, and reading `sim_engine.hpp:690-806` shows only one is
+amount-based:
+- **Continuous (BOXED diffusive) leveling** (`:802`) — amount-scaled. `spread_fraction()` is
+  replaced by `rate()`, so this transfer becomes `dm = clamp(rate(v)·dt,0,0.5)·diff` (A1).
+- **Frontier expansion** — opening a vacuum tile (`:758`, atomic `min_mass` dose) and the
+  concentrate-pour toward the frontier (`:798`, full surplus). These are deliberately NOT
+  amount-scaled: an explicit comment (`:68-79`) records that rate-limiting the frontier
+  *amount* **deadlocks** (a rate-limited frontier becomes the heaviest cell and the `toward`
+  gate suppresses every face). Slowness here is throttled by *frequency* — the `advNow`
+  cadence — which is the ONLY thing making lava's leading edge slow. Deleting it would make
+  lava expand as fast as water, and sub-cycling cannot slow a frontier below 1 cell/step.
 
-**This intentionally changes viscous-fluid frontier timing** (not bit-identical). Note the
-rate-driven slowness *approximately reproduces* the old cadence: lava accumulates ~25× slower
-than water (`rate` ratio 0.005 : 0.125), so it buds ~25× less often — close to the old
-`advance_period(lava)≈25`. Exact tile-opening timing differs; validated in the in-game audit,
-not pinned bit-for-bit.
+**Resolution:** keep the frontier cadence but drive it off **accumulated sim-time** instead of
+an integer step index. The internal `static std::atomic<long> advStep` is replaced by a
+`static double g_simClock` accumulated by `sub_dt` each advection sub-step. The cadence test
+becomes time-based:
+
+```
+period_seconds(v) = DT_CFL * advance_period_old(v)      // water 0.25 s, lava ~6.25 s
+advanced(v, t0, t1) = floor(t1 / period_seconds(v)) != floor(t0 / period_seconds(v))
+```
+
+where `[t0, t1] = [g_simClock, g_simClock + sub_dt]`. At the base cadence (`sub_dt = 0.25`)
+this reproduces the old periods **exactly** — water advances every sub-step, lava every 25th —
+so the viscous frontier is **behaviour-preserving at `dt=0.25`** and additionally *correct*
+under variable dt (a `dt=0.5` sub-cycle crosses the right number of frontier boundaries).
+
+The integer step-index — the thing genuinely incompatible with variable dt — is gone.
+`SWAP_HYST` is unchanged. The restart-reset of `g_simClock` only re-phases the slow-fluid
+cadence (a one-time cosmetic blip), exactly as the old `advStep` counter did.
 
 ### A4. Gravity (Pass A) — unchanged
 
@@ -123,12 +142,14 @@ n_sub  = max(1, round(dt / DT_CFL))        // DT_CFL = 0.25 s (propagation quant
 sub_dt = dt / n_sub
 repeat n_sub times:
     if (passes & PASS_CONDUCTION) conduction_step(sub_dt)     // heat → flow order (Decision 2)
-    if (passes & PASS_ADVECTION)  advect_substep(sub_dt)      // Pass A swap, then unified B/B′
+    if (passes & PASS_ADVECTION)  advect_world(world, mats, sub_dt)  // Pass A swap, then unified B/B′
 ```
 
 At `dt=0.25` → `n_sub=1` → exactly today's combined call. The `long stepIndex` argument to
-`advect_world` is replaced by `double dt`; the JNI threads the existing `jdouble dt` into it.
-**JNI ABI is unchanged.**
+`advect_world` (and `pass_b_relax` / `pass_bprime_displace`) is replaced by `double dt`; the
+frontier cadence reads the internal `g_simClock` (A3), advanced by `dt` once per `advect_world`
+call. The JNI threads the existing `jdouble dt` (per sub-step) into the advection call and
+deletes the old `static advStep`. **JNI ABI is unchanged.**
 
 ---
 
@@ -171,9 +192,9 @@ longer-than-5-tick in-flight window) are unchanged.
 
 ## Testing (test-first, against the conservation oracle)
 
-1. **Headline / behaviour-preservation:** for a fast (non-cadence) fluid like water, flow at
-   `dt=0.25` reproduces current engine output **bit-for-bit** (the refactor preserves the
-   continuous transfer behaviour). Viscous fluids are excluded here — see test 8b.
+1. **Headline / behaviour-preservation:** flow at `dt=0.25` reproduces current engine output
+   **bit-for-bit** — for water (continuous transfer) AND lava (frontier cadence preserved via
+   the sim-time keying, A3).
 2. **Sub-cycling correctness:** `advect(dt=0.5)` ≡ two `advect(dt=0.25)` steps (same final
    state).
 3. **Unified flux equivalence:** same-material and into-lighter transfers produce the same
@@ -189,9 +210,10 @@ longer-than-5-tick in-flight window) are unchanged.
 8. **Heat cadence (characterization, not bit-identical):** conduction at 4× `dt=0.25`
    produces a stable, monotone-toward-equilibrium temperature field (no oscillation that the
    old `dt=1.0` step risked).
-8b. **Viscous frontier (characterization, not bit-identical):** lava spreads slowly via its
-   low `rate` (no cadence), reaching `floor(M/min)` tiles at roughly the old pace; pinned as
-   a range/monotonicity check, not bit-for-bit.
+8b. **Viscous frontier (bit-identical at base cadence; correct under variable dt):** lava's
+   frontier advances on the same sim-time schedule as today at `dt=0.25` (covered by test 1),
+   and `advanced(v,t0,t1)` crosses the correct number of period boundaries when a sub-step
+   spans them (e.g. `period_seconds(water)=0.25` advances once per 0.25 s of `g_simClock`).
 
 ## Risks / mitigations
 
@@ -203,10 +225,14 @@ longer-than-5-tick in-flight window) are unchanged.
 
 ## File touch list (anticipated)
 
-- `ORGE-ENGINE/orge_kernel.hpp` — add `rate()`, `DT_CFL`; remove `spread_fraction`/cadence.
-- `ORGE-ENGINE/sim_engine.hpp` — unify Pass B/B′ flux on `rate·dt`; sub-cycle loop in the
-  world step; delete `advances_this_step`/`advance_period`/`advStep`.
-- `ORGE-ENGINE/orge_jni.cpp` — thread `dt` into advection; drop the static counter.
+- `ORGE-ENGINE/orge_kernel.hpp` — add `rate()`, `DT_CFL`, `period_seconds()`; keep
+  `ADV_SPREAD_K`/`ADV_CFL_CAP` (now speed-calibration constants, not stability caps).
+- `ORGE-ENGINE/sim_engine.hpp` — unify Pass B/B′ diffusive flux on `rate·dt`; replace
+  `advances_this_step(v, stepIndex)` with time-based `advanced(v, t0, t1)` + the
+  `static double g_simClock`; thread `double dt` (replacing `long stepIndex`) through
+  `advect_world`/`pass_b_relax`/`pass_bprime_displace`; sub-cycle loop in the world step.
+- `ORGE-ENGINE/orge_jni.cpp` — thread `dt` into the advection call; delete the static
+  `advStep` counter.
 - `core/.../scheduler/Scheduler.java` — combined every-5-tick submit; clamped-accumulator
   `dt`; remove the 20-tick conduction boundary; no hard-cancel.
 - `.so` rebuild + gitlink bump.
