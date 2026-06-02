@@ -12,8 +12,9 @@ import java.util.function.IntFunction;
  * every cell that is a {@code pinned} material AND did <em>not</em> transition this step
  * is reset to its {@code default_temperature}. A source overwhelmed past its own threshold
  * transitions (it appears in {@code transitions}) and is therefore left alone — the pin is a
- * restoring force, not a lock. Pure — the per-cell material lookup is injected; callers pass
- * the pre-swap block materials so a surviving source still reads as its source material.
+ * restoring force, not a lock. Pure — the per-cell material lookup is injected; callers pass the
+ * engine's post-swap species ({@link EngineOutSpecies}, live-block fallback), and a pinned source is
+ * Dirichlet (the engine never moves it) so a surviving source still reads as its source material.
  */
 public final class SourcePinPlanner {
 

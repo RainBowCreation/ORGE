@@ -48,6 +48,11 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
 
     @Override
     public void applyPhaseChanges(ThermalWorld.BatchEntry entry) {
+        applyPhaseChanges(entry, null, null);
+    }
+
+    @Override
+    public void applyPhaseChanges(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut) {
         MinecraftServer srv = this.server;
         if (srv == null) {
             return;
@@ -82,12 +87,19 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
 
         ActiveMaterials.State mats = ActiveMaterials.current();
         final LevelChunkSection sec = section;
-        IntFunction<Material> cellMat = i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
+        // Pair each cell with the species the engine says it BECAME this step (matOut), not the live
+        // block: the native molar-sort swaps fluids vertically (lava sinks under water) and the
+        // reconciler rewrites blocks only AFTER this changer runs, so the live block is still the
+        // OUTGOING material. Reading it paired a swapped-in temperature with the wrong material —
+        // risen water carried its cool temperature while the block read lava, so PhaseRule saw
+        // cool < lava.minTemp and froze the water to lava.minTarget = stone. EngineOutSpecies falls
+        // back to the live block when the engine reported no species (null args / VOID sentinel), so
+        // a surviving pinned source still reads as its source material for the re-pin below.
+        IntFunction<Material> cellMat = i -> EngineOutSpecies.resolve(
+                outMaterial, outLut, i, LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats));
 
-        // Materials are read from PRE-SWAP blocks; the re-pin set is computed before swapping
-        // so a surviving source still reads as its source material. The planner works in MATERIAL
-        // ids and the existence check is now "does this target MATERIAL exist?" — the block to draw
-        // is the separate material → representative_block lookup done below.
+        // The planner works in MATERIAL ids and the existence check is "does this target MATERIAL
+        // exist?" — the block to draw is the separate material → representative_block lookup below.
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(
                 temps, mass, cellMat, id -> mats.registry().get(id).isPresent());
         List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cellMat, plan);

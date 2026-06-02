@@ -408,7 +408,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             float secMassDelta = maxAbsDelta(cleanM, secTask.mass());
             if (secMassDelta > maxMassDelta) maxMassDelta = secMassDelta;
             noteSettle(secEntry, secMassDelta, -1f);
-            phaseChanger.applyPhaseChanges(secEntry);
+            phaseChanger.applyPhaseChanges(secEntry, outMat, lastColumnLut);
             fluidReconciler.reconcile(secEntry, outMat, lastColumnLut);
         }
         // Wake any LOADED neighbour column that could have received mass across an X/Z boundary this step
