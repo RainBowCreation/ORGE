@@ -64,7 +64,8 @@ on which way the body is off-target:
   reusing vanilla HUD assets** (recolor/reuse existing bar sprites — **no new texture
   assets**).
 - **Drinking refills thirst, two ways:**
-  - **Water bottle item** — drink a filled glass/water bottle (vanilla-style item use).
+  - **Water bottle item** — drink a water-filled **glass bottle** (the 250 kg container in
+    [[2026-06-02-fluid-containers]]); spends some of its stored `mass_kg`.
   - **Cup from a world water cell** — interact on a water cell to drink directly, which
     **consumes mass from the `SectionStore`** at that cell (ties to [[rain-mass-seeding]]
     as a sink; keeps finite water consistent).
