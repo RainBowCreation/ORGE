@@ -100,7 +100,8 @@ conduction FLOPs to clients is the entire point of the rebuild.
 
 ## 6. Material model
 
-Flat **constants** per material (no temperature-dependent curves in v1):
+Flat **constants** per material — properties do not vary with temperature (by design,
+not a v1 limitation):
 
 | field | meaning |
 |---|---|
@@ -113,8 +114,17 @@ Flat **constants** per material (no temperature-dependent curves in v1):
 | `boilingTarget` / `freezingTarget` | material id to become |
 | representative block | block placed when something *becomes* this material |
 
-- The rich NIST Shomate / conductivity-table data in `/old` is retained as the seed for
-  a future "realistic curves" addon, not used by v1.
+- **Heat transfer is constant-property forward-Euler conduction**, read directly from
+  these constants each step (no curve lookup in the hot loop):
+  - Per face, the effective conductivity is the **harmonic mean** of the two cells'
+    `thermalConductivity` (`keff = 2·k₁·k₂/(k₁+k₂)`, and `0` if either is ≤ 0 — that is
+    how inert/void cells block heat).
+  - Each cell accumulates `dT += keff · (T_neighbor − T_cell) · inv_dx²` over its 6 faces.
+  - Thermal capacity is `Cth = mass_kg · heatCapacity` (current cell mass, not
+    `defaultMass`), and the new temperature is `T + (dt/Cth)·dT`, clamped to `[0, 6000] K`.
+  - Double-buffered (`T_curr`/`T_next`, O(1) swap); this is the **only** thermodynamic
+    model — no latent heat, no temperature-dependent curves. (The NIST Shomate /
+    conductivity tables in `/old` are not used.)
 
 ### Registration API
 
@@ -134,7 +144,7 @@ Flat **constants** per material (no temperature-dependent curves in v1):
   block is replaced with the **target material's representative block**, carrying
   **mass and final temperature** across unchanged (mass is conserved exactly, even when
   the resulting density is unrealistic).
-- No latent-heat plateau in v1 (possible future refinement).
+- No latent-heat plateau — phase change is an instantaneous threshold crossing by design.
 - **New blocks only for genuinely new concepts.** `boiling_target`/`freezing_target` name
   the **block to place**. Targets that vanilla already has are **overrides, not new blocks**:
   water → `minecraft:ice` (freeze) / ice → `minecraft:water` (melt), lava → `minecraft:stone`
@@ -195,8 +205,10 @@ Recompute/cross-check verification is a possible future opt-in for hardened serv
   `matOut`). Performance comes from **section-level, per-pass dormancy** (a decaying-cell sleep/wake that
   replaces the vanilla fluid-tick settling we suppressed). Gas is the *same* pass — never a separate layer;
   full compressible gas later is a data change (`max_mass > default_mass`), not a rearchitecture.
-- **After 2b — latent-heat plateaus** (boil/freeze energy plateaus; couples to §7); realistic
-  temperature-dependent material curves (seeded from `/old`).
+Phase 2 closes the physics roadmap. Heat transfer stays the constant-property
+finite-difference conduction of §2/§6 — no latent heat, no temperature-dependent
+material curves. Forward work past here is **distribution** (the §3 client-worker pool),
+not new thermodynamics.
 
 ---
 
