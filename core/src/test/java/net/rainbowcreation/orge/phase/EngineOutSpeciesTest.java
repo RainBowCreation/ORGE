@@ -40,7 +40,7 @@ class EngineOutSpeciesTest {
                 .build();
     }
 
-    private static final Material VOID = Material.builder(mat("void"))
+    private static final Material VOID = Material.builder(mat("vacuum"))
             .thermalConductivity(0f).heatCapacity(1f).molarMass(0f)
             .defaultMass(0f).defaultTemperature(0f).viscosity(0f).build();
 
@@ -59,7 +59,7 @@ class EngineOutSpeciesTest {
         assertEquals(mat("lava"), EngineOutSpecies.resolve(null, null, 0, lava()).id());
     }
 
-    /** Engine index 0 is the VOID/air sentinel — defer to the live block (mass guard handles emptiness). */
+    /** Engine index 0 is the vacuum/air sentinel — defer to the live block (mass guard handles emptiness). */
     @Test
     void fallsBackToLiveOnVoidSentinel() {
         List<Material> lut = List.of(VOID, water());

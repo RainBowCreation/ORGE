@@ -39,7 +39,7 @@ class SpeciesMassLedgerInjectionTest {
 
     /** VOID=0, air=1, water=2 */
     private static List<Material> lut() {
-        return List.of(MaterialLut.VOID, air(), water());
+        return List.of(MaterialLut.VACUUM, air(), water());
     }
 
     /**

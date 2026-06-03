@@ -33,7 +33,7 @@ class StepValidatorMassTest {
 
     /** VOID=0, water=1, generic_solid=2. */
     private static List<Material> lut() {
-        return List.of(MaterialLut.VOID, water(), genericSolid());
+        return List.of(MaterialLut.VACUUM, water(), genericSolid());
     }
 
     private static Material lava() {
@@ -66,7 +66,7 @@ class StepValidatorMassTest {
 
     /** VOID=0, water=1, generic_solid=2, lava=3, steam=4, air=5. */
     private static List<Material> perSpeciesLut() {
-        return List.of(MaterialLut.VOID, water(), genericSolid(), lava(), steam(), air());
+        return List.of(MaterialLut.VACUUM, water(), genericSolid(), lava(), steam(), air());
     }
 
     @Test

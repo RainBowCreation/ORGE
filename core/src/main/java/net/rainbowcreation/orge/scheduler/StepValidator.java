@@ -22,7 +22,7 @@ public final class StepValidator {
      * Which materials are TRACKED, CONSERVED advection species in the §9 ledger: any MOVABLE material
      * ({@link Material#movable()} — finite viscosity). Under the unified model there is no liquid/gas/air
      * distinction — water, air, steam and every other movable species are summed and conserved alike;
-     * frozen solids (viscosity +INF) don't advect and are excluded. VACUUM (index 0 / void) is excluded by
+     * frozen solids (viscosity +INF) don't advect and are excluded. VACUUM (index 0) is excluded by
      * the caller's {@code index != 0} guard — it is no species and contributes 0 to every sum.
      */
     private static boolean isTracked(Material m) {
@@ -87,7 +87,7 @@ public final class StepValidator {
      * every cell counts (used by the pure conservation tests).
      *
      * @param matIx per-cell material indices into {@code lut}, or {@code null} to count every cell
-     * @param lut   the batch material table (index 0 = {@link MaterialLut#VOID}), or {@code null}
+     * @param lut   the batch material table (index 0 = {@link MaterialLut#VACUUM}), or {@code null}
      */
     public static boolean massConserved(float[] after, float[] before, float fullMassBound,
                                         char[] matIx, List<Material> lut) {
@@ -137,14 +137,14 @@ public final class StepValidator {
      * "over cap", NOT "species changed this step": a boiled steam cell stays steam for the multiple
      * steps it takes to relax, so a species-change key would stop exempting it after step 1 and freeze
      * the still-relaxing over-cap steam. Exempting an over-cap cell from the bound is safe precisely
-     * because the dual-index conservation sum (never exempted) still prevents mass invention. VACUUM/void
+     * because the dual-index conservation sum (never exempted) still prevents mass invention. VACUUM
      * (index 0) and solids are not tracked species and contribute to neither sum.
      *
      * @param after   engine mass output (length N)
      * @param before  snapshot input mass (length N)
      * @param inMat   per-cell INPUT species (the snapshot {@code matIx}); index into {@code lut}
      * @param outMat  per-cell OUTPUT species (the engine's {@code material()}); index into {@code lut}
-     * @param lut     batch material table (index 0 = {@link MaterialLut#VOID})
+     * @param lut     batch material table (index 0 = {@link MaterialLut#VACUUM})
      */
     public static boolean massConservedPerSpecies(float[] after, float[] before,
                                                   char[] inMat, char[] outMat,
@@ -160,7 +160,7 @@ public final class StepValidator {
      * documented exemption — a cell already <b>over its own output-species cap</b>
      * ({@code after[i] > maxMass(outMat[i])}) is the transient §7/engine boil deposit (Decision 12
      * boil-volume) the advection pass relaxes over the next steps, so it skips the upper bound (the
-     * lower/negative bound is never relaxed). VACUUM/void (index 0) and solid output cells are not tracked
+     * lower/negative bound is never relaxed). VACUUM (index 0) and solid output cells are not tracked
      * species and are ignored. This is exactly the
      * bound that {@link SpeciesMassLedger#add} folds into the per-cell pass, lifted out standalone so
      * the Scheduler can reject a single section's illegally-shaped cells while deferring the
@@ -168,7 +168,7 @@ public final class StepValidator {
      *
      * @param after  engine mass output (length N)
      * @param outMat per-cell OUTPUT species (the engine's {@code material()}); index into {@code lut}
-     * @param lut    batch material table (index 0 = {@link MaterialLut#VOID})
+     * @param lut    batch material table (index 0 = {@link MaterialLut#VACUUM})
      */
     public static boolean cellsWithinBound(float[] after, char[] outMat, List<Material> lut) {
         float cellEps = MASS_EPSILON_PER_CELL;
@@ -176,7 +176,7 @@ public final class StepValidator {
             if (!Float.isFinite(after[i])) return false;
             int out = outMat[i];
             // §11: air is a tracked, finite species too, so an air output cell is bounded to its own
-            // max_mass (1000) exactly like a fluid. Vacuum/void (index 0) and solids are not advection
+            // max_mass (1000) exactly like a fluid. Vacuum (index 0) and solids are not advection
             // masses and skip the bound.
             if (out != 0 && isTracked(lut.get(out))) {
                 float bound = lut.get(out).maxMass();
@@ -260,7 +260,7 @@ public final class StepValidator {
                 // cross-species credit. Air is no longer "adopted-and-discarded" by a fluid; it is a real,
                 // finite gas that liquid DISPLACES, so the air a wetting/swap relocates must RE-APPEAR as
                 // air mass elsewhere in the (co-stepped) batch, balancing air's own sumBefore/sumAfter.
-                // VACUUM/void (index 0) is no species: it contributes to neither sum.
+                // VACUUM (index 0) is no species: it contributes to neither sum.
                 //   - BEFORE mass is credited under the cell's INPUT species.
                 //   - AFTER  mass is credited under the cell's OUTPUT species.
                 // Wetting (air-in/water-out) now SUBTRACTS that air's before from air's sum (it left this

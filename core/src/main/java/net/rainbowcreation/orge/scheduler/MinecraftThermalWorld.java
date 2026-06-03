@@ -59,7 +59,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** The material LUT of the most recent {@link #snapshotColumns} batch, threaded to
      *  {@link #writeBackColumn} (whose signature carries no LUT) so the reconciler can resolve the
      *  engine output species. Both run on the server thread in the same cycle, so a plain field is safe. */
-    private List<Material> lastColumnLut = List.of(MaterialLut.VOID);
+    private List<Material> lastColumnLut = List.of(MaterialLut.VACUUM);
 
     public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials,
                                  ActiveSet activeSet) {
@@ -278,7 +278,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      * Record the engine's OUTPUT species as the signature for this section's just-persisted mass
      * (DESIGN §10 follow-on; the reseed-misfire fix). Per cell the recorded species is the engine
      * output when present ({@code outMat[i] != 0}), else the cell's input/world material — so an
-     * untouched air cell records {@code orge:air}, never the index-0 {@code orge:void} sentinel. This
+     * untouched air cell records {@code orge:air}, never the index-0 {@code orge:vacuum} sentinel. This
      * makes the NEXT snapshot's {@link MaterialChangeReseed} treat the reconciler's matching fluid
      * placement as already-known (no reseed → mass is conserved) while still reseeding genuine
      * external edits. When the signature is unchanged the prior {@code Identifier[]} is reused
@@ -406,7 +406,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     public ColumnBatch snapshotColumns(int range) {
         MinecraftServer srv = this.server;
         if (srv == null) {
-            return new ColumnBatch(List.of(), List.of(MaterialLut.VOID));
+            return new ColumnBatch(List.of(), List.of(MaterialLut.VACUUM));
         }
         ActiveMaterials.State mats = ActiveMaterials.current();
         MaterialLut lut = new MaterialLut();

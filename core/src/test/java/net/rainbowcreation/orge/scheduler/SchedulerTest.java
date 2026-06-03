@@ -85,7 +85,7 @@ class SchedulerTest {
             .build();
 
     private static List<Material> lut() {
-        return List.of(MaterialLut.VOID, WATER);
+        return List.of(MaterialLut.VACUUM, WATER);
     }
 
     /** One full-height column at (0,0): all water (matIx 1) at the given uniform temperature, 1000 kg/cell. */

@@ -52,7 +52,7 @@ class LutPackTest {
 
     @Test
     void packEmitsTheSixArraysForANormalMaterial() {
-        LutArrays L = LutArrays.pack(List.of(MaterialLut.VOID, water()));
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, water()));
         assertEquals(2, L.matCount());
         // water at slot 1 — the exact six values.
         assertEquals(0.6f,   L.cond()[1],    1e-6f);
@@ -65,14 +65,14 @@ class LutPackTest {
 
     @Test
     void absentViscosityPacksPositiveInfinity() {
-        LutArrays L = LutArrays.pack(List.of(MaterialLut.VOID, frozen()));
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, frozen()));
         assertEquals(Float.POSITIVE_INFINITY, L.visc()[1], "absent viscosity → +∞ (frozen)");
         assertFalse(Float.isFinite(L.visc()[1]));
     }
 
     @Test
     void voidSlotZeroIsZeroZeroZeroFiniteVisc() {
-        LutArrays L = LutArrays.pack(List.of(MaterialLut.VOID, water()));
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, water()));
         assertEquals(0f, L.molar()[0],   0f, "void molar 0");
         assertEquals(0f, L.minMass()[0], 0f, "void minMass 0");
         assertEquals(0f, L.maxMass()[0], 0f, "void maxMass 0");

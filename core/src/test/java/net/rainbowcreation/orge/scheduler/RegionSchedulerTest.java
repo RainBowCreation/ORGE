@@ -35,7 +35,7 @@ class RegionSchedulerTest {
             .build();
 
     private static List<Material> lut() {
-        return List.of(MaterialLut.VOID, WATER);
+        return List.of(MaterialLut.VACUUM, WATER);
     }
 
     /** Eager synchronous runner: executes the step at submit and reports done immediately. */

@@ -173,7 +173,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
     /**
      * The engine's output species for cell {@code i}, resolved through the step's batch LUT
      * ({@code outLut}, threaded in from the scheduler's {@code pendingMaterials}). Falls back to
-     * {@code worldMaterial} when no engine species is available or the cell is the VOID/air sentinel
+     * {@code worldMaterial} when no engine species is available or the cell is the vacuum/air sentinel
      * (index 0).
      */
     private static Material outMaterialFor(char[] outMaterial, List<Material> outLut, int i,

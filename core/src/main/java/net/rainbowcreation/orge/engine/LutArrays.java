@@ -13,9 +13,9 @@ import java.util.List;
  * so packing it directly yields +∞. The legacy flag/fullMass/minFlow/gas/air arrays and the §11
  * air-density sentinel are gone.</p>
  *
- * <p>Slot 0 is the VOID sentinel (per spec invariant 5): {@code molar==0, minMass==0, maxMass==0}
- * with a <b>finite</b> viscosity so void is the lightest <i>movable</i> fluid (displaceable, not
- * frozen). This falls out of the VOID material itself (see {@code MaterialLut.VOID}); {@code pack}
+ * <p>Slot 0 is the VACUUM sentinel (per spec invariant 5): {@code molar==0, minMass==0, maxMass==0}
+ * with a <b>finite</b> viscosity so vacuum is the lightest <i>movable</i> fluid (displaceable, not
+ * frozen). This falls out of the VACUUM material itself (see {@code MaterialLut.VACUUM}); {@code pack}
  * does not special-case it.</p>
  */
 public record LutArrays(float[] cond, float[] heatCap, float[] molar,

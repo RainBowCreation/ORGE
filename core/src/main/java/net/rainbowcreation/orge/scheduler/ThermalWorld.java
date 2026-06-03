@@ -30,7 +30,7 @@ public interface ThermalWorld {
      * when there is nothing to simulate.
      */
     default Batch snapshot(int range) {
-        return new Batch(List.of(), List.of(MaterialLut.VOID));
+        return new Batch(List.of(), List.of(MaterialLut.VACUUM));
     }
 
     /**
@@ -100,7 +100,7 @@ public interface ThermalWorld {
      * per-section path.
      */
     default ColumnBatch snapshotColumns(int range) {
-        return new ColumnBatch(List.of(), List.of(MaterialLut.VOID));
+        return new ColumnBatch(List.of(), List.of(MaterialLut.VACUUM));
     }
 
     /**

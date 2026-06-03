@@ -24,15 +24,15 @@ import java.util.List;
  * any cell that became a different movable material (water, air, steam, …) is re-seeded. ORGE's cold
  * phase targets are <b>frozen</b> (ice/stone have no viscosity, so {@code +inf}), so {@code movable()}
  * naturally leaves the post-transition state §7 wrote untouched, without this unit needing to know
- * which changes were ORGE's. A genuine void/vacuum cell (matIx 0) is excluded by an explicit guard:
- * VOID is itself a finite-viscosity (movable) sentinel, so without the guard it would spuriously
+ * which changes were ORGE's. A genuine vacuum cell (matIx 0) is excluded by an explicit guard:
+ * VACUUM is itself a finite-viscosity (movable) sentinel, so without the guard it would spuriously
  * reseed. Frozen solids carry stale thermal mass after an external swap, but that does not drive
  * advection and is a separate, lower-impact follow-on. Pure and array-mutating.</p>
  */
 public final class MaterialChangeReseed {
 
-    /** Index of the void/empty sentinel in every batch LUT ({@link MaterialLut#VOID}). */
-    private static final char VOID_IX = 0;
+    /** Index of the vacuum/empty sentinel in every batch LUT ({@link MaterialLut#VACUUM}). */
+    private static final char VACUUM_IX = 0;
 
     private MaterialChangeReseed() {}
 
@@ -51,9 +51,9 @@ public final class MaterialChangeReseed {
      * default") stays an entry point with exactly one mass seed in the pipeline (DESIGN 2026-06-01 §6,
      * R3: the Java layer never fabricates mass on a material change).
      *
-     * <p>Under the unified model breaking a block spawns AIR — a movable gas — not a VOID sentinel, so
+     * <p>Under the unified model breaking a block spawns AIR — a movable gas — not a vacuum sentinel, so
      * that case is the same {@code reseeds()} path: the cell KEEPS its live air material and only its
-     * stale mass is cleared. The obsolete broken-block→VACUUM (matIx→void) policy is gone (Task 4.1).</p>
+     * stale mass is cleared. The obsolete broken-block→VACUUM (matIx→0) policy is gone (Task 4.1).</p>
      *
      * <p>No-op when {@code prior == null} (the section was never tracked, so the block-derived / world-gen
      * seed is already authoritative — chunk-load air stays 1.2 kg) or a cell's material is unchanged. The
@@ -63,7 +63,7 @@ public final class MaterialChangeReseed {
      *
      * @param prior        per-cell material ids the stored values belong to, or {@code null}
      * @param matIx        the live per-cell material indices into {@code lut} (read-only here)
-     * @param lut          the batch material table (index 0 = {@link MaterialLut#VOID})
+     * @param lut          the batch material table (index 0 = {@link MaterialLut#VACUUM})
      * @param temps        per-cell temperatures to correct (mutated)
      * @param mass         per-cell masses to correct (mutated: a changed-material cell is cleared to 0 so
      *                     {@link ColumnAssembler}'s seed re-fills it to {@code defaultMass})
@@ -75,10 +75,10 @@ public final class MaterialChangeReseed {
             return;
         }
         for (int i = 0; i < SectionData.CELLS; i++) {
-            // A cell that IS the void sentinel is empty space, not a material that moved in: never reseed
-            // it. (Under the canonical schema VOID is a finite-viscosity — i.e. movable — fluid, so
+            // A cell that IS the vacuum sentinel is empty space, not a material that moved in: never reseed
+            // it. (Under the canonical schema VACUUM is a finite-viscosity — i.e. movable — fluid, so
             // without this guard reseeds() would fire on it; matIx 0 is the unambiguous test.)
-            if (matIx[i] == VOID_IX) {
+            if (matIx[i] == VACUUM_IX) {
                 continue;
             }
             Material m = lut.get(matIx[i]);

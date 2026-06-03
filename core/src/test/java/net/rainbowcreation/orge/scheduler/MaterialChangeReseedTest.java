@@ -72,7 +72,7 @@ class MaterialChangeReseedTest {
 
     /** LUT: VOID=0, water=1, lava=2, stone=3, air=4. */
     private static List<Material> lut() {
-        return List.of(MaterialLut.VOID,
+        return List.of(MaterialLut.VACUUM,
                 fluid(WATER, 1000f),
                 fluidSource(LAVA, 3100f, 1400f),
                 solid(Identifier.fromNamespaceAndPath("orge", "stone"), 2500f),

@@ -62,7 +62,7 @@ class MaterialChangeReseedConservationTest {
 
     /** LUT: void=0, air=1, water=2. */
     private static List<Material> lut() {
-        return List.of(MaterialLut.VOID, nonFluid(ORGE_AIR, 1.2f), fluid(ORGE_WATER, 1000f));
+        return List.of(MaterialLut.VACUUM, nonFluid(ORGE_AIR, 1.2f), fluid(ORGE_WATER, 1000f));
     }
 
     private static SectionStoreManager loadedManager(Path dir) {

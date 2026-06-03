@@ -8,7 +8,7 @@ import net.rainbowcreation.orge.material.Material;
  * constructor calls in {@code Section11LivePipelineReproTest} (lines ~70-89). Shared by the engine and
  * scheduler unit tests so the LUT matches the real pipeline.
  *
- * <p>LUT-slot convention used by callers: index 0 = void, 1 = water, 2 = air.</p>
+ * <p>LUT-slot convention used by callers: index 0 = vacuum, 1 = water, 2 = air.</p>
  */
 public final class TestMaterials {
 
@@ -17,7 +17,7 @@ public final class TestMaterials {
     private static final Identifier AIR   = Identifier.fromNamespaceAndPath("orge", "air");
     private static final Identifier ICE   = Identifier.fromNamespaceAndPath("minecraft", "ice");
     private static final Identifier STONE = Identifier.fromNamespaceAndPath("minecraft", "stone");
-    private static final Identifier VOIDID = Identifier.fromNamespaceAndPath("orge", "void");
+    private static final Identifier VACUUMID = Identifier.fromNamespaceAndPath("orge", "vacuum");
 
     /**
      * Live datapack roster: orge:air — a movable finite gas. Mirrors the canonical {@code air.json}
@@ -57,9 +57,9 @@ public final class TestMaterials {
                 .build(); // no viscosity ⇒ +∞ (frozen)
     }
 
-    /** Void sentinel: 0/0/0 masses, FINITE viscosity ⇒ displaceable (matches MaterialLut.VOID). */
+    /** Vacuum sentinel: 0/0/0 masses, FINITE viscosity ⇒ displaceable (matches MaterialLut.VACUUM). */
     public static Material voidMat() {
-        return Material.builder(VOIDID)
+        return Material.builder(VACUUMID)
                 .thermalConductivity(0f).heatCapacity(1f).molarMass(0f)
                 .defaultMass(0f).defaultTemperature(Float.NaN)
                 .viscosity(0f).minMass(0f).maxMass(0f)

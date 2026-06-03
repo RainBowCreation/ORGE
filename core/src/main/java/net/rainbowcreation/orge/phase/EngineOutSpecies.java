@@ -29,7 +29,7 @@ public final class EngineOutSpecies {
      * @param outLut      the step's batch material table that resolves those indices, or null
      * @param i           section-local cell index
      * @param fallback    the live-block material to use when the engine reported no species for this
-     *                    cell (null arrays, the index-0 VOID/air sentinel, or an out-of-range index)
+     *                    cell (null arrays, the index-0 vacuum/air sentinel, or an out-of-range index)
      * @return the post-swap engine species, or {@code fallback}
      */
     public static Material resolve(char[] outMaterial, List<Material> outLut, int i, Material fallback) {
@@ -38,7 +38,7 @@ public final class EngineOutSpecies {
         }
         int s = outMaterial[i];
         if (s == 0 || s >= outLut.size()) {
-            return fallback; // VOID/air sentinel or unknown index — defer to the live block
+            return fallback; // vacuum/air sentinel or unknown index — defer to the live block
         }
         return outLut.get(s);
     }

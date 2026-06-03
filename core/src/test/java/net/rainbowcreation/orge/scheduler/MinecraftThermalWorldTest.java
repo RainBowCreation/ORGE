@@ -25,7 +25,7 @@ class MinecraftThermalWorldTest {
 
     private static final Identifier DIM = Identifier.fromNamespaceAndPath("minecraft", "overworld");
 
-    private static final Identifier ORGE_VOID = Identifier.fromNamespaceAndPath("orge", "void");
+    private static final Identifier ORGE_VACUUM = Identifier.fromNamespaceAndPath("orge", "vacuum");
     private static final Identifier ORGE_AIR = Identifier.fromNamespaceAndPath("orge", "air");
     private static final Identifier ORGE_WATER = Identifier.fromNamespaceAndPath("orge", "water");
 
@@ -48,9 +48,9 @@ class MinecraftThermalWorldTest {
                 .build(); // no viscosity ⇒ frozen
     }
 
-    /** LUT: void=0, air=1, water=2 (the indices used by the recordCellMaterials tests). */
+    /** LUT: vacuum=0, air=1, water=2 (the indices used by the recordCellMaterials tests). */
     private static List<Material> recordLut() {
-        return List.of(MaterialLut.VOID, nonFluid(ORGE_AIR, 1.2f), fluid(ORGE_WATER, 1000f));
+        return List.of(MaterialLut.VACUUM, nonFluid(ORGE_AIR, 1.2f), fluid(ORGE_WATER, 1000f));
     }
 
     private static SectionStoreManager loadedManager(Path dir) {
@@ -155,7 +155,7 @@ class MinecraftThermalWorldTest {
     }
 
     /** An untouched air cell (outMat[E]=0) records the WORLD material (orge:air, from input matIx),
-     *  never the index-0 orge:void sentinel. */
+     *  never the index-0 orge:vacuum sentinel. */
     @Test
     void recordCellMaterialsFallsBackToWorldMaterialForUntouchedAirCells(@TempDir Path dir) {
         SectionStoreManager mgr = loadedManager(dir);
@@ -176,7 +176,7 @@ class MinecraftThermalWorldTest {
 
         Identifier[] prior = tracker.prior(DIM, key);
         assertNotNull(prior, "signature recorded");
-        assertEquals(ORGE_AIR, prior[E], "untouched air cell records orge:air (input), not orge:void");
-        assertNotEquals(ORGE_VOID, prior[E], "must not record the index-0 void sentinel");
+        assertEquals(ORGE_AIR, prior[E], "untouched air cell records orge:air (input), not orge:vacuum");
+        assertNotEquals(ORGE_VACUUM, prior[E], "must not record the index-0 vacuum sentinel");
     }
 }

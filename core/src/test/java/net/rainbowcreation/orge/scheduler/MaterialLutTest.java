@@ -18,11 +18,11 @@ class MaterialLutTest {
     }
 
     @Test
-    void indexZeroIsVoidWithZeroConductivity() {
+    void indexZeroIsVacuumWithZeroConductivity() {
         MaterialLut lut = new MaterialLut();
         List<Material> materials = lut.materials();
-        assertEquals(1, materials.size(), "fresh LUT holds only the void sentinel");
-        assertEquals(0f, materials.get(0).thermalConductivity(), "void must be inert (k=0)");
+        assertEquals(1, materials.size(), "fresh LUT holds only the vacuum sentinel");
+        assertEquals(0f, materials.get(0).thermalConductivity(), "vacuum must be inert (k=0)");
     }
 
     @Test
@@ -36,9 +36,10 @@ class MaterialLutTest {
     }
 
     @Test
-    void indexOfVoidReturnsZeroAndDoesNotAppend() {
+    void indexOfVacuumReturnsZeroAndDoesNotAppend() {
         MaterialLut lut = new MaterialLut();
-        assertEquals(0, lut.indexOf(MaterialLut.VOID));
+        assertEquals(Identifier.fromNamespaceAndPath("orge", "vacuum"), MaterialLut.VACUUM.id());
+        assertEquals(0, lut.indexOf(MaterialLut.VACUUM));
         assertEquals(1, lut.materials().size());
     }
 

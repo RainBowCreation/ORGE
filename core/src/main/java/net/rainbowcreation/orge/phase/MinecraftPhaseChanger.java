@@ -93,7 +93,7 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         // OUTGOING material. Reading it paired a swapped-in temperature with the wrong material —
         // risen water carried its cool temperature while the block read lava, so PhaseRule saw
         // cool < lava.minTemp and froze the water to lava.minTarget = stone. EngineOutSpecies falls
-        // back to the live block when the engine reported no species (null args / VOID sentinel), so
+        // back to the live block when the engine reported no species (null args / vacuum sentinel), so
         // a surviving pinned source still reads as its source material for the re-pin below.
         IntFunction<Material> cellMat = i -> EngineOutSpecies.resolve(
                 outMaterial, outLut, i, LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry()));
