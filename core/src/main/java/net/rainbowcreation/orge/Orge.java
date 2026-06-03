@@ -204,7 +204,10 @@ public final class Orge {
                         pos.getX(), pos.getY(), pos.getZ());
             }
             if (level instanceof ServerLevel sl) {
-                wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
+                // BREAK → durable vacuum (spec durable-material Part 4): wakeBreak does NOT read the
+                // (still-outgoing, pre-event) block; it enqueues a removal→vacuum intent. PLACE/FILL_BUCKET
+                // stay on wakeBlock (they read the live placed block).
+                wake.wakeBreak(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
             }
             return EventResult.pass();
         });

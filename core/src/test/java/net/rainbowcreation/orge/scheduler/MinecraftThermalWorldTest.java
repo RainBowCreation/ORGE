@@ -275,4 +275,44 @@ class MinecraftThermalWorldTest {
         MinecraftThermalWorld.recordDurableIdentity(null, 0, 0, sectionY, sectionCell, placedWater);
         MinecraftThermalWorld.recordDurableIdentity(store, 99, 99, sectionY, sectionCell, placedWater);
     }
+
+    /**
+     * G2 event-driven BREAK (spec durable-material Part 4): {@code captureBreak} turns the cell into durable
+     * {@code orge:vacuum} — it stamps the cell's {@link SectionStore} identity to {@code orge:vacuum} AND
+     * enqueues a removal intent (so the drain stomps the cell to the index-0 sentinel, mass 0, neighbours
+     * flow in). Driven against the REAL §5 store (the enclosing wake path bails at {@code server == null}).
+     * captureBreak does NOT read the world block, so it needs no live server — it is fully exercisable here.
+     */
+    @Test
+    void captureBreakRecordsDurableVacuumAndQueuesRemovalIntent(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        SectionStore store = mgr.store(DIM);
+
+        // World coords inside the loaded column (0,0). sectionY = blockY>>4.
+        int bx = 3, by = 5 + 16 * 4, bz = 7;   // sectionY = 4, ly=5
+        int sectionY = 4;
+        int lx = bx & 15, ly = by & 15, lz = bz & 15;
+        int sectionCell = lx + 16 * ly + 256 * lz;
+        int engineCell = ColumnSectionCodec.colIdx(lx, sectionY, ly, lz);
+
+        // Pre-seed the cell with a solid identity so the break has something to remove.
+        store.setMaterialAt(0, 0, sectionY, sectionCell, ORGE_WATER);
+        assertEquals(ORGE_WATER, store.materialAt(0, 0, sectionY, sectionCell), "precondition: cell is water");
+
+        world.captureBreak(DIM, bx, by, bz);
+
+        // Durable vacuum identity persisted (assembler will keep it vacuum — no air re-seed).
+        assertEquals(ORGE_VACUUM, store.materialAt(0, 0, sectionY, sectionCell),
+                "break records durable orge:vacuum (not orge:air)");
+
+        // A removal intent is queued at the right engine cell (drain stomps to index-0 sentinel, no injection).
+        List<PendingInjections.Intent> intents = world.pendingInjections().peekColumn(DIM, 0, 0);
+        assertEquals(1, intents.size(), "exactly one intent queued");
+        PendingInjections.Intent in = intents.get(0);
+        assertTrue(in.removal(), "the queued intent is a removal (break → vacuum)");
+        assertEquals(engineCell, in.cell(), "removal targets the broken engine cell");
+        assertEquals(ORGE_VACUUM, in.species(), "removal species is the vacuum sentinel");
+        assertEquals(0f, in.mass(), 0f, "removal carries zero mass");
+    }
 }

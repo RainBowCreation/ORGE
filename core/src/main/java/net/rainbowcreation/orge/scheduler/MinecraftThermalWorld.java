@@ -18,6 +18,7 @@ import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
+import net.rainbowcreation.orge.section.MaterialPalette;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -41,6 +42,12 @@ import java.util.Set;
  * field is the only cross-thread state). The per-section {@link #writeBack} override is kept dormant.
  */
 public final class MinecraftThermalWorld implements ThermalWorld {
+
+    /** First-touch material of empty/ambient air. An EDIT that leaves a SIMULATED cell as orge:air is a
+     *  REMOVAL → durable vacuum (spec durable-material Part 4): the substance left, so the cell becomes the
+     *  index-0 sentinel, NOT a fabricated 1.2 kg air block. (Ambient air is only ever seeded by the
+     *  assembler's first-touch on NEVER-SIMULATED cells.) */
+    private static final Identifier AIR_ID = Identifier.fromNamespaceAndPath("orge", "air");
 
     private final SectionStoreManager stores;
     private final CellMaterialTracker cellMaterials;
@@ -101,6 +108,15 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         public void wakeBlock(Identifier dim, int blockX, int blockY, int blockZ) {
             captureBlockChange(dim, blockX, blockY, blockZ);    // enqueue intent if a displacement placement
             activeSet.wakeBlock(dim, blockX, blockY, blockZ);   // unchanged wake behaviour
+        }
+
+        @Override
+        public void wakeBreak(Identifier dim, int blockX, int blockY, int blockZ) {
+            // Event-driven BREAK (spec Part 4): the BlockEvent.BREAK signal is authoritative — do NOT read
+            // the (still-outgoing, pre-event) world block. Turn the cell into durable orge:vacuum and wake
+            // the section so neighbours flow into it via normal advection.
+            captureBreak(dim, blockX, blockY, blockZ);
+            activeSet.wakeBlock(dim, blockX, blockY, blockZ);
         }
 
         @Override
@@ -170,6 +186,23 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             logCapture(dim, cx, cz, blockX, blockY, blockZ, engineCell, key, sectionCell, prior,
                     level, pos, live, incumbent);
         }
+
+        // Override-close (spec Part 4): an EDIT whose first-touch material is orge:air at a SIMULATED cell is
+        // a REMOVAL → durable vacuum, NOT an air placement. (The substance left; ambient air is only ever
+        // seeded by the assembler's first-touch on never-simulated cells.) This makes the explicit BREAK
+        // event AND the post-break setBlock-to-air agree on vacuum, so the air write can no longer resurrect
+        // a broken cell. A steady-state air↔air / air→vacuum repaint stays a NO-OP: if the recorded incumbent
+        // is already air or vacuum, there is nothing to remove (don't enqueue a removal every reconcile cycle).
+        if (live != null && AIR_ID.equals(live.id())) {
+            Identifier incId = incumbent != null ? incumbent.id() : null;
+            boolean alreadyEmpty = incId == null
+                    || AIR_ID.equals(incId) || MaterialPalette.VACUUM_ID.equals(incId);
+            if (!alreadyEmpty) {
+                recordRemoval(stores.store(dim), dim, cx, cz, sectionY, sectionCell, engineCell);
+            }
+            return; // never enqueue an air PLACEMENT or record an air identity at a simulated cell
+        }
+
         PlacementCapture.capture(pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
 
         // Durable identity (spec Part 3): the placed block's first-touch material becomes the cell's stored
@@ -189,6 +222,42 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         if (live == null) return;
         if (store != null && store.isLoaded(cx, cz)) {
             store.setMaterialAt(cx, cz, sectionY, sectionCell, live.id());
+        }
+    }
+
+    /**
+     * Event-driven BREAK (spec durable-material Part 4): turn the cell into durable {@code orge:vacuum}.
+     * Enqueues a removal intent (the {@link InjectionDrain} stomps the cell to the index-0 sentinel,
+     * mass 0, and emits NO injection; neighbours then flow in via normal advection) AND records the
+     * durable vacuum identity so the assembler keeps it vacuum next cycle (no {@code orge:air} re-seed).
+     * Does NOT read the world block — the {@code BlockEvent.BREAK} signal is authoritative (at handler
+     * time the block is still the outgoing block, not yet air). Fully guard-safe (store null / column
+     * unloaded → only the durable-record is skipped; the removal intent is still queued).
+     */
+    void captureBreak(Identifier dim, int blockX, int blockY, int blockZ) {
+        int cx = SectionPos.blockToSectionCoord(blockX);
+        int cz = SectionPos.blockToSectionCoord(blockZ);
+        int sectionY = SectionPos.blockToSectionCoord(blockY);
+        int lx = blockX & 15, ly = blockY & 15, lz = blockZ & 15;
+        int sectionCell = lx + 16 * ly + 256 * lz;
+        int engineCell = ColumnSectionCodec.colIdx(lx, sectionY, ly, lz);
+        recordRemoval(stores.store(dim), dim, cx, cz, sectionY, sectionCell, engineCell);
+    }
+
+    /**
+     * Shared removal record (spec Part 4): enqueue the removal intent (drain → index-0 vacuum sentinel,
+     * mass 0, no injection) and stamp the cell's durable {@link SectionStore} identity to
+     * {@code orge:vacuum} so the assembler keeps it vacuum (no air re-seed). Both the explicit BREAK
+     * event ({@link #captureBreak}) and the {@code captureBlockChange} air-edit override route here, so a
+     * break and the subsequent setBlock-to-air agree on vacuum (closing the resurrection override). The
+     * removal intent is always queued; the durable stamp is skipped (silently) when the store is absent
+     * or the column unloaded.
+     */
+    private void recordRemoval(SectionStore store, Identifier dim, int cx, int cz, int sectionY,
+                               int sectionCell, int engineCell) {
+        pendingInjections.enqueueRemoval(dim, cx, cz, engineCell);
+        if (store != null && store.isLoaded(cx, cz)) {
+            store.setMaterialAt(cx, cz, sectionY, sectionCell, MaterialPalette.VACUUM_ID);
         }
     }
 

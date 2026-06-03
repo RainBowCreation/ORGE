@@ -20,6 +20,15 @@ public interface WakeSink {
     /** (a) A block at world coords changed (place/break/bucket/setblock/piston): wake the owning section. */
     void wakeBlock(Identifier dim, int blockX, int blockY, int blockZ);
 
+    /** (a') A block was BROKEN at world coords: durable removal → vacuum + wake (spec durable-material
+     *  Part 4). The break signal is authoritative (the outgoing block is never read). Default = a plain
+     *  {@link #wakeBlock}, so impls that carry no durable-material seam (ActiveSet, ServerStoreWriteSink,
+     *  WakePlatform passthrough) need no change; {@code MinecraftThermalWorld}'s capturing sink overrides
+     *  it to enqueue the removal→vacuum intent. */
+    default void wakeBreak(Identifier dim, int blockX, int blockY, int blockZ) {
+        wakeBlock(dim, blockX, blockY, blockZ);
+    }
+
     /** (c) A neighbour pushed mass across the shared seam: wake the flow pass of one adjacent section. */
     void wakeFlowSection(Identifier dim, SubchunkKey key);
 
