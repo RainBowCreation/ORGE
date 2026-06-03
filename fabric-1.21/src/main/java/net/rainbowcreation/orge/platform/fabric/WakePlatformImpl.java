@@ -24,6 +24,11 @@ public final class WakePlatformImpl {
     /** Called from {@code WakeSetBlockMixin} at the TAIL of a successful server-side {@code Level#setBlock}. */
     public static void wake(Identifier dim, int x, int y, int z) {
         WakeSink s = SINK;
+        if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
+                && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("fabric-wake", 500)) {
+            net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
+                    "[fabric-wake] setBlock mixin fired at ({},{},{}) sink={}", x, y, z, s != null);
+        }
         if (s != null) {
             s.wakeBlock(dim, x, y, z);
         }

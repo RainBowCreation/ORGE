@@ -20,11 +20,25 @@ public final class InjectDebug {
     public static volatile boolean ON =
             Boolean.parseBoolean(System.getProperty("orge.debug.inject", "true"));
 
+    private static final java.util.Map<String, Long> LAST_LOG = new java.util.concurrent.ConcurrentHashMap<>();
+
     private InjectDebug() {
     }
 
     public static boolean on() {
         return ON;
+    }
+
+    /** Rate-limit a noisy diagnostic: true at most once per {@code minIntervalMs} for a given {@code key}.
+     *  Used for the per-setBlock wake-entry / capture-bail traces so fluid flow doesn't flood the log. */
+    public static boolean throttle(String key, long minIntervalMs) {
+        long now = System.currentTimeMillis();
+        Long prev = LAST_LOG.get(key);
+        if (prev != null && now - prev < minIntervalMs) {
+            return false;
+        }
+        LAST_LOG.put(key, now);
+        return true;
     }
 
     /** Compact "id(mv=true)" / "null" describer for a material in a log line. */

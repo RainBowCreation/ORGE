@@ -117,15 +117,24 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private void captureBlockChange(Identifier dim, int blockX, int blockY, int blockZ) {
         MinecraftServer srv = this.server;
         if (srv == null) {
+            if (InjectDebug.on() && InjectDebug.throttle("bail-server", 500)) {
+                InjectDebug.LOG.info("[capture] BAIL server==null (not bound) at ({},{},{})", blockX, blockY, blockZ);
+            }
             return;
         }
         ServerLevel level = levelFor(srv, dim);
         if (level == null) {
+            if (InjectDebug.on() && InjectDebug.throttle("bail-level", 500)) {
+                InjectDebug.LOG.info("[capture] BAIL level==null for dim={} at ({},{},{})", dim, blockX, blockY, blockZ);
+            }
             return;
         }
         int cx = SectionPos.blockToSectionCoord(blockX);
         int cz = SectionPos.blockToSectionCoord(blockZ);
         if (LiveMaterials.loadedChunk(level, cx, cz) == null) {
+            if (InjectDebug.on() && InjectDebug.throttle("bail-chunk", 500)) {
+                InjectDebug.LOG.info("[capture] BAIL chunk not loaded ({},{}) at ({},{},{})", cx, cz, blockX, blockY, blockZ);
+            }
             return;
         }
         int sectionY = SectionPos.blockToSectionCoord(blockY);
@@ -473,16 +482,23 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             char[] colMat = e.task().matIx();
             float[] colMass = e.task().mass();
             int injBefore = injections.size();
-            InjectionDrain.applyToColumn(columnId, colMat, colMass, lut.materials(), colIntents,
+            // Resolver registers the placed species into the batch LUT (appends if absent) so a
+            // just-placed / stomped fluid that is not yet anywhere in the live snapshot is still a
+            // valid injection species — the fix for the "placement species not in batch LUT" drop.
+            InjectionDrain.SpeciesResolver resolver = id -> {
+                Material m = materialById(id, mats);
+                return m != null ? lut.indexOf(m) : 0;
+            };
+            InjectionDrain.applyToColumn(columnId, colMat, colMass, resolver, colIntents,
                     engineCell -> recordedIncumbentId(e.dimension(), e.cx(), e.cz(), engineCell),
                     engineCell -> storedMassAt(store, e.cx(), e.cz(), engineCell),
-                    injections);
-            drained.addAll(colIntents);
+                    injections, drained);
             if (InjectDebug.on()) {
                 int emitted = injections.size() - injBefore;
                 InjectDebug.LOG.info("[drain] col=({},{}) intents={} emitted={}{}",
                         e.cx(), e.cz(), colIntents.size(), emitted,
-                        emitted < colIntents.size() ? " (emitted<intents => species not in batch LUT, skipped)" : "");
+                        emitted < colIntents.size()
+                                ? " (emitted<intents => unregistered material, left queued)" : "");
             }
         }
         lastColumnLut = lut.materials();
