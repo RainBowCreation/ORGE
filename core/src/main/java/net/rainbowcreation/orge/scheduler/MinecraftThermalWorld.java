@@ -459,7 +459,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 ColumnAssembler.SectionSource src =
                         columnSource(level, dim, store, lut, mats);
                 entries.add(new ColumnEntry(dim, cx, cz,
-                        ColumnAssembler.assemble(cx, cz, lut.materials(), src)));
+                        ColumnAssembler.assemble(cx, cz, lut, mats.registry(), src)));
             }
         }
         // ---- Drain placement intents into this batch's injection list (spec B3) ----
@@ -581,7 +581,17 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             // relative to priorSpecies (genuine placement), never when the engine drained it (prior ==
             // current ⇒ no fabrication). An untracked section yields all-void ⇒ every fresh fluid seeds.
             char[] priorSpecies = priorSpeciesIndices(priorMat, lut);
-            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies);
+            // Durable identity (durable-material §): when this section has a stored material layer, the
+            // stored id is AUTHORITATIVE per cell (a broken cell stays orge:vacuum). The assembler resolves
+            // it into the batch LUT by appending. Sections with no stored layer keep storedMaterial null ⇒
+            // the assembler falls back to the block's first-touch geo.matIx().
+            Identifier[] storedMaterial = new Identifier[SectionData.CELLS];
+            if (store != null && store.hasSection(key) && store.get(key).hasMaterials()) {
+                for (int i = 0; i < SectionData.CELLS; i++) {
+                    storedMaterial[i] = store.materialAt(cx, cz, sectionY, i);
+                }
+            }
+            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial);
         };
     }
 

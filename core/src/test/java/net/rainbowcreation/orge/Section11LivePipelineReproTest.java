@@ -8,6 +8,8 @@ import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
+import net.rainbowcreation.orge.scheduler.MaterialLut;
+import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.scheduler.StepValidator;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -43,6 +45,8 @@ class Section11LivePipelineReproTest {
     private static final char VOID = 0, WATER = 1, AIR = 2, STONE = 3;
     private static final List<Material> LUT =
             List.of(TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air(), TestMaterials.stone());
+    private static final MaterialLut LUT_M = TestMaterials.lutOf(LUT);
+    private static final MaterialRegistry LUT_R = TestMaterials.registryOf(LUT);
 
     private static final int SEC = 4096;
     private static final float AMBIENT_T = 300f;
@@ -138,7 +142,7 @@ class Section11LivePipelineReproTest {
     // liveCycle: the one true pipeline step. assemble -> stepWorld -> region ledger gate -> persist.
     // -------------------------------------------------------------------------------------------------
     private static void liveCycle(NativeEngine e, FakeColumn col) {
-        ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT, col.source());
+        ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
         List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
         StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();

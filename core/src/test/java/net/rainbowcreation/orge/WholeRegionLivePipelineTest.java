@@ -8,6 +8,8 @@ import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
+import net.rainbowcreation.orge.scheduler.MaterialLut;
+import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.scheduler.StepValidator;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -47,6 +49,8 @@ class WholeRegionLivePipelineTest {
     private static final char VOID = 0, WATER = 1, AIR = 2, STONE = 3;
     private static final List<Material> LUT =
             List.of(TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air(), TestMaterials.stone());
+    private static final MaterialLut LUT_M = TestMaterials.lutOf(LUT);
+    private static final MaterialRegistry LUT_R = TestMaterials.registryOf(LUT);
 
     private static final int SEC = 4096;
     private static final float AMBIENT_T = 300f;
@@ -149,8 +153,8 @@ class WholeRegionLivePipelineTest {
         double airTol = Math.max(1e-2, airBefore * 1e-6);
 
         for (int cycle = 0; cycle < 30; cycle++) {
-            ColumnTask t0 = ColumnAssembler.assemble(col0.cx, col0.cz, LUT, col0.source());
-            ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT, col1.source());
+            ColumnTask t0 = ColumnAssembler.assemble(col0.cx, col0.cz, LUT_M, LUT_R, col0.source());
+            ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT_M, LUT_R, col1.source());
 
             // BOTH columns in ONE call so the engine can flow across the X seam.
             List<ColumnResult> res = e.stepWorld(List.of(t0, t1), LUT, 0.25, OrgeEngine.PASS_ADVECTION);

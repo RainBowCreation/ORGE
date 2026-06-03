@@ -1,8 +1,12 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
+import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialRegistry;
+import net.rainbowcreation.orge.section.MaterialPalette;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
@@ -12,12 +16,21 @@ class ColumnAssemblerTest {
         return x + 16 * (sectionY * 16 + sy + 64) + 6144 * z;
     }
 
+    private static final Identifier WATER_ID = Identifier.fromNamespaceAndPath("orge", "water");
+    private static final Identifier STONE_ID = Identifier.fromNamespaceAndPath("minecraft", "stone");
+
+    // LUT/registry: slot 0 vacuum, 1 water (defaultMass 1000), 2 air (1.2), 3 stone (2000).
+    private static final List<Material> SLOTS =
+            List.of(TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air(), TestMaterials.stone());
+    private static MaterialLut lut() { return TestMaterials.lutOf(SLOTS); }
+    private static MaterialRegistry registry() { return TestMaterials.registryOf(SLOTS); }
+
     @Test
     void airFilledColumnAndFreshFluidSeed() {
-        // LUT: 0 void, 1 water (defaultMass 1000), 2 air (defaultMass 1.2)
-        List<Material> lut = List.of(TM.voidMat(), TM.water(), TM.air());
-        // section reader: section (cx=0,sy=4) has one freshly-placed water cell (stored mass 0) at (1,2,3);
-        // everything else is air (matIx=2). All other sections fully air.
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        // section reader: section (sy=4) has one freshly-placed water cell (stored mass 0) at (1,2,3);
+        // everything else is air (matIx=2). All other sections fully air. No stored material layer.
         ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
             char[] mat = new char[4096];
             float[] mass = new float[4096];
@@ -32,7 +45,7 @@ class ColumnAssemblerTest {
             return new ColumnAssembler.SectionCells(mat, mass, temp);
         };
 
-        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, src);
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
         assertEquals(RegionMarshaller.CHUNK_N, t.matIx().length);
         int wi = colIdx(1, 4, 2, 3);
         assertEquals(1, t.matIx()[wi], "water mapped to engine column index");
@@ -45,11 +58,11 @@ class ColumnAssemblerTest {
 
     @Test
     void signatureGate_drainedWaterNotReseeded_butNewPlacementIs() {
-        // LUT: 0 void, 1 water, 2 air. Two water-labelled cells both at stored mass 0 in section 4:
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        // Two water-labelled cells both at stored mass 0 in section 4:
         //   - cellA (1,2,3): priorSpecies==water (1)  -> engine-DRAINED, MUST NOT reseed (stays 0).
         //   - cellB (5,6,7): priorSpecies==void  (0)  -> genuine NEW placement, MUST seed to 1000.
-        // This is the mass-fabrication gate: the storedMass<=0 test alone cannot separate these.
-        List<Material> lut = List.of(TM.voidMat(), TM.water(), TM.air());
         ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
             char[] mat = new char[4096];
             float[] mass = new float[4096];
@@ -67,7 +80,7 @@ class ColumnAssemblerTest {
             return new ColumnAssembler.SectionCells(mat, mass, temp, prior);
         };
 
-        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, src);
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
 
         int ia = colIdx(1, 4, 2, 3);
         assertEquals(1, t.matIx()[ia], "drained cell stays water-labelled");
@@ -80,10 +93,121 @@ class ColumnAssemblerTest {
                 "genuine new placement (prior==void) IS seeded to defaultMass");
     }
 
-    // Minimal local material factory mirroring Section11LivePipelineReproTest constructor calls.
-    static final class TM {
-        static Material voidMat() { return net.rainbowcreation.orge.engine.TestMaterials.voidMat(); }
-        static Material water()   { return net.rainbowcreation.orge.engine.TestMaterials.water(); }
-        static Material air()     { return net.rainbowcreation.orge.engine.TestMaterials.air(); }
+    @Test
+    void storedMaterialIsAuthoritative_overridesFirstTouchAndAppendsToLut() {
+        // A LUT that has NOT yet seen water: only vacuum + air present so water gets APPENDED on resolve.
+        MaterialLut lut = new MaterialLut();
+        char airIx = lut.indexOf(TestMaterials.air());     // appends air at index 1
+        MaterialRegistry reg = registry();
+        // The cell's block first-touch is air (matIx=airIx), but its STORED material is orge:water.
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            Identifier[] stored = new Identifier[4096];
+            java.util.Arrays.fill(mat, airIx);       // first-touch = air everywhere
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 300f);
+            if (sectionY == 4) {
+                int s = 1 + 16 * 2 + 256 * 3;
+                stored[s] = WATER_ID;                // durable stored material = water (authoritative)
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, new char[4096], stored);
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+
+        char waterIx = lut.indexOf(TestMaterials.water()); // now resolvable (was appended during assemble)
+        assertNotEquals(airIx, waterIx, "water must have its own appended slot, not air's");
+        int wi = colIdx(1, 4, 2, 3);
+        assertEquals(waterIx, t.matIx()[wi],
+                "stored water id resolves to water's LUT index, NOT the block's first-touch air index");
+        assertEquals(WATER_ID, lut.materials().get(t.matIx()[wi]).id(),
+                "the assembled slot is water (appended into the batch LUT)");
+    }
+
+    @Test
+    void storedMaterialNull_fallsBackToFirstTouchMatIx() {
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        // storedMaterial all-null ⇒ identity comes from the precomputed first-touch matIx (air=2 here).
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            java.util.Arrays.fill(mat, (char) 2);    // air first-touch
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 300f);
+            return new ColumnAssembler.SectionCells(mat, mass, temp); // storedMaterial all-null
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+        int ai = colIdx(3, 4, 5, 6);
+        assertEquals(2, t.matIx()[ai], "null stored material → first-touch air index");
+    }
+
+    @Test
+    void storedVacuum_resolvesToIndexZeroSentinel_notFallbackSolid() {
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();   // has generic_solid fallback registered
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            Identifier[] stored = new Identifier[4096];
+            java.util.Arrays.fill(mat, (char) 3);    // first-touch stone (decoy)
+            java.util.Arrays.fill(mass, 0f);
+            java.util.Arrays.fill(temp, 300f);
+            if (sectionY == 4) {
+                int s = 1 + 16 * 2 + 256 * 3;
+                stored[s] = MaterialPalette.VACUUM_ID;   // a broken cell: durable vacuum
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, new char[4096], stored);
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+        int vi = colIdx(1, 4, 2, 3);
+        assertEquals(0, t.matIx()[vi],
+                "stored orge:vacuum resolves to index 0 (MaterialLut.VACUUM), NOT generic_solid");
+        assertEquals(MaterialLut.VACUUM.id(), lut.materials().get(t.matIx()[vi]).id());
+        assertEquals(0f, t.mass()[vi], 1e-4, "vacuum defaultMass is 0 — no fabrication");
+    }
+
+    @Test
+    void seedGate_freshSolidStoneSeedsDefaultMass_butDrainedSameSpeciesDoesNot() {
+        // bug-3 prep: the movable() gate is dropped, so a fresh SOLID (stone) at stored mass 0 with a
+        // NEW label (prior != mat) now seeds stone.defaultMass(). A drained-but-same-species cell does not.
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        Material stone = TestMaterials.stone();
+        char stoneIx = lut.indexOf(stone); // 3
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            char[] prior = new char[4096];
+            java.util.Arrays.fill(mat, (char) 2);    // air
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 300f);
+            if (sectionY == 4) {
+                int a = 1 + 16 * 2 + 256 * 3;        // fresh stone, prior void -> SEED defaultMass
+                mat[a] = stoneIx; mass[a] = 0f; prior[a] = 0;
+                int b = 5 + 16 * 6 + 256 * 7;        // drained stone, prior==stone -> NO seed (stays 0)
+                mat[b] = stoneIx; mass[b] = 0f; prior[b] = stoneIx;
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, prior);
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+
+        int ia = colIdx(1, 4, 2, 3);
+        assertEquals(stoneIx, t.matIx()[ia]);
+        assertEquals(stone.defaultMass(), t.mass()[ia], 1e-4,
+                "fresh SOLID (prior!=mat) now seeds defaultMass — movable() gate dropped");
+
+        int ib = colIdx(5, 4, 6, 7);
+        assertEquals(stoneIx, t.matIx()[ib]);
+        assertEquals(0f, t.mass()[ib], 1e-4,
+                "engine-drained same-species solid (prior==mat) is NOT seeded");
     }
 }

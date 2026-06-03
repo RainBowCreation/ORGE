@@ -2,6 +2,10 @@ package net.rainbowcreation.orge.engine;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialRegistry;
+import net.rainbowcreation.orge.scheduler.MaterialLut;
+
+import java.util.List;
 
 /**
  * Test-only {@link Material} factories mirroring the live datapack roster, copied verbatim from the
@@ -65,6 +69,38 @@ public final class TestMaterials {
                 .viscosity(0f).minMass(0f).maxMass(0f)
                 .minTemp(0f).maxTemp(9999f)
                 .build();
+    }
+
+    /**
+     * Builds a {@link MaterialLut} whose slot order matches {@code slots} (index 0 = vacuum sentinel),
+     * for tests that previously passed a {@code List<Material>} to {@code ColumnAssembler.assemble}.
+     * {@code slots.get(0)} is expected to be the {@code orge:vacuum} sentinel (it reuses the LUT's
+     * built-in index-0 slot); the rest are appended in order.
+     */
+    public static MaterialLut lutOf(List<Material> slots) {
+        MaterialLut lut = new MaterialLut();
+        for (Material m : slots) {
+            lut.indexOf(m); // appends (or reuses the vacuum sentinel for slot 0)
+        }
+        return lut;
+    }
+
+    /**
+     * A {@link MaterialRegistry} populated with {@code slots} plus a {@code generic_solid} fallback.
+     * Used as the durable-material resolution registry in tests; harmless when no stored material is
+     * exercised (storedMaterial all-null).
+     */
+    public static MaterialRegistry registryOf(List<Material> slots) {
+        MaterialRegistry reg = new MaterialRegistry();
+        reg.put(Material.builder(MaterialRegistry.FALLBACK_ID)
+                .thermalConductivity(1.0f).heatCapacity(840f).molarMass(0f)
+                .defaultMass(2000f).defaultTemperature(Float.NaN)
+                .minTemp(0f).maxTemp(9999f)
+                .build());
+        for (Material m : slots) {
+            reg.put(m);
+        }
+        return reg;
     }
 
     private TestMaterials() {}

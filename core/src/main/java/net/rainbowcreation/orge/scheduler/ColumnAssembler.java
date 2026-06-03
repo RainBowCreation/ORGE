@@ -1,37 +1,64 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.material.Material;
-import java.util.List;
+import net.rainbowcreation.orge.material.MaterialRegistry;
+import net.rainbowcreation.orge.section.MaterialPalette;
 
 /** Builds one full-height engine column (CHUNK_N cells, idx = x + 16*y + 6144*z) from the 24 vanilla
- *  sections of a chunk column. matIx comes from live blocks (provided by the SectionSource); empty cells
- *  are ambient-air; a fluid cell whose stored mass is <= 0 (freshly placed/streamed) is seeded once to its
- *  material defaultMass. This is the ONLY legitimate seed in the pipeline.
+ *  sections of a chunk column.
+ *
+ *  <p>IDENTITY (durable-material §): a cell's material is the DURABLE STORED material when present
+ *  (see {@link SectionCells#storedMaterial}, supplied per-cell by the {@link SectionSource} from the
+ *  {@code SectionStore}'s material layer) — the stored id is AUTHORITATIVE and is resolved into the
+ *  batch LUT by appending (so a stored species not yet pulled in by a live block still gets a slot).
+ *  For cells whose section has NO stored material layer the stored id is {@code null} and identity
+ *  falls back to the block's FIRST-TOUCH material (the {@code matIx} the source precomputed). The
+ *  stored {@code orge:vacuum} sentinel resolves to LUT index 0 ({@link MaterialLut#VACUUM}), NOT the
+ *  registry fallback.</p>
+ *
+ *  <p>SEED: a cell whose stored mass is {@code <= 0} (freshly placed/streamed) is seeded once to its
+ *  material's {@code defaultMass}. This is the ONLY legitimate seed in the pipeline and is no longer
+ *  fluid-only — a fresh SOLID cell now seeds its {@code defaultMass} too (durable-material bug-3 prep).
+ *  Vacuum's {@code defaultMass} is 0, so seeding a vacuum cell is harmless.</p>
  *
  *  <p>SIGNATURE GATE (mass-fabrication fix, 2026-06-01): the stored-mass-{@code <=0} test alone cannot
- *  tell a GENUINE new placement (a fluid label that is new this cycle, never simulated) apart from an
- *  ENGINE-DRAINED cell (the engine moved the water out, leaving a still-fluid-labelled cell at 0 kg).
- *  Re-seeding the latter fabricates 1000 kg/cycle. So the seed also requires the cell's current fluid
+ *  tell a GENUINE new placement (a label that is new this cycle, never simulated) apart from an
+ *  ENGINE-DRAINED cell (the engine moved the substance out, leaving a still-labelled cell at 0 kg).
+ *  Re-seeding the latter fabricates mass/cycle. So the seed also requires the cell's current
  *  label to DIFFER from the prior cycle's recorded engine-output species ({@code priorSpecies}, a
- *  section-local LUT index; 0/void = never simulated/unknown). A drained-but-still-water cell has
- *  {@code priorSpecies == current water == matIx} ⇒ it is NOT re-seeded (mass conserved). A genuinely
- *  new placement has {@code priorSpecies == void != water} ⇒ it IS seeded once.</p> */
+ *  section-local LUT index; 0/void = never simulated/unknown). A drained-but-same-species cell has
+ *  {@code priorSpecies == current == matIx} ⇒ it is NOT re-seeded (mass conserved). A genuinely
+ *  new placement has {@code priorSpecies == void != mat} ⇒ it IS seeded once.</p> */
 public final class ColumnAssembler {
     public static final int MIN_SECTION_Y = -4;
     public static final int MAX_SECTION_Y = 19; // inclusive -> 24 sections -> 384 cells
     private static final int SEC = 4096;
 
-    /** Per-section cell view: matIx from live blocks, mass/T from SectionStore (or ambient), and
-     *  priorSpecies — the previous cycle's recorded engine-OUTPUT species per cell as a LUT index
-     *  (section-local order; 0/void means never-simulated/unknown). The seed gate uses it to seed
-     *  ONLY a fluid label that is new relative to priorSpecies. */
-    public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies) {
+    /** Per-section cell view.
+     *  <ul>
+     *    <li>{@code matIx} — the block's FIRST-TOUCH index (precomputed by the source); used as identity
+     *        only for cells with no stored material.</li>
+     *    <li>{@code mass}/{@code temperature} — from the SectionStore (or ambient).</li>
+     *    <li>{@code priorSpecies} — the previous cycle's recorded engine-OUTPUT species per cell as a
+     *        LUT index (section-local order; 0/void means never-simulated/unknown). The seed gate uses
+     *        it to seed ONLY a label that is new relative to priorSpecies.</li>
+     *    <li>{@code storedMaterial} — the DURABLE per-cell stored material id (authoritative), or
+     *        {@code null} = the cell's section has no stored layer ⇒ use first-touch {@code matIx}.
+     *        Length 4096.</li>
+     *  </ul> */
+    public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                               Identifier[] storedMaterial) {
+        /** Convenience: prior signature, no stored material layer (all-null ⇒ first-touch identity). */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies) {
+            this(matIx, mass, temperature, priorSpecies, new Identifier[matIx.length]);
+        }
         /** Back-compat / never-simulated convenience: no prior signature (all-void → every fresh
-         *  fluid cell is treated as a genuine new placement, the pre-gate behaviour). */
+         *  cell is treated as a genuine new placement, the pre-gate behaviour) and no stored layer. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature) {
-            this(matIx, mass, temperature, new char[matIx.length]);
+            this(matIx, mass, temperature, new char[matIx.length], new Identifier[matIx.length]);
         }
     }
 
@@ -40,7 +67,8 @@ public final class ColumnAssembler {
         SectionCells read(int cx, int cz, int sectionY);
     }
 
-    public static ColumnTask assemble(int cx, int cz, List<Material> lut, SectionSource src) {
+    public static ColumnTask assemble(int cx, int cz, MaterialLut lut, MaterialRegistry registry,
+                                      SectionSource src) {
         int N = RegionMarshaller.CHUNK_N;
         char[] matIx = new char[N];
         float[] mass = new float[N];
@@ -55,16 +83,26 @@ public final class ColumnAssembler {
                     for (int x = 0; x < 16; x++) {
                         int ci = rowBase + x;
                         int si = secRow + x;
-                        char mat = cells.matIx()[si];
+                        // Identity: durable STORED material is authoritative when present; else first-touch.
+                        Identifier sid = cells.storedMaterial()[si];
+                        char mat;
+                        if (sid != null) {
+                            Material sm = sid.equals(MaterialPalette.VACUUM_ID)
+                                    ? MaterialLut.VACUUM            // hardcoded sentinel, not in JSON registry
+                                    : registry.getOrFallback(sid);
+                            mat = lut.indexOf(sm);                 // appends if absent — stored is authoritative
+                        } else {
+                            mat = cells.matIx()[si];               // unstored → block's first-touch index
+                        }
                         float storedMass = cells.mass()[si];
                         char prior = cells.priorSpecies()[si];
-                        Material m = lut.get(mat);
+                        Material m = lut.materials().get(mat);
                         float seeded;
-                        // Seed a fresh fluid cell ONLY when its label is NEW relative to last cycle's
-                        // engine-output species. A genuine placement: prior (void/other) != mat ⇒ seed.
-                        // An engine-drained-but-still-fluid cell: prior == mat ⇒ keep 0, no fabrication.
-                        if (m.movable() && storedMass <= 0f && prior != mat) {
-                            seeded = m.defaultMass();              // fresh-fluid seed (once)
+                        // Seed a fresh cell ONLY when its label is NEW relative to last cycle's engine-output
+                        // species. Genuine placement: prior (void/other) != mat ⇒ seed defaultMass.
+                        // Engine-drained-but-same-species cell: prior == mat ⇒ keep 0, no fabrication.
+                        if (storedMass <= 0f && prior != mat) {
+                            seeded = m.defaultMass();              // fresh seed (once); vacuum's is 0 (harmless)
                         } else {
                             seeded = storedMass;
                         }

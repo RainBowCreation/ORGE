@@ -8,6 +8,8 @@ import net.rainbowcreation.orge.engine.OrgeEngine;
 import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
+import net.rainbowcreation.orge.scheduler.MaterialLut;
+import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.scheduler.StepValidator;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -53,6 +55,8 @@ class UnifiedFluidLivePipelineTest {
     private static final char VOID = 0, WATER = 1, AIR = 2, STONE = 3;
     private static final List<Material> LUT =
             List.of(TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air(), TestMaterials.stone());
+    private static final MaterialLut LUT_M = TestMaterials.lutOf(LUT);
+    private static final MaterialRegistry LUT_R = TestMaterials.registryOf(LUT);
 
     private static final int SEC = 4096;
     private static final float AMBIENT_T = 300f;
@@ -159,7 +163,7 @@ class UnifiedFluidLivePipelineTest {
 
     /** assemble → stepWorld(advection) → region ledger gate → verbatim persist. Single column. */
     private static void liveAdvectCycle(NativeEngine e, FakeColumn col) {
-        ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT, col.source());
+        ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
         List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
         StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
@@ -188,7 +192,7 @@ class UnifiedFluidLivePipelineTest {
         double airTol = Math.max(1e-2, airBefore * 1e-6); // float32 round-trip noise on the huge air total
 
         for (int cycle = 0; cycle < 80; cycle++) {
-            ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT, col.source());
+            ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
             List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
             ColumnResult r = res.get(0);
             StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
@@ -227,8 +231,8 @@ class UnifiedFluidLivePipelineTest {
         col0.set(15, 1, 8, WATER, 1000f, 290f); // entire water body at the +X edge of col0
 
         for (int cycle = 0; cycle < 30; cycle++) {
-            ColumnTask t0 = ColumnAssembler.assemble(col0.cx, col0.cz, LUT, col0.source());
-            ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT, col1.source());
+            ColumnTask t0 = ColumnAssembler.assemble(col0.cx, col0.cz, LUT_M, LUT_R, col0.source());
+            ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT_M, LUT_R, col1.source());
             List<ColumnResult> res = e.stepWorld(List.of(t0, t1), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
             ColumnResult r0 = res.get(0), r1 = res.get(1);
 
@@ -314,7 +318,7 @@ class UnifiedFluidLivePipelineTest {
 
         for (int cycle = 0; cycle < 200; cycle++) {
             pinHotShell.accept(cond); // re-pin the hot Dirichlet shell each cycle
-            ColumnTask ct = ColumnAssembler.assemble(cond.cx, cond.cz, LUT, cond.source());
+            ColumnTask ct = ColumnAssembler.assemble(cond.cx, cond.cz, LUT_M, LUT_R, cond.source());
             List<ColumnResult> cres = e.stepWorld(List.of(ct), LUT, 0.25, OrgeEngine.PASS_CONDUCTION);
             cond.persist(cres.get(0));
         }
@@ -351,7 +355,7 @@ class UnifiedFluidLivePipelineTest {
         col.stoneFloorAt(0);
         col.set(8, 1, 8, WATER, 1000f, 290f);
 
-        ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT, col.source());
+        ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
         List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
 
