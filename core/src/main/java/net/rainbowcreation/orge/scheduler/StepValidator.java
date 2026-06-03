@@ -210,6 +210,27 @@ public final class StepValidator {
         private double[] sumAfter = new double[0];
         private long totalCells;
 
+        // Declared per-species placement deltas (spec A4): expected after-before = injected - sealedLoss.
+        private double[] injected = new double[0];
+        private double[] sealedLoss = new double[0];
+
+        /** Declare the engine's placement ledger for this region step (indexed by LUT species). */
+        public void expect(float[] injectedDelta, float[] sealedLossDelta) {
+            this.injected = toDoubles(injectedDelta);
+            this.sealedLoss = toDoubles(sealedLossDelta);
+        }
+
+        private static double[] toDoubles(float[] src) {
+            if (src == null) {
+                return new double[0];
+            }
+            double[] out = new double[src.length];
+            for (int i = 0; i < src.length; i++) {
+                out[i] = src[i];
+            }
+            return out;
+        }
+
         /**
          * Accumulate one section's per-cell dual-index sums into the ledger and run the per-cell bound.
          * Returns {@code false} iff a cell is non-finite or illegally over its own output cap (matching
@@ -267,13 +288,20 @@ public final class StepValidator {
         }
 
         /**
-         * True iff every tracked species (fluid/gas + §11 air) is conserved within {@code ε · totalCells} (the same
-         * tolerance {@link #massConservedPerSpecies} applies per section, summed over the whole batch).
+         * True iff every tracked species (fluid/gas + §11 air) is conserved within {@code ε · totalCells},
+         * accounting for the declared placement delta ({@code injected − sealedLoss}) per species.
+         * When {@link #expect} has not been called the arrays are length-0 and {@code expectedDelta == 0}
+         * for every species — byte-identical to the original behaviour.
          */
         public boolean conserved() {
             double tol = (double) MASS_EPSILON_PER_CELL * totalCells;
             for (int s = 1; s < sumAfter.length; s++) {
-                if (Math.abs(sumAfter[s] - sumBefore[s]) > tol) return false;
+                double expectedDelta =
+                        (s < injected.length   ? injected[s]   : 0.0)
+                      - (s < sealedLoss.length ? sealedLoss[s] : 0.0);
+                if (Math.abs(sumAfter[s] - sumBefore[s] - expectedDelta) > tol) {
+                    return false;
+                }
             }
             return true;
         }
