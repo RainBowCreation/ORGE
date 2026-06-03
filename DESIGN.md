@@ -199,12 +199,14 @@ and the phase system all conform to it — **no more, no fewer fields** (full sp
   temperature carry across unchanged** — both are authoritative per-cell quantities in the
   unified fluid model, conserved exactly across the transition.
 - No latent-heat plateau — phase change is an instantaneous threshold crossing by design.
-- **Phase is material → material; rendering is material → block.** Targets that vanilla can
-  already render reuse its block via `representative_block` (`orge:ice → minecraft:ice`,
-  `orge:stone → minecraft:stone`). Core registers a **new block only for a concept vanilla
-  lacks** — gases: **`orge:steam`**. Steam is a full fluid in the unified model (its own
-  `molar_mass`/`viscosity`/`min_mass`/`max_mass`), not an inert marker; it sorts and flows
-  like any other material.
+- **Phase is material → material; rendering is material → block.** Every target reuses an
+  existing block via `representative_block` (`orge:ice → minecraft:ice`,
+  `orge:stone → minecraft:stone`). **ORGE registers no blocks of its own.** A concept vanilla
+  has no block for — an invisible gas — is just a material whose `representative_block` is
+  `minecraft:air`: `orge:steam → minecraft:air`. Steam is a full fluid in the unified model
+  (its own `molar_mass`/`viscosity`/`min_mass`/`max_mass`), not an inert marker; it sorts and
+  flows like any other material — it simply has no visible block. Identity never depends on the
+  drawn block: it is durable per-cell in the §5 `SectionStore`, so no carrier block is needed.
 
 ## 8. Scheduler
 
