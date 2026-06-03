@@ -31,7 +31,10 @@ public final class PendingInjections {
      *  are harmless no-ops on it, and nothing is ever enqueued, so it stays empty. */
     public static final PendingInjections EMPTY = new PendingInjections();
 
-    /** One placement intent. {@code cell} is the engine index {@code x + 16*y + 6144*z}. */
+    /** One placement or removal intent. {@code cell} is the engine index {@code x + 16*y + 6144*z}.
+     *  When {@code removal} is {@code true} the drain stomps the cell to the index-0 vacuum sentinel
+     *  (matIx 0, mass 0) and emits NO engine injection; {@code species} is {@link
+     *  net.rainbowcreation.orge.section.MaterialPalette#VACUUM_ID} and {@code mass} is 0. */
     public record Intent(
             Identifier dim,
             int cx,
@@ -39,7 +42,14 @@ public final class PendingInjections {
             int cell,
             Identifier species,
             float mass,
-            float temperature) {
+            float temperature,
+            boolean removal) {
+
+        /** Placement (non-removal) convenience: {@code removal} defaults to {@code false}. */
+        public Intent(Identifier dim, int cx, int cz, int cell,
+                      Identifier species, float mass, float temperature) {
+            this(dim, cx, cz, cell, species, mass, temperature, false);
+        }
     }
 
     // dim -> packCol(cx,cz) -> cell -> Intent
@@ -56,6 +66,16 @@ public final class PendingInjections {
         byDim.computeIfAbsent(dim, k -> new HashMap<>())
                 .computeIfAbsent(packCol(cx, cz), k -> new HashMap<>())
                 .put(cell, new Intent(dim, cx, cz, cell, species, mass, temperature));
+    }
+
+    /** Record a BREAK removal intent for {@code (dim, cx, cz, cell)}: the drain stomps the cell to the
+     *  index-0 vacuum sentinel (matIx 0, mass 0) and emits NO injection. Last-write-wins per cell
+     *  (a removal replaces a stale placement at the same cell, and vice-versa). */
+    public void enqueueRemoval(Identifier dim, int cx, int cz, int cell) {
+        byDim.computeIfAbsent(dim, k -> new HashMap<>())
+                .computeIfAbsent(packCol(cx, cz), k -> new HashMap<>())
+                .put(cell, new Intent(dim, cx, cz, cell,
+                        net.rainbowcreation.orge.section.MaterialPalette.VACUUM_ID, 0f, 0f, true));
     }
 
     /**

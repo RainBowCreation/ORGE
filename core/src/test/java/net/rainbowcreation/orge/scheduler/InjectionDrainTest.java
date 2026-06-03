@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge.scheduler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -9,6 +10,7 @@ import net.rainbowcreation.orge.engine.EngineInjection;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.section.MaterialPalette;
 import org.junit.jupiter.api.Test;
 
 /** Draining an intent overrides the column cell back to its incumbent (so Java won't reseed the new
@@ -62,6 +64,60 @@ class InjectionDrainTest {
         assertEquals(290f, ej.temperature());
         // the intent is recorded as emitted (so the scheduler clears it only after a successful step):
         assertEquals(List.of(intent), emitted, "emitted intent recorded for clear-on-success");
+    }
+
+    @Test
+    void removalIntentStompsCellToVacuumAndIsMarkedEmittedWithNoEngineInjection() {
+        // Pre-fill the cell with water (non-vacuum) so we can observe the stomp-to-vacuum.
+        Material water = TestMaterials.water();
+        // The resolver is present but removal must NOT invoke resolver (vacuum index = 0 would be skipped).
+        InjectionDrain.SpeciesResolver resolver = id ->
+                id.equals(water.id()) ? (char) 2 : (char) 0;
+
+        int cell = 7 + 16 * 65 + 6144 * 2;
+        char[] matIx = new char[RegionMarshaller.CHUNK_N];
+        float[] mass = new float[matIx.length];
+        matIx[cell] = 2;       // water index — must be stomped to 0
+        mass[cell] = 1000f;    // water mass — must be stomped to 0
+
+        // Build a removal intent directly via the 8-arg canonical constructor.
+        PendingInjections.Intent removalIntent =
+                new PendingInjections.Intent(DIM, 0, 0, cell,
+                        MaterialPalette.VACUUM_ID, 0f, 0f, true);
+
+        List<EngineInjection> out = new ArrayList<>();
+        List<PendingInjections.Intent> emitted = new ArrayList<>();
+        InjectionDrain.applyToColumn(
+                /*columnId*/ 0, matIx, mass, resolver,
+                List.of(removalIntent),
+                c -> water.id(),
+                c -> 1000f,
+                out, emitted);
+
+        // Cell stomped to index-0 vacuum sentinel.
+        assertEquals(0, matIx[cell], "removal stomps matIx to vacuum (0)");
+        assertEquals(0f, mass[cell], "removal stomps mass to 0");
+        // No EngineInjection emitted — removal is a stomp-only, no engine-side injection needed.
+        assertEquals(0, out.size(), "no EngineInjection emitted for removal");
+        // Intent recorded as emitted so the scheduler clears it after a successful write-back.
+        assertEquals(1, emitted.size(), "removal intent marked emitted (clear-on-success)");
+        assertTrue(emitted.contains(removalIntent), "emitted set contains the removal intent");
+    }
+
+    @Test
+    void enqueueRemovalProducesRemovalFlaggedIntent() {
+        // Smoke-test the PendingInjections helper so G2 can rely on it.
+        PendingInjections pi = new PendingInjections();
+        int cell = 4 + 16 * 10 + 6144 * 3;
+        pi.enqueueRemoval(DIM, 0, 0, cell);
+
+        List<PendingInjections.Intent> col = pi.peekColumn(DIM, 0, 0);
+        assertEquals(1, col.size(), "one removal intent queued");
+        PendingInjections.Intent intent = col.get(0);
+        assertTrue(intent.removal(), "intent has removal=true");
+        assertEquals(cell, intent.cell(), "intent targets correct cell");
+        assertEquals(MaterialPalette.VACUUM_ID, intent.species(), "species is orge:vacuum");
+        assertEquals(0f, intent.mass(), "mass is 0");
     }
 
     @Test

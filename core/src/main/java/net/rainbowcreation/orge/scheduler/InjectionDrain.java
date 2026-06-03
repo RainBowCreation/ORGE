@@ -19,10 +19,17 @@ import net.rainbowcreation.orge.engine.EngineInjection;
  * net.rainbowcreation.orge.material.Material} and APPENDS it to the batch {@code MaterialLut}, so the
  * injection species index is always valid for a registered material.</p>
  *
- * <p><b>Durability:</b> only intents whose injection is actually emitted are added to
- * {@code emittedOut}; the scheduler clears exactly those after a successful write-back. An
- * unresolvable species (genuinely unregistered material) emits nothing, touches nothing, and stays
- * queued for a later retry rather than being silently lost.</p>
+ * <p><b>Removal intents (BREAK):</b> an intent with {@link PendingInjections.Intent#removal()}
+ * {@code true} is a block-break signal. The drain stomps the cell to the index-0 vacuum sentinel
+ * (matIx 0, mass 0) and adds the intent to {@code emittedOut} for clear-on-success — but emits
+ * <em>no</em> {@link EngineInjection}, because the engine must not place anything there. This branch
+ * fires BEFORE the {@code species == 0} placement guard; a vacuum removal cannot be modelled as a
+ * placement because index 0 is always skipped by that guard.</p>
+ *
+ * <p><b>Durability:</b> only intents whose injection is actually emitted (placement) or whose stomp
+ * was applied (removal) are added to {@code emittedOut}; the scheduler clears exactly those after a
+ * successful write-back. An unresolvable species (genuinely unregistered material) emits nothing,
+ * touches nothing, and stays queued for a later retry rather than being silently lost.</p>
  *
  * <p><b>Ordering invariant (load-bearing):</b> this drain runs AFTER
  * {@link ColumnAssembler#assemble} in
@@ -70,6 +77,15 @@ public final class InjectionDrain {
             int cell = in.cell();
             if (cell < 0 || cell >= matIx.length) {
                 continue;
+            }
+            // Removal (BREAK): stomp the cell to the index-0 vacuum sentinel and mark emitted —
+            // no EngineInjection is emitted. Must branch BEFORE the species==0 placement guard
+            // because vacuum IS index 0 and would be silently swallowed by that guard.
+            if (in.removal()) {
+                matIx[cell] = 0;    // index-0 vacuum sentinel
+                mass[cell] = 0f;
+                emittedOut.add(in); // clear-on-success (stomp applied)
+                continue;           // emit NO EngineInjection
             }
             char species = resolver.indexOf(in.species());
             if (species == 0) {
