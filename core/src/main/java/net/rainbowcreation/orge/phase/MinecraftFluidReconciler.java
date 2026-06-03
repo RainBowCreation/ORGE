@@ -90,7 +90,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
         for (int i = 0; i < SectionData.CELLS; i++) {
             BlockState current = LiveMaterials.blockStateAt(section, i);
-            Material worldMaterial = LiveMaterials.materialFor(current, mats);
+            Material worldMaterial = LiveMaterials.materialFor(current.getBlock(), mats.registry());
 
             // The species the cell BECAME this step (engine matOut); fall back to the world block's
             // material when the engine didn't report one (null overload / non-advection cycle).

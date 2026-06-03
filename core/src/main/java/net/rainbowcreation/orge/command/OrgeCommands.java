@@ -167,7 +167,7 @@ public final class OrgeCommands {
     private String liveLine(ServerLevel level, BlockPos p) {
         BlockState state = level.getBlockState(p);
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        Identifier matId = LiveMaterials.materialFor(state, ActiveMaterials.current()).id();
+        Identifier matId = LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry()).id();
         CellAddress addr = CellAddress.of(p.getX(), p.getY(), p.getZ());
         Identifier dim = level.dimension().identifier();
         LiveStatus st = status.statusOf(dim, addr.key());
@@ -191,7 +191,7 @@ public final class OrgeCommands {
     private static String liveCellDescriptor(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        Material material = LiveMaterials.materialFor(state, ActiveMaterials.current());
+        Material material = LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry());
         return String.format(Locale.ROOT, ", block=%s, material=%s", blockId, material.id());
     }
 

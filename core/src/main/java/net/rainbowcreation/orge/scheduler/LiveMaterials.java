@@ -1,43 +1,30 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.BlockMaterialRule;
 import net.rainbowcreation.orge.material.Material;
-import net.rainbowcreation.orge.material.MaterialBindings;
-import net.rainbowcreation.orge.material.PropertyView;
+import net.rainbowcreation.orge.material.MaterialRegistry;
 
 /**
  * Live (server-thread) helpers shared by the Minecraft-coupled scheduler/phase adapters:
- * the block→{@link Material} lookup (via the live block-tag bridge) and chunk/section/cell
- * access that never forces generation. Extracted from {@link MinecraftThermalWorld} so
+ * the block→{@link Material} FIRST-TOUCH lookup and chunk/section/cell access that never
+ * forces generation. Extracted from {@link MinecraftThermalWorld} so
  * {@code MinecraftPhaseChanger} reuses the exact same logic.
  */
 public final class LiveMaterials {
 
     private LiveMaterials() {}
 
-    /** Live tag-membership bridge — §6's {@link MaterialBindings.TagMembership} consumer. */
-    public static final MaterialBindings.TagMembership LIVE_TAGS = (tagId, blockId) -> {
-        // getValue returns the default (air) for an unregistered id rather than null; safe
-        // because callers only pass ids from BuiltInRegistries.BLOCK.getKey(block).
-        TagKey<Block> tag = TagKey.create(Registries.BLOCK, tagId);
-        return BuiltInRegistries.BLOCK.wrapAsHolder(BuiltInRegistries.BLOCK.getValue(blockId)).is(tag);
-    };
-
-    /** The {@link Material} bound to {@code block} in the given active materials state. */
-    public static Material materialFor(Block block, ActiveMaterials.State mats) {
+    /** The {@link Material} a block FIRST-TOUCHES to (spec Part 1). Blockstate is irrelevant. */
+    public static Material materialFor(Block block, MaterialRegistry registry) {
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
-        Identifier matId = mats.bindings().materialFor(blockId, LIVE_TAGS);
-        return mats.registry().getOrFallback(matId);
+        return BlockMaterialRule.firstTouchMaterial(blockId, registry);
     }
 
     /** A loaded chunk, or null if not currently loaded (never forces generation). */
@@ -68,24 +55,5 @@ public final class LiveMaterials {
         int y = (i >> 4) & 15;
         int z = (i >> 8) & 15;
         return section.getBlockState(x, y, z);
-    }
-
-    /** The {@link Material} bound to {@code state}, honouring blockstate-predicate bindings. */
-    public static Material materialFor(BlockState state, ActiveMaterials.State mats) {
-        Block block = state.getBlock();
-        Identifier blockId = BuiltInRegistries.BLOCK.getKey(block);
-        PropertyView props = name -> propertyValue(state, name);
-        Identifier matId = mats.bindings().materialFor(blockId, props, LIVE_TAGS);
-        return mats.registry().getOrFallback(matId);
-    }
-
-    /** Serialized value of property {@code name} on {@code state}, or null if the block lacks it. */
-    private static String propertyValue(BlockState state, String name) {
-        Property<?> property = state.getBlock().getStateDefinition().getProperty(name);
-        return property == null ? null : nameOf(state, property);
-    }
-
-    private static <T extends Comparable<T>> String nameOf(BlockState state, Property<T> property) {
-        return property.getName(state.getValue(property));
     }
 }

@@ -96,7 +96,7 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         // back to the live block when the engine reported no species (null args / VOID sentinel), so
         // a surviving pinned source still reads as its source material for the re-pin below.
         IntFunction<Material> cellMat = i -> EngineOutSpecies.resolve(
-                outMaterial, outLut, i, LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats));
+                outMaterial, outLut, i, LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry()));
 
         // The planner works in MATERIAL ids and the existence check is "does this target MATERIAL
         // exist?" — the block to draw is the separate material → representative_block lookup below.

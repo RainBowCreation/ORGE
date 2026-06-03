@@ -143,7 +143,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
         // Live material from the world block (null for a non-ORGE block — the policy null-guards it).
         BlockPos pos = new BlockPos(blockX, blockY, blockZ);
-        Material live = LiveMaterials.materialFor(level.getBlockState(pos), mats);
+        Material live = LiveMaterials.materialFor(level.getBlockState(pos).getBlock(), mats.registry());
 
         // Recorded incumbent (last cycle's engine-output species) for this cell, in section-local space.
         Identifier[] prior = cellMaterials.prior(dim, key);
@@ -568,7 +568,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             }
             final LevelChunkSection sec = section;
             GeometryAssembler.CellMaterials cellMat =
-                    i -> LiveMaterials.materialFor(LiveMaterials.blockStateAt(sec, i), mats);
+                    i -> LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry());
             GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
             float[] temps = sectionTemps(level, store, key, cellMat);
             float[] mass = sectionMass(store, key, geo, lut);
