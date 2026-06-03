@@ -33,6 +33,8 @@ test {
     }
     maxParallelForks = testForks
     maxHeapSize = "2g"
+    // Forward orge.* system properties from the Gradle CLI to the test JVM.
+    System.properties.each { k, v -> if (k.toString().startsWith("orge.")) systemProperty k, v }
 }
 
 tasks.register("integrationTest", Test) {
