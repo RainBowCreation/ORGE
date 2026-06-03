@@ -8,10 +8,18 @@ import net.rainbowcreation.orge.material.Material;
 
 /**
  * Pure drain step (spec B3): for each placement intent in a column, override the cell back to its
- * incumbent (recorded engine-output species + stored mass) so the Java reseed/seed pipeline leaves
- * it alone (the incumbent equals the cell's {@code prior}, so {@code MaterialChangeReseed}/
- * {@code ColumnAssembler} both skip it), and emit an {@link EngineInjection} that places the new
- * species — resolved against the batch LUT — which the engine applies as a displace-and-inject.
+ * incumbent (recorded engine-output species + stored mass) and emit an {@link EngineInjection} that
+ * places the new species — resolved against the batch LUT — which the engine applies as a
+ * displace-and-inject.
+ *
+ * <p><b>Ordering invariant (load-bearing):</b> this drain runs AFTER
+ * {@link ColumnAssembler#assemble} / {@link MaterialChangeReseed#apply} in
+ * {@code MinecraftThermalWorld.snapshotColumns}. For a water-over-air placement, the assembler will
+ * have already seeded the new species (water, +1000 kg) into the assembled column arrays. This
+ * override STOMPS that cell back to the recorded incumbent (air + stored mass) so the engine
+ * injection is the SINGLE authoritative placement of the new species — seeded exactly once, by the
+ * engine. Do NOT reorder this drain before the per-column assemble/reseed; the stomp depends on
+ * their output being present.
  */
 public final class InjectionDrain {
 
@@ -49,8 +57,8 @@ public final class InjectionDrain {
             }
             Identifier incId = incumbentId.apply(cell);
             char incIx = incId != null ? lutIndexOf(lut, incId) : 0;
-            // Override the cell back to its incumbent so Java's reseed/seed won't fabricate the new
-            // species; the engine injection re-places it (displacing this incumbent).
+            // Stomp the cell back to its incumbent (overriding whatever assemble/reseed wrote above)
+            // so the engine injection is the single authoritative placement of the new species.
             matIx[cell] = incIx;
             mass[cell] = incIx != 0 ? incumbentMass.massAt(cell) : 0f;
             out.add(new EngineInjection(columnId, cell, species, in.mass(), in.temperature()));

@@ -406,6 +406,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             }
         }
         // ---- Drain placement intents into this batch's injection list (spec B3) ----
+        // ORDERING IS LOAD-BEARING: this drain MUST run after all ColumnAssembler.assemble /
+        // MaterialChangeReseed calls above. InjectionDrain.applyToColumn stomps the assembled cell
+        // back to its recorded incumbent for each injected cell (see InjectionDrain class Javadoc).
+        // If this block were moved before the per-column assemble loop, the stomp would target
+        // uninitialized arrays and the assembler would subsequently re-seed the new species,
+        // fabricating a double-placement. Do NOT reorder.
         List<net.rainbowcreation.orge.engine.EngineInjection> injections = new ArrayList<>();
         List<PendingInjections.Intent> drained = new ArrayList<>();
         for (int columnId = 0; columnId < entries.size(); columnId++) {
