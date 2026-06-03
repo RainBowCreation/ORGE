@@ -1,0 +1,56 @@
+package net.rainbowcreation.orge.scheduler;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Diagnostic tracing for the placement-injection pipeline (capture → register → drain → dispatch →
+ * gate/clear). Pure observability — no behaviour. Every log line is gated on {@link #on()} AND on the
+ * event being an actual injection event, so idle play and the headless suites stay silent.
+ *
+ * <p>Toggle with the JVM flag {@code -Dorge.debug.inject=false} to silence, or
+ * {@code -Dorge.debug.inject=true} (the default) to trace. Logs go to the {@code ORGE-INJECT} logger
+ * at INFO so they appear in the normal server console.</p>
+ */
+public final class InjectDebug {
+
+    public static final Logger LOG = LoggerFactory.getLogger("ORGE-INJECT");
+
+    /** Master toggle. Default ON so a freshly-built mod traces placements without extra setup. */
+    public static volatile boolean ON =
+            Boolean.parseBoolean(System.getProperty("orge.debug.inject", "true"));
+
+    private InjectDebug() {
+    }
+
+    public static boolean on() {
+        return ON;
+    }
+
+    /** Compact "id(mv=true)" / "null" describer for a material in a log line. */
+    public static String describe(net.rainbowcreation.orge.material.Material m) {
+        if (m == null) {
+            return "null";
+        }
+        return m.id() + "(mv=" + m.movable() + ")";
+    }
+
+    /** Render only the non-zero entries of a per-species ledger array, e.g. "[2=1000.0]". */
+    public static String nonzero(float[] arr) {
+        if (arr == null) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i] != 0f) {
+                if (!first) {
+                    sb.append(", ");
+                }
+                sb.append(i).append('=').append(arr[i]);
+                first = false;
+            }
+        }
+        return sb.append(']').toString();
+    }
+}

@@ -146,7 +146,55 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         int engineCell = ColumnSectionCodec.colIdx(lx, sectionY, ly, lz);
         float ambientK = biomeAmbientK(level, key);
 
+        if (InjectDebug.on()) {
+            logCapture(dim, cx, cz, blockX, blockY, blockZ, engineCell, key, sectionCell, prior,
+                    level, pos, live, incumbent);
+        }
         PlacementCapture.capture(pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
+    }
+
+    /** DIAGNOSTIC ONLY (toggle {@code -Dorge.debug.inject}). Traces the per-block capture decision for
+     *  any real material transition at a cell — what the live + recorded-incumbent materials are, the
+     *  live material's defaultMass, the cell's stored mass/temp, and whether the placement is enqueued
+     *  as an injection or skipped (with the reason). Filters steady-state engine-output repaints
+     *  (live == incumbent) so only genuine placements/breaks/transitions are logged. No behaviour. */
+    private void logCapture(Identifier dim, int cx, int cz, int blockX, int blockY, int blockZ,
+                            int engineCell, SubchunkKey key, int sectionCell, Identifier[] prior,
+                            ServerLevel level, BlockPos pos, Material live, Material incumbent) {
+        Identifier liveId = live != null ? live.id() : null;
+        Identifier incId = incumbent != null ? incumbent.id() : null;
+        if (liveId != null && liveId.equals(incId)) {
+            return; // steady-state repaint (engine output already recorded) — not a transition
+        }
+        String priorState = prior == null ? "NULL-array"
+                : (sectionCell < prior.length && prior[sectionCell] != null ? "present" : "NULL-cell");
+        String stored = "n/a";
+        SectionStore store = stores.store(dim);
+        if (store != null && store.isLoaded(cx, cz)) {
+            SectionData d = store.get(key);
+            if (d != null) {
+                stored = "mass=" + d.massAt(sectionCell) + ",temp=" + d.temperatureAt(sectionCell);
+            }
+        }
+        String decision;
+        if (PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
+            decision = "ENQUEUE inject=" + liveId;
+        } else if (live == null) {
+            decision = "SKIP live-null (non-ORGE block / no material)";
+        } else if (!live.movable()) {
+            decision = "SKIP live-immovable (solid: NOT mass-reseeded — keeps stored mass, not defaultMass)";
+        } else if (incumbent == null) {
+            decision = "SKIP incumbent-null (untracked cell: fluid NOT made durable -> vanish-race exposed)";
+        } else if (!incumbent.movable()) {
+            decision = "SKIP incumbent-immovable";
+        } else {
+            decision = "SKIP other";
+        }
+        InjectDebug.LOG.info(
+                "[capture] pos=({},{},{}) cell={} block={} live={} defMass={} incumbent={} prior={} stored({}) -> {}",
+                blockX, blockY, blockZ, engineCell, level.getBlockState(pos), InjectDebug.describe(live),
+                live != null ? live.defaultMass() : Float.NaN, InjectDebug.describe(incumbent),
+                priorState, stored, decision);
     }
 
     /** id→{@link Material} in the active state, or {@code null} when the id is absent (registry not yet
@@ -424,11 +472,18 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             SectionStore store = stores.store(e.dimension());
             char[] colMat = e.task().matIx();
             float[] colMass = e.task().mass();
+            int injBefore = injections.size();
             InjectionDrain.applyToColumn(columnId, colMat, colMass, lut.materials(), colIntents,
                     engineCell -> recordedIncumbentId(e.dimension(), e.cx(), e.cz(), engineCell),
                     engineCell -> storedMassAt(store, e.cx(), e.cz(), engineCell),
                     injections);
             drained.addAll(colIntents);
+            if (InjectDebug.on()) {
+                int emitted = injections.size() - injBefore;
+                InjectDebug.LOG.info("[drain] col=({},{}) intents={} emitted={}{}",
+                        e.cx(), e.cz(), colIntents.size(), emitted,
+                        emitted < colIntents.size() ? " (emitted<intents => species not in batch LUT, skipped)" : "");
+            }
         }
         lastColumnLut = lut.materials();
         return new ColumnBatch(entries, lut.materials(), injections, drained);

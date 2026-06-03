@@ -207,6 +207,10 @@ public final class Scheduler {
         final List<net.rainbowcreation.orge.engine.EngineInjection> injections = batch.injections();
         pendingDrained = batch.drained();
         final double dt = nextDt();
+        if (InjectDebug.on() && !injections.isEmpty()) {
+            InjectDebug.LOG.info("[dispatch] injections={} drained={} dt={}",
+                    injections.size(), pendingDrained.size(), dt);
+        }
         pending = runner.submit(() -> {
             // ONE combined call: orgeStepWorld sub-cycles n=round(dt/0.25) interleaved
             // conduction(sub_dt) -> advection(sub_dt) sub-steps (spec 2026-06-02 A5/B1). The
@@ -305,6 +309,12 @@ public final class Scheduler {
             ledger.expect(pendingRegionResult.injected(), pendingRegionResult.sealedLoss());
         }
         if (!ledger.conserved()) {
+            if (InjectDebug.on() && !pendingDrained.isEmpty()) {
+                InjectDebug.LOG.info("[gate] HELD conserved=false injected={} sealedLoss={} keptIntents={}",
+                        pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.injected()) : "[]",
+                        pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.sealedLoss()) : "[]",
+                        pendingDrained.size());
+            }
             LOGGER.warn("[ORGE] region step mass not conserved (per-species); holding {} columns this cycle", n);
             return; // HELD — drained intents stay queued for the next try (durability)
         }
@@ -312,6 +322,12 @@ public final class Scheduler {
             world.writeBackColumn(pendingColumns.get(i), results.get(i));
         }
         if (!pendingDrained.isEmpty()) {
+            if (InjectDebug.on()) {
+                InjectDebug.LOG.info("[gate] OK wrote={} injected={} sealedLoss={} clearedIntents={}",
+                        n, pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.injected()) : "[]",
+                        pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.sealedLoss()) : "[]",
+                        pendingDrained.size());
+            }
             // Success ⇒ the placements are now durably in the store; clear them from the queue.
             world.pendingInjections().remove(pendingDrained);
             pendingDrained = List.of();
