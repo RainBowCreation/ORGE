@@ -79,7 +79,7 @@ public final class PendingInjections {
             if (dimMap == null) continue;
             Map<Integer, Intent> colMap = dimMap.get(packCol(intent.cx(), intent.cz()));
             if (colMap == null) continue;
-            colMap.remove(intent.cell());
+            colMap.remove(intent.cell(), intent);
         }
     }
 

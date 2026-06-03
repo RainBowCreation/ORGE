@@ -64,4 +64,19 @@ class PendingInjectionsTest {
         q.peekColumn(DIM, 0, 0);
         assertEquals(1, q.peekColumn(DIM, 0, 0).size(), "peek leaves the intent (survives stale steps)");
     }
+
+    @Test
+    void removeDoesNotDropANewerSameCellIntent() {   // vanish-race durability
+        PendingInjections q = new PendingInjections();
+        int cell = 9 + 16 * 70 + 6144 * 4;
+        q.enqueue(DIM, 0, 0, cell, WATER, 1000f, 290f);          // intent A
+        List<PendingInjections.Intent> drainedA = q.peekColumn(DIM, 0, 0);   // holds A
+        q.enqueue(DIM, 0, 0, cell, LAVA, 3000f, 1500f);          // intent B overwrites the cell (not yet applied)
+
+        q.remove(drainedA);                                       // write-back of the A-step
+
+        List<PendingInjections.Intent> left = q.peekColumn(DIM, 0, 0);
+        assertEquals(1, left.size(), "newer same-cell intent B survives removal of A");
+        assertEquals(LAVA, left.get(0).species(), "the un-applied newer placement is kept");
+    }
 }
