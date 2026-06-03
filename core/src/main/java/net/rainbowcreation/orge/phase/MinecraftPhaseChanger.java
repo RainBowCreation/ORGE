@@ -113,7 +113,7 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
             // isn't available. BANKED: fully block-decoupled material identity (so invisible gases can
             // share minecraft:air as their repr) — v1 records the new species ONLY via the placed
             // representative_block, so each phase-target material must have a uniquely-bound repr block
-            // (§8 geometry rescan reads it back through MaterialBindings).
+            // (§8 geometry rescan reads it back through the first-touch BlockMaterialRule).
             Optional<Identifier> repr =
                     PhaseRenderResolver.representativeBlock(mats.registry()::get, t.materialId());
             if (repr.isEmpty() || !BuiltInRegistries.BLOCK.containsKey(repr.get())) {

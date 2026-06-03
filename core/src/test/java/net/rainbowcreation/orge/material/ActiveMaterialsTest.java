@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -20,7 +19,7 @@ class ActiveMaterialsTest {
 
     @BeforeEach
     void reset() {
-        ActiveMaterials.swap(new ActiveMaterials.State(new MaterialRegistry(), new MaterialBindings()));
+        ActiveMaterials.swap(new ActiveMaterials.State(new MaterialRegistry()));
     }
 
     private static Identifier id(String full) {
@@ -50,7 +49,7 @@ class ActiveMaterialsTest {
     @Test
     void buildState_doesNotTouchActiveState() {
         ActiveMaterials.State before = ActiveMaterials.current();
-        ActiveMaterials.buildState(oneMaterial("orge:water"), List.of());
+        ActiveMaterials.buildState(oneMaterial("orge:water"));
         // buildState builds fresh instances only; the active reference is unchanged.
         assertSame(before, ActiveMaterials.current(),
                 "buildState must not publish anything to the active holder");
@@ -58,7 +57,7 @@ class ActiveMaterialsTest {
 
     @Test
     void reloadFrom_goodData_swapsIn() {
-        ActiveMaterials.reloadFrom(oneMaterial("orge:water"), List.of());
+        ActiveMaterials.reloadFrom(oneMaterial("orge:water"));
 
         assertTrue(ActiveMaterials.registry().get(id("orge:water")).isPresent(),
                 "a successful reload makes the new material queryable");
@@ -67,7 +66,7 @@ class ActiveMaterialsTest {
     @Test
     void reloadFrom_badData_leavesActiveStateUnchanged() {
         // First, install a known-good state.
-        ActiveMaterials.reloadFrom(oneMaterial("orge:water"), List.of());
+        ActiveMaterials.reloadFrom(oneMaterial("orge:water"));
         ActiveMaterials.State good = ActiveMaterials.current();
 
         // Now attempt a reload that MaterialData will reject (malformed material body).
@@ -75,7 +74,7 @@ class ActiveMaterialsTest {
         broken.put(id("orge:broken"), json("\"not-an-object\""));
 
         assertThrows(IllegalArgumentException.class,
-                () -> ActiveMaterials.reloadFrom(broken, List.of()));
+                () -> ActiveMaterials.reloadFrom(broken));
 
         // Atomicity: the failed reload must leave the previously-active state in place.
         assertSame(good, ActiveMaterials.current(),
@@ -84,21 +83,6 @@ class ActiveMaterialsTest {
                 "the previously-loaded material is still active after a failed reload");
         assertTrue(ActiveMaterials.registry().get(id("orge:broken")).isEmpty(),
                 "the rejected material must not leak into the active registry");
-    }
-
-    @Test
-    void buildState_loadsBindings() {
-        String bindingsJson = """
-                {
-                  "overrides": { "minecraft:iron_block": "orge:iron" }
-                }
-                """;
-        ActiveMaterials.State state = ActiveMaterials.buildState(
-                oneMaterial("orge:water"), List.of(json(bindingsJson)));
-
-        // Bindings are stored (override resolution does not need live tags).
-        assertEquals(id("orge:iron"),
-                state.bindings().materialFor(id("minecraft:iron_block"), (t, b) -> false));
     }
 
     @Test
@@ -117,7 +101,6 @@ class ActiveMaterialsTest {
         ActiveMaterials.State state = ActiveMaterials.current();
         assertNotNull(state, "current() must never return null");
         assertNotNull(state.registry(), "registry() must never return null");
-        assertNotNull(state.bindings(), "bindings() must never return null");
 
         // get() on an empty registry returns empty — no exception.
         assertTrue(ActiveMaterials.registry().get(id("orge:water")).isEmpty(),

@@ -40,8 +40,7 @@ class DefaultPhaseDataTest {
         for (String id : List.of("air", "water", "lava", "generic_solid", "steam", "ice")) {
             materials.put(orge(id), resource("/data/orge/orge/materials/" + id + ".json"));
         }
-        List<JsonElement> bindings = List.of(resource("/data/orge/orge/bindings/default.json"));
-        return ActiveMaterials.buildState(materials, bindings);
+        return ActiveMaterials.buildState(materials);
     }
 
     @Test

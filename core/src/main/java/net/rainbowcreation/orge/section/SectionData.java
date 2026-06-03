@@ -6,8 +6,8 @@ import java.util.Arrays;
  * Per-cell thermal metadata for one section (DESIGN.md §5).
  *
  * <p>Each cell stores <b>only</b> {@code temperature} (K) and {@code mass} (kg);
- * material identity is derived from the block via {@code MaterialBindings}, never
- * stored here. In memory this is two parallel {@code float[4096]} arrays. {@code mass}
+ * material identity is derived from the block via the first-touch
+ * {@code BlockMaterialRule}, never stored here. In memory this is two parallel {@code float[4096]} arrays. {@code mass}
  * is treated as fluid level from day one (1000 kg ≈ a full 1 m³ water block) so the
  * Phase-2 fluid pass needs no storage rework.</p>
  *

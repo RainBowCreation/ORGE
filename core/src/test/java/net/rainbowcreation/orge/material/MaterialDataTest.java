@@ -10,9 +10,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,12 +20,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class MaterialDataTest {
 
     private MaterialRegistry registry;
-    private MaterialBindings bindings;
-
-    /** Fake tag membership: tagId → set of blockIds. */
-    private final Map<Identifier, Set<Identifier>> tagMembers = new HashMap<>();
-    private final MaterialBindings.TagMembership fakeTags =
-            (tagId, blockId) -> tagMembers.getOrDefault(tagId, Set.of()).contains(blockId);
 
     private static Identifier id(String full) {
         return Identifier.parse(full);
@@ -36,8 +28,6 @@ class MaterialDataTest {
     @BeforeEach
     void setUp() {
         registry = new MaterialRegistry();
-        bindings = new MaterialBindings();
-        tagMembers.clear();
     }
 
     // -------------------------------------------------------------------------
@@ -93,119 +83,6 @@ class MaterialDataTest {
     }
 
     // -------------------------------------------------------------------------
-    // (b) loadBindings: in-memory file list with tags + overrides
-    // -------------------------------------------------------------------------
-
-    @Test
-    void loadBindings_populatesOverridesAndTagsInOrder() {
-        // Two tags in known order; two overrides
-        String bindingsJson = """
-                {
-                  "tags": [
-                    { "tag": "c:stones",   "material": "orge:generic_solid" },
-                    { "tag": "c:metals",   "material": "orge:iron" }
-                  ],
-                  "overrides": {
-                    "minecraft:water": "orge:water",
-                    "minecraft:lava":  "orge:lava"
-                  }
-                }
-                """;
-
-        MaterialData.loadBindings(List.of(JsonParser.parseString(bindingsJson)), bindings);
-
-        // Override: minecraft:water → orge:water
-        Identifier waterBlock = id("minecraft:water");
-        Identifier lavaBlock  = id("minecraft:lava");
-        assertEquals(id("orge:water"), bindings.materialFor(waterBlock, fakeTags),
-                "override: minecraft:water → orge:water");
-        assertEquals(id("orge:lava"), bindings.materialFor(lavaBlock, fakeTags),
-                "override: minecraft:lava → orge:lava");
-
-        // Tag ordering: a block that is in BOTH c:stones and c:metals should resolve to generic_solid
-        // because c:stones was registered first
-        Identifier stoneBlock = id("minecraft:stone");
-        tagMembers.put(id("c:stones"), Set.of(stoneBlock));
-        tagMembers.put(id("c:metals"), Set.of(stoneBlock));
-
-        assertEquals(id("orge:generic_solid"), bindings.materialFor(stoneBlock, fakeTags),
-                "first tag (c:stones) should win over second (c:metals)");
-    }
-
-    @Test
-    void loadBindings_toleratesMissingTagsKey() {
-        String bindingsJson = """
-                {
-                  "overrides": {
-                    "minecraft:air": "orge:air"
-                  }
-                }
-                """;
-
-        // Should not throw
-        assertDoesNotThrow(() ->
-                MaterialData.loadBindings(List.of(JsonParser.parseString(bindingsJson)), bindings));
-
-        assertEquals(id("orge:air"),
-                bindings.materialFor(id("minecraft:air"), fakeTags),
-                "override should still resolve with no tags key");
-    }
-
-    @Test
-    void loadBindings_toleratesMissingOverridesKey() {
-        String bindingsJson = """
-                {
-                  "tags": [
-                    { "tag": "c:stones", "material": "orge:generic_solid" }
-                  ]
-                }
-                """;
-
-        assertDoesNotThrow(() ->
-                MaterialData.loadBindings(List.of(JsonParser.parseString(bindingsJson)), bindings));
-
-        // Tag binding should still work
-        Identifier cobble = id("minecraft:cobblestone");
-        tagMembers.put(id("c:stones"), Set.of(cobble));
-        assertEquals(id("orge:generic_solid"), bindings.materialFor(cobble, fakeTags),
-                "tag binding should work even with no overrides key");
-    }
-
-    // -------------------------------------------------------------------------
-    // Fix 1 — descriptive error on malformed tag-binding entry
-    // -------------------------------------------------------------------------
-
-    @Test
-    void loadBindings_missingMaterialKey_throwsIllegalArgumentException() {
-        String bindingsJson = """
-                {
-                  "tags": [ { "tag": "c:stones" } ]
-                }
-                """;
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> MaterialData.loadBindings(
-                        List.of(JsonParser.parseString(bindingsJson)), bindings));
-        assertTrue(ex.getMessage().contains("material"),
-                "exception message should name the missing key 'material', got: " + ex.getMessage());
-    }
-
-    @Test
-    void loadBindings_missingTagKey_throwsIllegalArgumentException() {
-        String bindingsJson = """
-                {
-                  "tags": [ { "material": "orge:generic_solid" } ]
-                }
-                """;
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> MaterialData.loadBindings(
-                        List.of(JsonParser.parseString(bindingsJson)), bindings));
-        assertTrue(ex.getMessage().contains("tag"),
-                "exception message should name the missing key 'tag', got: " + ex.getMessage());
-    }
-
-    // -------------------------------------------------------------------------
     // Fix 2 — wrap per-material decode failure with the material id
     // -------------------------------------------------------------------------
 
@@ -240,72 +117,12 @@ class MaterialDataTest {
                 "exception message should contain the failing material id 'orge:bad', got: " + ex.getMessage());
     }
 
-    @Test
-    void loadBindings_multipleFilesAreMerged() {
-        // Two separate binding files — both contribute their entries
-        String file1 = """
-                {
-                  "overrides": { "minecraft:water": "orge:water" }
-                }
-                """;
-        String file2 = """
-                {
-                  "overrides": { "minecraft:lava": "orge:lava" }
-                }
-                """;
-
-        MaterialData.loadBindings(
-                List.of(JsonParser.parseString(file1), JsonParser.parseString(file2)),
-                bindings);
-
-        assertEquals(id("orge:water"), bindings.materialFor(id("minecraft:water"), fakeTags));
-        assertEquals(id("orge:lava"),  bindings.materialFor(id("minecraft:lava"),  fakeTags));
-    }
-
-    // -------------------------------------------------------------------------
-    // Fix 3 — wrap malformed Identifier parse errors with context
-    // -------------------------------------------------------------------------
-
-    @Test
-    void loadBindings_malformedTagId_throwsIllegalArgumentExceptionWithContext() {
-        // "c:stones and gravel" — space is an illegal character for Identifier
-        String bindingsJson = """
-                {
-                  "tags": [
-                    { "tag": "c:stones and gravel", "material": "orge:generic_solid" }
-                  ]
-                }
-                """;
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> MaterialData.loadBindings(
-                        List.of(JsonParser.parseString(bindingsJson)), bindings));
-        assertTrue(ex.getMessage().contains("c:stones and gravel"),
-                "exception message should contain the offending tag id, got: " + ex.getMessage());
-    }
-
-    @Test
-    void loadBindings_malformedOverrideValueId_throwsIllegalArgumentExceptionWithContext() {
-        // "orge:not a material" — space is an illegal character for Identifier
-        String bindingsJson = """
-                {
-                  "overrides": { "minecraft:water": "orge:not a material" }
-                }
-                """;
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> MaterialData.loadBindings(
-                        List.of(JsonParser.parseString(bindingsJson)), bindings));
-        assertTrue(ex.getMessage().contains("orge:not a material"),
-                "exception message should contain the offending material id, got: " + ex.getMessage());
-    }
-
     // -------------------------------------------------------------------------
     // (c) Real-resource test: default JSON files from the classpath
     // -------------------------------------------------------------------------
 
     @Test
-    void realResourceTest_defaultMaterialsAndBindings() throws Exception {
+    void realResourceTest_defaultMaterials() throws Exception {
         // Load each material from the actual resource files
         String[] names = {"air", "water", "lava", "generic_solid"};
         Map<Identifier, JsonElement> matFiles = new HashMap<>();
@@ -346,29 +163,5 @@ class MaterialDataTest {
         assertEquals(Identifier.parse("orge:stone"),
                 lava.minTarget(),
                 "lava.minTarget should be the orge:stone MATERIAL id");
-
-        // Load and test default bindings
-        String bindingsPath = "/data/orge/orge/bindings/default.json";
-        try (InputStream is = getClass().getResourceAsStream(bindingsPath)) {
-            assertNotNull(is, "Default bindings resource must exist: " + bindingsPath);
-            JsonElement bindingsBody = JsonParser.parseReader(
-                    new InputStreamReader(is, StandardCharsets.UTF_8));
-            MaterialData.loadBindings(List.of(bindingsBody), bindings);
-        }
-
-        // minecraft:water → orge:water via override
-        assertEquals(id("orge:water"),
-                bindings.materialFor(id("minecraft:water"), fakeTags),
-                "default bindings: minecraft:water should resolve to orge:water");
-
-        // minecraft:air → orge:air via override
-        assertEquals(id("orge:air"),
-                bindings.materialFor(id("minecraft:air"), fakeTags),
-                "default bindings: minecraft:air should resolve to orge:air");
-
-        // minecraft:lava → orge:lava via override
-        assertEquals(id("orge:lava"),
-                bindings.materialFor(id("minecraft:lava"), fakeTags),
-                "default bindings: minecraft:lava should resolve to orge:lava");
     }
 }

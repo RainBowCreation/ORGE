@@ -4,10 +4,9 @@ package net.rainbowcreation.orge.section;
  * Supplies the implicit ambient state for a section that has never been simulated or
  * stored (DESIGN.md §5): UNIFORM(biome-ambient temperature, material defaultMass).
  *
- * <p>Injected seam (kept pure for unit testing, like the material model's
- * {@code TagMembership}). The real biome-temperature + material-defaultMass backed
- * implementation is wired by the loader integration; tests and early wiring may use
- * {@link #FALLBACK}.</p>
+ * <p>Injected seam (kept pure for unit testing). The real biome-temperature +
+ * material-defaultMass backed implementation is wired by the loader integration;
+ * tests and early wiring may use {@link #FALLBACK}.</p>
  */
 @FunctionalInterface
 public interface AmbientProvider {

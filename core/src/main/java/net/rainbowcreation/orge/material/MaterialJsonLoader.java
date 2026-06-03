@@ -14,18 +14,14 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * Loads materials and block→material bindings from datapack JSON, reloadable via
- * {@code /reload} (DESIGN.md §6):
+ * Loads materials from datapack JSON, reloadable via {@code /reload} (DESIGN.md §6):
  *
  * <pre>
  *   data/&lt;ns&gt;/orge/materials/&lt;path...&gt;.json   — constant property set, id = Identifier(ns, path)
- *   data/&lt;ns&gt;/orge/bindings/&lt;name&gt;.json        — tag bindings + per-block overrides
  * </pre>
  *
  * <p>This is the primary registration path; a thin Java API is the secondary one.</p>
@@ -45,21 +41,17 @@ public final class MaterialJsonLoader extends SimplePreparableReloadListener<Act
 
     /** {@code data/<ns>/orge/materials/<path>.json} → id {@code Identifier(ns, path)}. */
     private static final FileToIdConverter MATERIALS = FileToIdConverter.json("orge/materials");
-    /** {@code data/<ns>/orge/bindings/<name>.json}. */
-    private static final FileToIdConverter BINDINGS = FileToIdConverter.json("orge/bindings");
 
     /**
-     * Off-thread: scan the resource manager, parse all material + binding JSON, and
+     * Off-thread: scan the resource manager, parse all material JSON, and
      * build a fresh state. Any parse/decode failure throws here (the reload fails
      * loudly) and the active state is never touched.
      */
     @Override
     protected ActiveMaterials.State prepare(ResourceManager resourceManager, ProfilerFiller profiler) {
         Map<Identifier, JsonElement> materials = readMaterials(resourceManager);
-        List<JsonElement> bindings = readBindings(resourceManager);
-        ActiveMaterials.State state = ActiveMaterials.buildState(materials, bindings);
-        LOGGER.info("ORGE materials prepared: {} materials, {} binding file(s)",
-                materials.size(), bindings.size());
+        ActiveMaterials.State state = ActiveMaterials.buildState(materials);
+        LOGGER.info("ORGE materials prepared: {} materials", materials.size());
         return state;
     }
 
@@ -89,14 +81,6 @@ public final class MaterialJsonLoader extends SimplePreparableReloadListener<Act
             // material id we want.
             Identifier id = MATERIALS.fileToId(entry.getKey());
             out.put(id, parse(entry.getValue(), entry.getKey()));
-        }
-        return out;
-    }
-
-    private static List<JsonElement> readBindings(ResourceManager rm) {
-        List<JsonElement> out = new ArrayList<>();
-        for (Map.Entry<Identifier, Resource> entry : BINDINGS.listMatchingResources(rm).entrySet()) {
-            out.add(parse(entry.getValue(), entry.getKey()));
         }
         return out;
     }

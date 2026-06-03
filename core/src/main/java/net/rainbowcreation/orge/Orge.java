@@ -107,7 +107,7 @@ public final class Orge {
         ModBlocks.register();
 
         // DESIGN.md §6 — material model: register the datapack reload listener so
-        // materials + bindings load at server start and refresh on /reload. One
+        // materials load at server start and refresh on /reload. One
         // Architectury registration covers both Fabric and NeoForge.
         ReloadListenerRegistry.register(
                 PackType.SERVER_DATA,
@@ -124,8 +124,7 @@ public final class Orge {
         //
         // TODO(phase: section-store): use AmbientProvider.FALLBACK (~285 K, 0 mass) for
         // now. The real biome-temperature + material-defaultMass provider is deferred
-        // until its consumers (engine/scheduler/phase-change) exist — mirrors §6
-        // deferring the live TagMembership bridge.
+        // until its consumers (engine/scheduler/phase-change) exist.
         LifecycleEvent.SERVER_LEVEL_LOAD.register(level ->
                 SECTION_STORES.onLevelLoad(
                         level.dimension().identifier(),
