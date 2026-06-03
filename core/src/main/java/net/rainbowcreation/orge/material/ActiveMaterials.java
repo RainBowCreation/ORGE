@@ -33,18 +33,46 @@ public final class ActiveMaterials {
     // TODO(phase: hardening): consider deeply-immutable snapshot views
     public static final class State {
         private final MaterialRegistry registry;
+        private final java.util.List<Material> orderedMaterials;          // slot -> material (slot 0 = VACUUM)
+        private final java.util.Map<Identifier, Character> materialSlots;  // id -> fixed slot
+        private volatile int lutEpoch = 0;                                 // assigned once by swap()
 
         public State(MaterialRegistry registry) {
             this.registry = registry;
+            this.orderedMaterials = MaterialTable.ordered(registry);
+            this.materialSlots = MaterialTable.slots(this.orderedMaterials);
         }
 
         public MaterialRegistry registry() {
             return registry;
         }
+
+        /** The stable ordered table (slot 0 = VACUUM); the engine is registered from this list. */
+        public java.util.List<Material> orderedMaterials() {
+            return orderedMaterials;
+        }
+
+        /** Material id -> fixed slot, for building a MaterialLut view at assembly time. */
+        public java.util.Map<Identifier, Character> materialSlots() {
+            return materialSlots;
+        }
+
+        /** The generation tag selecting this State's resident engine table. */
+        public int lutEpoch() {
+            return lutEpoch;
+        }
+
+        /** One-shot epoch assignment at publish time (package-private; called only by swap). */
+        void assignEpoch(int epoch) {
+            this.lutEpoch = epoch;
+        }
     }
 
     private ActiveMaterials() {
     }
+
+    private static final java.util.concurrent.atomic.AtomicInteger EPOCHS =
+            new java.util.concurrent.atomic.AtomicInteger(0);
 
     /** Empty initial state so reads before the first reload still return non-null registries. */
     private static volatile State active = new State(new MaterialRegistry());
@@ -89,7 +117,9 @@ public final class ActiveMaterials {
         if (next == null) {
             throw new NullPointerException("next state must not be null");
         }
+        next.assignEpoch(EPOCHS.incrementAndGet());
         active = next;
+        // Engine registration is wired in a later task (needs OrgeEngine.registerMaterials + the singleton).
     }
 
     /**
