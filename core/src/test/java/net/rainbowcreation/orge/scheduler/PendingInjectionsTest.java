@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge.scheduler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -40,6 +41,25 @@ class PendingInjectionsTest {
         assertEquals(1, got.size(), "same cell collapses to one intent");
         assertEquals(LAVA, got.get(0).species());
         assertEquals(3000f, got.get(0).mass());
+    }
+
+    @Test
+    void hasPendingRemovalDetectsOnlyAQueuedRemovalAtThatCell() {
+        PendingInjections q = new PendingInjections();
+        int cell = 4 + 16 * 70 + 6144 * 4;
+        assertFalse(q.hasPendingRemoval(DIM, 0, 0, cell), "empty queue: no pending removal");
+
+        q.enqueue(DIM, 0, 0, cell, WATER, 1000f, 290f);
+        assertFalse(q.hasPendingRemoval(DIM, 0, 0, cell), "a placement intent is not a removal");
+
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        assertTrue(q.hasPendingRemoval(DIM, 0, 0, cell), "a queued removal is detected");
+        assertFalse(q.hasPendingRemoval(DIM, 0, 0, cell + 1), "a different cell is unaffected");
+        assertFalse(q.hasPendingRemoval(DIM, 1, 0, cell), "a different column is unaffected");
+
+        q.enqueue(DIM, 0, 0, cell, WATER, 1000f, 290f);   // a place supersedes the removal (same key)
+        assertFalse(q.hasPendingRemoval(DIM, 0, 0, cell),
+                "a placement overwriting the removal is no longer a pending removal");
     }
 
     @Test

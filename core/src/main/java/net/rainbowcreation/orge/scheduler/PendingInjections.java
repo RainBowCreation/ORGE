@@ -79,6 +79,27 @@ public final class PendingInjections {
     }
 
     /**
+     * True iff the cell {@code (dim, cx, cz, cell)} currently holds a queued <b>removal</b> intent (a
+     * same-window BREAK). A subsequent placement on the same key overwrites the removal (last-write-wins),
+     * so this returns {@code false} again once a place supersedes it. Used by the placement capture to
+     * detect a same-window break+replace: re-placing the species the cell already had is normally a
+     * self-write no-op, but with a pending removal it must be captured (placement-into-vacuum) so the lone
+     * removal can't stomp the engine cell to vacuum under a still-solid durable identity.
+     */
+    public boolean hasPendingRemoval(Identifier dim, int cx, int cz, int cell) {
+        Map<Long, Map<Integer, Intent>> dimMap = byDim.get(dim);
+        if (dimMap == null) {
+            return false;
+        }
+        Map<Integer, Intent> colMap = dimMap.get(packCol(cx, cz));
+        if (colMap == null) {
+            return false;
+        }
+        Intent in = colMap.get(cell);
+        return in != null && in.removal();
+    }
+
+    /**
      * Intents whose cell lies in column {@code (dim, cx, cz)}, in deterministic ascending-cell
      * order. Does NOT remove them (they stay queued until {@link #remove} after a successful
      * write-back).

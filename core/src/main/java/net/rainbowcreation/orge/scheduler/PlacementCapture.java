@@ -17,7 +17,23 @@ public final class PlacementCapture {
 
     public static void capture(PendingInjections queue, Identifier dim, int cx, int cz, int cell,
                                Material live, Material incumbent, float biomeAmbientK) {
-        if (!PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
+        capture(queue, dim, cx, cz, cell, live, incumbent, biomeAmbientK, false);
+    }
+
+    /**
+     * Same as {@link #capture(PendingInjections, Identifier, int, int, int, Material, Material, float)},
+     * but when {@code pendingRemoval} is {@code true} the cell has a same-window BREAK removal already
+     * queued, so the recorded {@code incumbent} (last-cycle engine output, which still names the broken
+     * species) is STALE. Treat the incumbent as absent: a re-place of the SAME species is then captured as
+     * a placement-into-vacuum (rather than dropped as a self-write), and its enqueue supersedes the
+     * removal — so the engine sees break→vacuum→inject and the durable identity stays in sync with the
+     * engine cell. A {@code null} live material (non-ORGE block) is still not captured.
+     */
+    public static void capture(PendingInjections queue, Identifier dim, int cx, int cz, int cell,
+                               Material live, Material incumbent, float biomeAmbientK,
+                               boolean pendingRemoval) {
+        Material effectiveIncumbent = pendingRemoval ? null : incumbent;
+        if (!PlacementInjectionPolicy.isDisplacement(live, effectiveIncumbent)) {
             return;
         }
         float temp = live.hasDefaultTemperature() ? live.defaultTemperature() : biomeAmbientK;
