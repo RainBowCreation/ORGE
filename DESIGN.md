@@ -80,10 +80,15 @@ conduction FLOPs to clients is the entire point of the rebuild.
 
 ## 5. Per-cell metadata & persistence
 
-- Each cell stores **only `temperature` (K) and `mass` (kg)**. Material identity is
-  **not** stored per cell — it is derived from the block via the material map. (So the
-  blockstate itself encodes which material a cell is.)
-- In memory: two parallel `float[4096]` arrays per loaded section.
+- Each cell stores **three durable per-cell quantities: `temperature` (K), `mass` (kg),
+  and the ORGE material id** — the engine cell, not the vanilla block, is the source of
+  truth for what a cell *is*. The block→material map is consulted only on **first touch**
+  (a never-stored cell) — see §6. Stored identity lets `orge:vacuum` (a broken cell) and
+  `orge:salt_water` persist even though their `representative_block` is shared (air / water).
+- In memory: two parallel `float[4096]` arrays (T, mass) per loaded section, plus a
+  **material layer** — a per-section palette `List<Identifier>` (slot 0 = `orge:vacuum`)
+  + a `char[4096]` index array, allocated lazily on first material write (mirrors how
+  Minecraft stores blockstates; the palette stays tiny and the index array compresses well).
 - On disk: a **separate compressed region store** under `world/orge/` (e.g.
   `r.<x>.<z>.orge`), loaded/unloaded alongside the chunk. The vanilla `.mca` files are
   never touched.
@@ -91,7 +96,14 @@ conduction FLOPs to clients is the entire point of the rebuild.
   - **UNIFORM** — one temperature + one mass (the common case for sections far from any
     heat source), or
   - **FULL** — `deflate/zstd(T[4096])` + `deflate/zstd(mass[4096])`, once a gradient
-    forms.
+    forms,
+  followed by an optional **material block** (`hasMaterials` flag; if set, the palette
+  ids + the deflated `char[4096]` index array). The codec is **version 2**; legacy **v1**
+  blobs (no material block) load as material-unknown and self-heal — the assembler
+  reconstructs identity from the block via first-touch and the next write-back persists it
+  forward (no migration tool). **Sparsity:** only sections the scheduler actually simulates
+  materialize a material layer; the untouched world stays UNIFORM and reconstructs on first
+  touch, so saves grow only where ORGE has run.
 - A never-simulated section is implicitly `UNIFORM(biome-ambient T, material default_mass)`
   and costs ~nothing. Ambient T is derived from biome temperature at generation, with a
   fixed fallback (~285 K).
@@ -151,12 +163,22 @@ and the phase system all conform to it — **no more, no fewer fields** (full sp
 
 - **Primary: data-driven JSON** (datapack), reloadable via `/reload`:
   - `data/<ns>/orge/materials/<id>.json` — the constant property set.
-  - bindings — block→material, by **tag** (e.g. `#c:stones → orge:stone`) plus
-    **per-block overrides** (e.g. `minecraft:iron_block → orge:iron`).
+- **Block → material is the FIRST-TOUCH name-match rule** (no tag bindings, no
+  blockstate predicates, no overrides): a block id `<ns>:<path>` first-touches to
+  `orge:<path>` if such a material is registered, else the global fallback
+  `orge:generic_solid`. `minecraft:water → orge:water`, `minecraft:magma_block →
+  orge:magma_block`, `minecraft:diamond_ore` (miss) → `orge:generic_solid`. The rule runs
+  **only for a cell with no stored material** (freshly generated / never simulated) or an
+  explicit player PLACE — never to re-derive identity for an already-stored cell (§5), and
+  never for BREAK (which records durable `orge:vacuum`).
 - **Secondary: a thin Java registration event/API** for mods that register in code.
-- **Coverage** for ~1000+ blocks without hand-authoring: tag bindings + overrides + a
-  single **global fallback material** (`orge:generic_solid`). Air, water, lava are
-  explicitly mapped.
+- **Coverage** for ~1000+ blocks without hand-authoring: the name-match rule + a single
+  **global fallback material** (`orge:generic_solid`). Because identity is durably stored,
+  the lossy block→material map only ever needs to bootstrap an unseen cell.
+- Blockstate-gated heat sources (lit campfire, powered redstone, …) are **not** modelled —
+  the name-match rule can't read blockstate, so they fall to inert `generic_solid`
+  (accepted regression); unconditional emitters keep their material by id (`torch`,
+  `glowstone`, `magma_block`, `nether_portal`, …).
 
 ## 7. Phase change
 
