@@ -7,6 +7,7 @@
   "mixins": [
     "FlowingFluidMixin",
     "LiquidBlockMixin",
+    "LavaFluidMixin",
     "WaterFluidMixin"
   ],
   "injectors": {

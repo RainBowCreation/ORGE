@@ -6,13 +6,12 @@
   "mixins": [
     "FlowingFluidMixin",
     "LiquidBlockMixin",
+    "LavaFluidMixin",
     "WakeSetBlockMixin",
     "WaterFluidMixin"
   ],
-  "server": [
-  ],
-  "client": [
-  ],
+  "server": [],
+  "client": [],
   "injectors": {
     "defaultRequire": 1
   }
