@@ -25,13 +25,13 @@ import net.rainbowcreation.orge.engine.EngineInjection;
  * queued for a later retry rather than being silently lost.</p>
  *
  * <p><b>Ordering invariant (load-bearing):</b> this drain runs AFTER
- * {@link ColumnAssembler#assemble} / {@link MaterialChangeReseed#apply} in
+ * {@link ColumnAssembler#assemble} in
  * {@code MinecraftThermalWorld.snapshotColumns}. For a water-over-air placement, the assembler will
  * have already seeded the new species (water, +1000 kg) into the assembled column arrays. This
  * override STOMPS that cell back to the recorded incumbent (air + stored mass) so the engine
  * injection is the SINGLE authoritative placement of the new species — seeded exactly once, by the
- * engine. Do NOT reorder this drain before the per-column assemble/reseed; the stomp depends on
- * their output being present.
+ * engine. Do NOT reorder this drain before the per-column assemble; the stomp depends on
+ * its output being present.
  */
 public final class InjectionDrain {
 

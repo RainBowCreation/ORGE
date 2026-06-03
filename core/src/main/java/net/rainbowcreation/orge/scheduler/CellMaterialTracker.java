@@ -7,12 +7,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * In-memory record of the material each simulated cell's stored values belong to (DESIGN §10
- * follow-on). The §5 {@link net.rainbowcreation.orge.section.SectionStore} persists only
- * temperature + mass — never material identity (by design) — so when a cell's block changes material
- * (a bucket placement, a piston, {@code /setblock}) the stored values become stale relative to the
- * new block. This tracker remembers, per section, the live per-cell material ids from the previous
- * snapshot, so {@link MaterialChangeReseed} can detect the change and refresh the cell.
+ * In-memory recorder of each cell's LAST-CYCLE ENGINE-OUTPUT species (durable-material §). Material
+ * IDENTITY is now durable in the §5 {@link net.rainbowcreation.orge.section.SectionStore} (persisted at
+ * write-back), so this tracker is NOT the identity store. It holds the event-independent "last cycle's
+ * engine output" signal that the {@link ColumnAssembler} seed gate and the {@link InjectionDrain}
+ * incumbent lookup read: a place/break EVENT overwrites the store's durable id but does NOT touch this
+ * recorder, so a freshly-placed cell carries its old engine-output species here while the store already
+ * holds the new one — exactly the distinction those two consumers need.
  *
  * <p>Server-thread confined: {@link #prior}/{@link #record} run inside the snapshot and
  * {@link #forgetColumn} on the chunk-unload hook, both on the server thread, so a plain

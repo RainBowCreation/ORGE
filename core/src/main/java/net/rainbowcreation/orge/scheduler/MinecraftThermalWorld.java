@@ -61,6 +61,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      *  engine output species. Both run on the server thread in the same cycle, so a plain field is safe. */
     private List<Material> lastColumnLut = List.of(MaterialLut.VACUUM);
 
+    /** Test seam: pre-seed the batch LUT a headless {@link #writeBackColumn} resolves species against
+     *  (the live path sets it in {@link #snapshot} from the registered material table). */
+    void setLastColumnLutForTest(List<Material> lut) { this.lastColumnLut = lut; }
+
     public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials,
                                  ActiveSet activeSet) {
         this.stores = stores;
@@ -279,9 +283,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      * (DESIGN §10 follow-on; the reseed-misfire fix). Per cell the recorded species is the engine
      * output when present ({@code outMat[i] != 0}), else the cell's input/world material — so an
      * untouched air cell records {@code orge:air}, never the index-0 {@code orge:vacuum} sentinel. This
-     * makes the NEXT snapshot's {@link MaterialChangeReseed} treat the reconciler's matching fluid
-     * placement as already-known (no reseed → mass is conserved) while still reseeding genuine
-     * external edits. When the signature is unchanged the prior {@code Identifier[]} is reused
+     * signature is the "last cycle's engine output" that the NEXT snapshot's ColumnAssembler seed gate
+     * and the InjectionDrain incumbent lookup read — it is event-independent (a place/break overwrites
+     * the durable {@code SectionStore} identity but NOT this recorder), so a freshly-placed cell still
+     * carries its old engine-output species here while the store already holds the new one. When the
+     * signature is unchanged the prior {@code Identifier[]} is reused
      * verbatim, avoiding the 4096-ref signature re-allocation; the small per-cell {@code char[]}
      * species scratch is still built each call.
      */
@@ -463,8 +469,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             }
         }
         // ---- Drain placement intents into this batch's injection list (spec B3) ----
-        // ORDERING IS LOAD-BEARING: this drain MUST run after all ColumnAssembler.assemble /
-        // MaterialChangeReseed calls above. InjectionDrain.applyToColumn stomps the assembled cell
+        // ORDERING IS LOAD-BEARING: this drain MUST run after all ColumnAssembler.assemble
+        // calls above. InjectionDrain.applyToColumn stomps the assembled cell
         // back to its recorded incumbent for each injected cell (see InjectionDrain class Javadoc).
         // If this block were moved before the per-column assemble loop, the stomp would target
         // uninitialized arrays and the assembler would subsequently re-seed the new species,
@@ -572,10 +578,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
             float[] temps = sectionTemps(level, store, key, cellMat);
             float[] mass = sectionMass(store, key, geo, lut);
-            // §10 follow-on: refresh cells whose block changed material since last cycle (bucket fluid,
-            // /setblock, broken block→vacuum) — same reseed the per-section path applied.
+            // Last cycle's recorded engine-output species (the CellMaterialTracker signature) feeds the
+            // ColumnAssembler seed gate and the InjectionDrain incumbent lookup below. Identity itself is
+            // now durable (persisted into SectionStore at write-back), so there is no longer a block-diff
+            // reseed here — material changes arrive as place/break EVENTS, not a snapshot-time diff.
             Identifier[] priorMat = cellMaterials.prior(dim, key);
-            MaterialChangeReseed.apply(priorMat, geo.matIx(), lut.materials(), temps, mass, ambientK);
             // Translate last cycle's recorded engine-output species into this section's LUT space for the
             // ColumnAssembler seed gate: a fluid cell at 0 kg is reseeded only when its label is NEW
             // relative to priorSpecies (genuine placement), never when the engine drained it (prior ==
@@ -614,19 +621,30 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             float[] cleanT = StepValidator.clean(tm[0], inT);
             float[] cleanM = StepValidator.cleanMass(tm[1], fullMassBound(entry.task()));
             char[] outMat = ColumnSectionCodec.sliceSectionMaterials(result.matIx(), sectionY);
+            char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
 
             SectionData data = store.get(key);
             float[] dstT = data.temperatureArray();
             System.arraycopy(cleanT, 0, dstT, 0, SectionData.CELLS);
             float[] dstM = data.massArray();
             System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
+            // Durable identity (durable-material §, keystone-closing half): persist each cell's
+            // engine-output material id into the store so next cycle E1's columnSource reads it as
+            // authoritative (hasMaterials()==true). Effective-species rule mirrors recordCellMaterials:
+            // engine output when present, else the input/world material — so an untouched air cell records
+            // orge:air, never the index-0 orge:vacuum sentinel; a genuinely empty/broken cell whose
+            // effective species is index 0 records orge:vacuum. setMaterialAt promotes to FULL (already
+            // FULL from the array writes), allocates the palette and interns the id (mirrors mass/temp).
+            for (int i = 0; i < SectionData.CELLS; i++) {
+                char sp = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i] : inMatSec[i];
+                data.setMaterialAt(i, lastColumnLut.get(sp).id());
+            }
             data.demoteIfUniform();
             store.put(key, data);
 
             // Reconstruct the per-section entry the §10/§7 seams consume (input geometry + this section's
             // engine output species). recordCellMaterials/noteSettle/reconcile/phase mirror the
             // per-section advection write-back exactly.
-            char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
             StepTask secTask = new StepTask(key, inMatSec, inMass(inMass, sectionY), inT,
                     NeighborHalo.empty());
             ThermalWorld.BatchEntry secEntry = new ThermalWorld.BatchEntry(entry.dimension(), key, secTask);

@@ -8,7 +8,7 @@ import net.rainbowcreation.orge.material.Material;
  * recorded incumbent material at a cell, enqueue a placement intent iff it is a movable→movable
  * displacement ({@link PlacementInjectionPolicy}). The intent carries the NEW species' id +
  * {@code defaultMass} seed + seed temperature (material default, else biome ambient) — the same
- * values {@code ColumnAssembler}/{@code MaterialChangeReseed} would have used, now owned by the engine.
+ * values {@code ColumnAssembler} would have used, now owned by the engine.
  */
 public final class PlacementCapture {
 

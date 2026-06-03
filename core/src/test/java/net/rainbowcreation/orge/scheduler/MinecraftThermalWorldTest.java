@@ -1,11 +1,15 @@
 package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.engine.ColumnResult;
+import net.rainbowcreation.orge.engine.ColumnTask;
+import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.AmbientProvider;
 import net.rainbowcreation.orge.section.SectionData;
+import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 import org.junit.jupiter.api.Test;
@@ -178,5 +182,63 @@ class MinecraftThermalWorldTest {
         assertNotNull(prior, "signature recorded");
         assertEquals(ORGE_AIR, prior[E], "untouched air cell records orge:air (input), not orge:vacuum");
         assertNotEquals(ORGE_VACUUM, prior[E], "must not record the index-0 vacuum sentinel");
+    }
+
+    /**
+     * The keystone-closing half (durable-material E2): writeBackColumn must PERSIST the engine's
+     * output material into the SectionStore so next cycle E1 reads it as authoritative identity.
+     * Engine outputs water at one cell (W) and leaves an untouched air cell (A, outMat==0, input air).
+     * After a write-back cycle the store must hold orge:water at W and orge:air (NOT the index-0
+     * orge:vacuum sentinel) at A.
+     */
+    @Test
+    void writeBackColumnPersistsEngineOutputMaterialAsDurableIdentity(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastColumnLutForTest(recordLut()); // vacuum=0, air=1, water=2
+
+        int sectionY = 4;
+        // Section-local cells: W gets water, the rest air (matIx). Engine output mirrors that but
+        // deposits 0 (no output) at A so the effective-species fallback to input air is exercised.
+        int wCell = ColumnSectionCodec.colIdx(3, sectionY, 5, 7);  // engine-output water cell
+        int aCell = ColumnSectionCodec.colIdx(8, sectionY, 9, 2);  // untouched air cell
+
+        char[] inMat = new char[RegionMarshaller.CHUNK_N];
+        // Default 0 (vacuum) for the bulk of the empty column; air only in our test section so the
+        // air fallback is unambiguous (a column of vacuum elsewhere is the realistic empty-world case).
+        for (int z = 0; z < 16; z++) {
+            for (int sy = 0; sy < 16; sy++) {
+                for (int x = 0; x < 16; x++) {
+                    inMat[ColumnSectionCodec.colIdx(x, sectionY, sy, z)] = AIR_IX;
+                }
+            }
+        }
+        inMat[wCell] = WATER_IX;
+
+        float[] mass = new float[RegionMarshaller.CHUNK_N];
+        float[] temp = new float[RegionMarshaller.CHUNK_N];
+        Arrays.fill(temp, 300f);
+        mass[wCell] = 1000f;
+
+        ColumnTask task = new ColumnTask(0, 0, inMat, mass, temp);
+        ThermalWorld.ColumnEntry entry = new ThermalWorld.ColumnEntry(DIM, 0, 0, task);
+
+        // Engine output: water survives at W with its species; A produces nothing (outMat==0) so the
+        // write-back's effective rule falls back to the input air there, never the vacuum sentinel.
+        char[] outMat = new char[RegionMarshaller.CHUNK_N];
+        outMat[wCell] = WATER_IX;
+        ColumnResult result = new ColumnResult(outMat, mass.clone(), temp.clone());
+
+        world.writeBackColumn(entry, result);
+
+        SectionStore store = mgr.store(DIM);
+        assertEquals(ORGE_WATER, store.materialAt(0, 0, sectionY, 3 + 16 * 5 + 256 * 7),
+                "engine-output water persisted as durable identity");
+        assertEquals(ORGE_AIR, store.materialAt(0, 0, sectionY, 8 + 16 * 9 + 256 * 2),
+                "untouched air cell persists orge:air (effective fallback to input)");
+        assertNotEquals(ORGE_VACUUM, store.materialAt(0, 0, sectionY, 8 + 16 * 9 + 256 * 2),
+                "untouched air must NOT persist the index-0 vacuum sentinel");
+        assertTrue(store.get(new SubchunkKey(0, sectionY, 0)).hasMaterials(),
+                "section now has a material layer so E1 reads it as authoritative");
     }
 }
