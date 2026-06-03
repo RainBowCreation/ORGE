@@ -182,18 +182,36 @@ public final class Orge {
         // be explicit, or a bucket-placed fluid sits frozen forever (a missed trigger = stale fluid).
         WakeSink wake = thermalWorld.wakeSink();
         BlockEvent.PLACE.register((level, pos, state, placer) -> {
+            if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
+                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("common-place", 500)) {
+                net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
+                        "[common-event] BlockEvent.PLACE fired serverLevel={} at ({},{},{})",
+                        level instanceof ServerLevel, pos.getX(), pos.getY(), pos.getZ());
+            }
             if (level instanceof ServerLevel sl) {
                 wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
             }
             return EventResult.pass();
         });
         BlockEvent.BREAK.register((level, pos, state, player, xp) -> {
+            if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
+                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("common-break", 500)) {
+                net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
+                        "[common-event] BlockEvent.BREAK fired serverLevel={} at ({},{},{})",
+                        level instanceof ServerLevel, pos.getX(), pos.getY(), pos.getZ());
+            }
             if (level instanceof ServerLevel sl) {
                 wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
             }
             return EventResult.pass();
         });
         PlayerEvent.FILL_BUCKET.register((player, level, stack, target) -> {
+            if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
+                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("common-bucket", 500)) {
+                net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
+                        "[common-event] PlayerEvent.FILL_BUCKET fired serverLevel={} targetType={}",
+                        level instanceof ServerLevel, target == null ? "null" : target.getType());
+            }
             if (level instanceof ServerLevel sl && target instanceof BlockHitResult hit) {
                 BlockPos p = hit.getBlockPos();
                 wake.wakeBlock(sl.dimension().identifier(), p.getX(), p.getY(), p.getZ());
