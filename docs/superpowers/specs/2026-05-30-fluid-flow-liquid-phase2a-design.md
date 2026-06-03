@@ -1,3 +1,10 @@
+> **⚠ SUPERSEDED (2026-06-03) re: the material LUT.** Passages describing the LUT being *passed in*
+> per step (e.g. the fluid flag "passed in the material LUT" below) are obsolete. `matIx` ids are now
+> globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM, slots 1..N =
+> `MaterialRegistry.all()` sorted by namespaced id) and the LUT is ENGINE-RESIDENT (register-once via
+> `orgeRegisterMaterials`), selected per step by `lutEpoch` — NOT shipped per `orgeStepWorld` call. See
+> `docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md`.
+
 # §10 Phase-2a — Mass-conservative liquid flow (water + lava), native engine — Design Spec
 
 **Status:** approved (brainstorm 2026-05-30) — ready for `writing-plans`.
@@ -141,7 +148,9 @@ established for conduction.
 14. **Fluid flag.** Add a small `fluid: true` boolean to material JSON (§6 material-model) to
     mark which materials participate in advection (water, lava), alongside the already-reserved
     `viscosity`. The kernel needs the flag (or an equivalent fluid-conductivity-style LUT
-    entry) passed in the material LUT.
+    entry) passed in the material LUT. *(SUPERSEDED — the LUT is now engine-resident and selected
+    by `lutEpoch`, not passed per step; and the explicit fluid flag is gone — movability is
+    `visc == +∞`. See the banner at the top of this file.)*
 
 ## Components
 

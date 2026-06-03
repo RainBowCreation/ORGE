@@ -42,8 +42,10 @@ For v2 it is repurposed:
 
 - **Stateless per-task stepper.** Strip the self-running `SimServer` loop, the SDL
   renderer, and the socket server. Expose a pure `step()` entry point: given a batch of
-  subchunks + a 1-cell neighbor halo (temps + material indices) + the material LUT + dt,
-  run **one** step and return new temperatures (and, in Phase 2, mass).
+  subchunks + a 1-cell neighbor halo (temps + material indices) + a `lutEpoch` selecting
+  the **engine-resident** material table + dt, run **one** step and return new temperatures
+  (and, in Phase 2, mass). The material LUT is registered once per load/`/reload`, not
+  shipped per step (see the SUPERSEDED banner above).
 - **In-process via JNI** (`System.load`, stable on Java 21 — *not* Panama:
   `java.lang.foreign` is a preview API on Java 21 that requires `--enable-preview`
   at compile and runtime, so a vanilla Minecraft launcher cannot load it; see

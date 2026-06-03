@@ -1,8 +1,10 @@
-> **SUPERSEDED re: material LUT** — see `docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md`.
-> `matIx` ids are now globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM, slots 1..N
-> = `MaterialRegistry.all()` sorted by namespaced id). The LUT is engine-resident (register-once via
-> `orgeRegisterMaterials`), NOT shipped per `orgeStepWorld` call. Passages below describing a per-step /
-> batch-local / first-seen LUT are historical.
+> **Material-table model (current, 2026-06-03)** — see
+> `docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md`.
+> `matIx` ids are globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM, slots 1..N
+> = `MaterialRegistry.all()` sorted by namespaced id). The LUT is **engine-resident** (register-once via
+> `orgeRegisterMaterials`), selected per step by `lutEpoch`, NOT shipped per `orgeStepWorld` call. The
+> walkthrough below reflects this; any older "per-step / batch-local / first-seen LUT" phrasing has been
+> corrected.
 
 # ORGE step — what happens from "server decides what to simulate" to the next T
 
@@ -90,8 +92,8 @@ For each chosen column, `ColumnAssembler.assemble(cx, cz, lut, src)` builds thre
 cell it maps section-local `si = x + 16·sy + 256·z` → column `colIdx = x + 16·(sectionY·16 + sy + 64) +
 6144·z`, and fills:
 
-- **`matIx`** — from the **live block** via `MaterialBindings` (→ the batch LUT index). Empty/unstored ⇒
-  `orge:air`.
+- **`matIx`** — from the **live block** via `MaterialBindings` (→ its **stable global slot** in the
+  published material table). Empty/unstored ⇒ `orge:air`.
 - **`temperature`** — stored T (or biome ambient).
 - **`mass`** — stored mass, **except** the one legitimate seed: a cell that is a fluid *and* whose stored
   mass is `≤ 0` *and* whose **prior species ≠ its current species** is seeded once to `defaultMass`.
@@ -103,21 +105,25 @@ cell (the engine moved the water out but the cell is still labelled water at 0 k
 so **do not** re-seed). Without this gate a drained cell would be refilled to full mass every cycle —
 "mass from nothing".
 
-Output of this step: a `List<ColumnTask>` (one full-height column each) + the material LUT.
+Output of this step: a `List<ColumnTask>` (one full-height column each), tagged with the `lutEpoch` that
+selects the **engine-resident** material table. The LUT itself is no longer rebuilt or shipped per step.
 
 ---
 
 ## Step 4 — Marshalling to flat arrays (`RegionMarshaller`)
 
 `RegionMarshaller.flatten` packs the columns into the contiguous primitive arrays the JNI expects:
-`cx[]`, `cz[]`, and `matIx/mass/tIn` each `nCols · CHUNK_N` long (column-major), plus the per-material LUT
-(`LutArrays.pack`): conductivity, heat capacity, viscosity, defaultMass, fluid, minFlow, maxMass, gas, air,
-molar. The LUT carries the **§11 air flag-flip** — air is marshalled as a participating `fluid + gas` to
-the engine (so it's displaceable), while the Java-side `Material.fluid()/gas()` stay unchanged. Slot 0
-(void) gets air's density as its "empty cell" label.
+`cx[]`, `cz[]`, and `matIx/mass/tIn` each `nCols · CHUNK_N` long (column-major). The per-material LUT is
+**not** packed per step — it is registered **once**, separately, whenever the material set changes
+(load/`/reload`): `NativeEngine.registerMaterials(lutEpoch, table)` → `LutArrays.pack` → the native
+`orgeRegisterMaterials`, shipping the **six** physics floats per slot (conductivity, heat capacity, molar
+mass, `minMass`, `maxMass`, viscosity). There is no separate movability / fluid / gas / air flag —
+immovability is `visc == +∞`, buoyancy falls out of molar mass, and slot 0 is the VACUUM sentinel (the
+lightest *movable* fluid: `molar/minMass/maxMass == 0` with finite viscosity).
 
-`NativeEngine.stepWorld(columns, lut, dt, passes)` hands these to the native `orgeStepWorld`. (If the
-native lib is absent, `StubEngine` echoes inputs so headless tests still run.)
+`NativeEngine.stepWorld(columns, lutEpoch, dt, passes)` hands the column data to the native
+`orgeStepWorld`, which selects the already-resident table by `lutEpoch`. (If the native lib is absent,
+`StubEngine` echoes inputs so headless tests still run.)
 
 ---
 
@@ -125,7 +131,7 @@ native lib is absent, `StubEngine` echoes inputs so headless tests still run.)
 
 This is the heart. In one JNI call (`orge_jni.cpp`), pinning the arrays via `GetPrimitiveArrayCritical`:
 
-1. **Build a transient `World`.** Reconstruct the material LUT, then for each column `ensureChunk(cx,cz)`
+1. **Build a transient `World`.** Select the **resident** material table by the supplied `lutEpoch`, then for each column `ensureChunk(cx,cz)`
    and copy its `matIx/mass/T_curr` straight in. Set `sectionLoaded[*] = 1` for all 24 sections so every
    section actually steps (full-height). The World is a sparse map of columns keyed by `(cx,cz)`; an absent
    key is the no-flow wall from Step 1.

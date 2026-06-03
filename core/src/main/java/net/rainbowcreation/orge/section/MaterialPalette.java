@@ -15,6 +15,13 @@ import java.util.Map;
  * <p>Slot 0 of the palette is <b>always</b> the {@code orge:vacuum} sentinel ({@link #VACUUM_ID}),
  * so a freshly-allocated palette (all indices {@code 0}) reads as vacuum everywhere until a cell is
  * written. New materials are appended to the palette on first sight (de-duplicated).</p>
+ *
+ * <p><b>Intentional first-seen, do NOT globalize.</b> This is the <i>on-disk</i> per-section palette
+ * and its first-seen ordering is deliberate: the file format is {@link Identifier}-keyed, so the slot
+ * numbers are private to each section and never cross the FFI boundary. Only the <i>engine-bound</i>
+ * {@code matIx} encoding became globally stable (see {@code material.MaterialTable} and spec
+ * {@code docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md}). Do not "fix"
+ * this palette to use global ids.</p>
  */
 public final class MaterialPalette {
 
