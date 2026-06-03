@@ -39,8 +39,13 @@ class PlacementInjectionPolicyTest {
     }
 
     @Test
-    void nullIncumbentIsNotDisplacement() {            // untracked cell: no known incumbent to displace
-        assertFalse(PlacementInjectionPolicy.isDisplacement(water(), null));
+    void fluidOverNullIncumbentIsDisplacement() {      // bug 1: untracked cell — still enqueue so the
+        // placement is made durable (otherwise a stale in-flight step stomps the live fluid → vanish).
+        assertTrue(PlacementInjectionPolicy.isDisplacement(water(), null));
+    }
+
+    @Test
+    void nullLiveIsNotDisplacement() {                 // nothing placed → nothing to inject
         assertFalse(PlacementInjectionPolicy.isDisplacement(null, air()));
     }
 }
