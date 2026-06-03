@@ -104,6 +104,101 @@ class SpeciesMassLedgerInjectionTest {
         assertFalse(ledger.conserved(), "undeclared mass gain still HOLDs");
     }
 
+    private static final char STONE = 3;
+
+    /** Immovable solid (no viscosity => +∞ => movable()==false): a placed wall block. */
+    private static Material stone() {
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "generic_solid"))
+                .thermalConductivity(2.0f).heatCapacity(840f).molarMass(0.060f)
+                .defaultMass(2500f).defaultTemperature(290f)
+                .build(); // no viscosity => frozen => immovable
+    }
+
+    /** VOID=0, air=1, water=2, generic_solid=3 (immovable). */
+    private static List<Material> lutWithStone() {
+        return List.of(MaterialLut.VACUUM, air(), water(), stone());
+    }
+
+    /**
+     * IN-GAME BUG (durable place→mass): the native {@code apply_injections} records
+     * {@code injected[species] += mass} for EVERY placement — including an IMMOVABLE solid (2500 kg).
+     * But conserved() only SUMS movable species, so an immovable solid's sumAfter/sumBefore are a
+     * structural 0; applying its 2500 kg injected delta against that 0 is a phantom discrepancy. The
+     * §9 conservation invariant only governs movable (advecting) mass — immovable mass is created
+     * freely by a block place — so conserved() must SKIP untracked species entirely.
+     *
+     * <p>One placement (2500 kg) was masked in-game only because ε·N for a 5-column region (~4915 kg)
+     * happened to exceed 2500; the SECOND solid in a column pushed the phantom error to 5000 > 4915 and
+     * the region HELD forever, freezing the column (placed blocks never reached full mass, water inside
+     * a wall never flowed). At small N the phantom shows immediately.</p>
+     */
+    @Test
+    void immovableSolidInjectionDoesNotHold() {
+        List<Material> lut = lutWithStone();
+        // cell 0: air(1.2) -> generic_solid(2500) ; cell 1: void -> air (the displaced air relocates).
+        char[] inMat  = { AIR,   0   };
+        char[] outMat = { STONE, AIR };
+        float[] before = { 1.2f,  0f   };
+        float[] after  = { 2500f, 1.2f };
+
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(after, before, inMat, outMat, lut);
+
+        float[] injected   = new float[lut.size()]; injected[STONE] = 2500f; // native records it
+        float[] sealedLoss = new float[lut.size()];
+        ledger.expect(injected, sealedLoss);
+
+        assertTrue(ledger.conserved(),
+                "an immovable solid placement is not a conservation event; its injected delta must be ignored");
+    }
+
+    /**
+     * Two immovable solids placed in one cycle: native injected[generic_solid] = 5000. The displaced
+     * air is fully relocated (movable, conserves). The two solids must NOT trip the gate — this is the
+     * exact in-game freeze (5000 kg phantom > ε·N).
+     */
+    @Test
+    void multipleImmovableSolidInjectionsDoNotHold() {
+        List<Material> lut = lutWithStone();
+        // cells 0,2: air -> generic_solid ; cells 1,3: void -> air (relocated displaced air).
+        char[] inMat  = { AIR,   0,   AIR,   0   };
+        char[] outMat = { STONE, AIR, STONE, AIR };
+        float[] before = { 1.2f,  0f,  1.2f,  0f   };
+        float[] after  = { 2500f, 1.2f, 2500f, 1.2f };
+
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(after, before, inMat, outMat, lut);
+
+        float[] injected   = new float[lut.size()]; injected[STONE] = 5000f;
+        ledger.expect(injected, new float[lut.size()]);
+
+        assertTrue(ledger.conserved(),
+                "two immovable solids in one cycle still conserve (movable air balances; solids ignored)");
+    }
+
+    /**
+     * Guard the fix doesn't blind the gate: a MOVABLE species fabricating mass with no declared delta
+     * still HOLDs even when an immovable solid is also present in the same ledger.
+     */
+    @Test
+    void movableFabricationStillHeldAlongsideImmovableInjection() {
+        List<Material> lut = lutWithStone();
+        // cell 0: air->generic_solid (legit place) ; cell 1: water gains 500 from nowhere (illegal).
+        char[] inMat  = { AIR,   WATER };
+        char[] outMat = { STONE, WATER };
+        float[] before = { 1.2f,  1000f };
+        float[] after  = { 2500f, 1500f };
+
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(after, before, inMat, outMat, lut);
+
+        float[] injected   = new float[lut.size()]; injected[STONE] = 2500f; // only the solid declared
+        ledger.expect(injected, new float[lut.size()]);
+
+        assertFalse(ledger.conserved(),
+                "undeclared MOVABLE fabrication still HOLDs even with an immovable injection present");
+    }
+
     @Test
     void zeroDeltaIsBackwardCompatible() { // no expect() call => exactly today's behaviour
         List<Material> lut = lut();

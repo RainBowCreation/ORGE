@@ -208,6 +208,7 @@ public final class StepValidator {
     public static final class SpeciesMassLedger {
         private double[] sumBefore = new double[0];
         private double[] sumAfter = new double[0];
+        private boolean[] tracked = new boolean[0];
         private long totalCells;
 
         // Declared per-species placement deltas (spec A4): expected after-before = injected - sealedLoss.
@@ -250,6 +251,12 @@ public final class StepValidator {
                                 + sumAfter.length + " species, got " + lut.size() + ")");
             }
             grow(lut.size());
+            // Record which species are TRACKED (movable) for this batch LUT. conserved() consults this
+            // so an IMMOVABLE species' declared injected/sealedLoss delta is never checked against its
+            // structural-zero sums (a placed solid is not a conservation event — see conserved()).
+            for (int s = 0; s < lut.size(); s++) {
+                tracked[s] = lut.get(s).movable();
+            }
             float cellEps = MASS_EPSILON_PER_CELL;
             boolean bound = true;
             for (int i = 0; i < after.length; i++) {
@@ -296,6 +303,13 @@ public final class StepValidator {
         public boolean conserved() {
             double tol = (double) MASS_EPSILON_PER_CELL * totalCells;
             for (int s = 1; s < sumAfter.length; s++) {
+                // Only MOVABLE species carry a conservation invariant. An immovable solid's mass is
+                // created/removed freely by a block place/break — the native ledger still records its
+                // injected mass, but checking that delta against this species' structural-zero sums
+                // would be a phantom discrepancy that (cumulatively) HOLDs the whole region.
+                if (s >= tracked.length || !tracked[s]) {
+                    continue;
+                }
                 double expectedDelta =
                         (s < injected.length   ? injected[s]   : 0.0)
                       - (s < sealedLoss.length ? sealedLoss[s] : 0.0);
@@ -310,6 +324,7 @@ public final class StepValidator {
             if (sumAfter.length >= speciesCount) return;
             sumAfter = java.util.Arrays.copyOf(sumAfter, speciesCount);
             sumBefore = java.util.Arrays.copyOf(sumBefore, speciesCount);
+            tracked = java.util.Arrays.copyOf(tracked, speciesCount);
         }
     }
 
