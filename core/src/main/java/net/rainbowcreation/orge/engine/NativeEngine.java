@@ -59,22 +59,69 @@ public final class NativeEngine implements OrgeEngine {
     @Override
     public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
                                         double dtSeconds, int passes) {
-        if (columns.isEmpty()) { lastStepMillis = 0.0; return new ArrayList<>(); }
+        return stepWorld(columns, lut, dtSeconds, passes, java.util.List.of()).columns();
+    }
+
+    @Override
+    public RegionStepResult stepWorld(List<ColumnTask> columns, List<Material> lut,
+                                      double dtSeconds, int passes,
+                                      List<EngineInjection> injections) {
+        int matCount = lut.size();
+        if (columns.isEmpty()) {
+            lastStepMillis = 0.0;
+            return new RegionStepResult(new ArrayList<>(), new float[matCount], new float[matCount]);
+        }
         RegionMarshaller.Flat f = RegionMarshaller.flatten(columns, lut);
         int total = f.nCols() * RegionMarshaller.CHUNK_N;
         float[] tOut = scratch.temp(total);
         float[] massOut = scratch.mass(total);
         char[] matOut = scratch.material(total);
         LutArrays L = f.lut();
+
+        int injCount = injections.size();
+        int[] injCol;
+        int[] injCell;
+        char[] injSp;
+        float[] injMs;
+        float[] injTp;
+        float[] ledgerOut;
+        if (injCount == 0) {
+            injCol = EMPTY_INT; injCell = EMPTY_INT; injSp = EMPTY_CHAR;
+            injMs = EMPTY_FLOAT; injTp = EMPTY_FLOAT; ledgerOut = EMPTY_FLOAT;
+        } else {
+            injCol = new int[injCount];
+            injCell = new int[injCount];
+            injSp = new char[injCount];
+            injMs = new float[injCount];
+            injTp = new float[injCount];
+            for (int k = 0; k < injCount; k++) {
+                EngineInjection in = injections.get(k);
+                injCol[k] = in.columnId();
+                injCell[k] = in.cellIndex();
+                injSp[k] = in.species();
+                injMs[k] = in.mass();
+                injTp[k] = in.temperature();
+            }
+            ledgerOut = new float[2 * matCount];   // guard: exactly the size the native writes
+        }
+
         lastStepMillis = orgeStepWorld(
                 f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
                 L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
                 passes, dtSeconds, tOut, massOut, matOut,
-                0,
-                EMPTY_INT, EMPTY_INT,
-                EMPTY_CHAR, EMPTY_FLOAT, EMPTY_FLOAT,
-                EMPTY_FLOAT);
-        return RegionMarshaller.slice(matOut, massOut, tOut, f.nCols());
+                injCount,
+                injCol, injCell,
+                injSp, injMs, injTp,
+                ledgerOut);
+
+        float[] injected = new float[matCount];
+        float[] sealedLoss = new float[matCount];
+        if (injCount > 0) {
+            System.arraycopy(ledgerOut, 0, injected, 0, matCount);
+            System.arraycopy(ledgerOut, matCount, sealedLoss, 0, matCount);
+        }
+        return new RegionStepResult(
+                RegionMarshaller.slice(matOut, massOut, tOut, f.nCols()), injected, sealedLoss);
     }
 
     @Override
