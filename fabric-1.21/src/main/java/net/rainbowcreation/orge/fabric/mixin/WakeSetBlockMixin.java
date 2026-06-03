@@ -33,11 +33,13 @@ public abstract class WakeSetBlockMixin {
         // DIAGNOSTIC (toggle -Dorge.debug.inject): unconditional probe BEFORE the guards. If this line
         // never appears in-game, the mixin itself is not being applied/fired (stale build / refmap not
         // on the IDE run classpath). If it appears but [fabric-wake] does not, a guard is rejecting.
+        boolean orge$isServer = ((Object) this) instanceof ServerLevel;
         if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
-                && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("fabric-mixin-head", 500)) {
+                && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("fabric-mixin-head-" + orge$isServer, 500)) {
             net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
-                    "[fabric-mixin] setBlock TAIL reached: isServerLevel={} ret={} at ({},{},{})",
-                    ((Object) this) instanceof ServerLevel, cir.getReturnValue(), pos.getX(), pos.getY(), pos.getZ());
+                    "[fabric-mixin] setBlock TAIL reached: isServerLevel={} ret={} thread={} at ({},{},{})",
+                    orge$isServer, cir.getReturnValue(), Thread.currentThread().getName(),
+                    pos.getX(), pos.getY(), pos.getZ());
         }
         if (((Object) this) instanceof ServerLevel level && Boolean.TRUE.equals(cir.getReturnValue())) {
             WakePlatformImpl.wake(level.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());

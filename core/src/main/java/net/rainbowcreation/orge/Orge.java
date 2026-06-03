@@ -183,10 +183,12 @@ public final class Orge {
         WakeSink wake = thermalWorld.wakeSink();
         BlockEvent.PLACE.register((level, pos, state, placer) -> {
             if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
-                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("common-place", 500)) {
+                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle(
+                            "common-place-" + (level instanceof ServerLevel), 500)) {
                 net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
-                        "[common-event] BlockEvent.PLACE fired serverLevel={} at ({},{},{})",
-                        level instanceof ServerLevel, pos.getX(), pos.getY(), pos.getZ());
+                        "[common-event] BlockEvent.PLACE fired serverLevel={} thread={} at ({},{},{})",
+                        level instanceof ServerLevel, Thread.currentThread().getName(),
+                        pos.getX(), pos.getY(), pos.getZ());
             }
             if (level instanceof ServerLevel sl) {
                 wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
@@ -195,10 +197,12 @@ public final class Orge {
         });
         BlockEvent.BREAK.register((level, pos, state, player, xp) -> {
             if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
-                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("common-break", 500)) {
+                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle(
+                            "common-break-" + (level instanceof ServerLevel), 500)) {
                 net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
-                        "[common-event] BlockEvent.BREAK fired serverLevel={} at ({},{},{})",
-                        level instanceof ServerLevel, pos.getX(), pos.getY(), pos.getZ());
+                        "[common-event] BlockEvent.BREAK fired serverLevel={} thread={} at ({},{},{})",
+                        level instanceof ServerLevel, Thread.currentThread().getName(),
+                        pos.getX(), pos.getY(), pos.getZ());
             }
             if (level instanceof ServerLevel sl) {
                 wake.wakeBlock(sl.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
@@ -207,10 +211,12 @@ public final class Orge {
         });
         PlayerEvent.FILL_BUCKET.register((player, level, stack, target) -> {
             if (net.rainbowcreation.orge.scheduler.InjectDebug.on()
-                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle("common-bucket", 500)) {
+                    && net.rainbowcreation.orge.scheduler.InjectDebug.throttle(
+                            "common-bucket-" + (level instanceof ServerLevel), 500)) {
                 net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
-                        "[common-event] PlayerEvent.FILL_BUCKET fired serverLevel={} targetType={}",
-                        level instanceof ServerLevel, target == null ? "null" : target.getType());
+                        "[common-event] PlayerEvent.FILL_BUCKET fired serverLevel={} thread={} targetType={}",
+                        level instanceof ServerLevel, Thread.currentThread().getName(),
+                        target == null ? "null" : target.getType());
             }
             if (level instanceof ServerLevel sl && target instanceof BlockHitResult hit) {
                 BlockPos p = hit.getBlockPos();
