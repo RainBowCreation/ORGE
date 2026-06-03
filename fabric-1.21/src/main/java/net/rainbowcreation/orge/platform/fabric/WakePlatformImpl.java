@@ -19,6 +19,8 @@ public final class WakePlatformImpl {
 
     public static void registerBlockChangeWake(WakeSink sink) {
         SINK = sink;
+        net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
+                "[ORGE-INJECT] wake hook registered (loader=fabric, via Level#setBlock mixin)");
     }
 
     /** Called from {@code WakeSetBlockMixin} at the TAIL of a successful server-side {@code Level#setBlock}. */

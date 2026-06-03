@@ -30,5 +30,7 @@ public final class WakePlatformImpl {
                 sink.wakeBlock(level.dimension().identifier(), pos.getX(), pos.getY(), pos.getZ());
             }
         });
+        net.rainbowcreation.orge.scheduler.InjectDebug.LOG.info(
+                "[ORGE-INJECT] wake hook registered (loader=neoforge, via NeighborNotifyEvent)");
     }
 }
