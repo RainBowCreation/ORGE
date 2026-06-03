@@ -114,10 +114,17 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         }
     };
 
-    /** Server-thread: read the live block + the recorded incumbent at this cell; enqueue a placement
-     *  intent iff it is a movable→movable displacement (the reconciler's own air/fluid repaint has
-     *  live==recorded incumbent and is filtered out). Fully null/guard-safe (server null, level null,
-     *  chunk not loaded, prior null) so it is inert in the headless suites where {@code server == null}. */
+    /** Server-thread: read the live block + the recorded incumbent at this cell and, under the unified
+     *  substance model, (a) enqueue a displace-and-inject intent for ANY differing species
+     *  ({@link PlacementInjectionPolicy} — solid or fluid alike captures the placed material's
+     *  {@code defaultMass} and displaces the incumbent), and (b) record the placed block's first-touch
+     *  material as the cell's DURABLE identity in the {@link SectionStore} (spec Part 3), so the
+     *  placement persists against the next assemble even before the engine writes it back (the vanish
+     *  race, now fixed for every species). The reconciler's own steady-state repaint (live == recorded
+     *  incumbent) is still filtered out by the policy. Fully null/guard-safe (server null, level null,
+     *  chunk not loaded, prior null) so it is inert in the headless suites where {@code server == null}.
+     *  Shared wake path: PLACE/BREAK/FILL_BUCKET all route here; the event-driven break→vacuum path is
+     *  introduced separately (Task G2) — this method records the live (post-event) block as-is. */
     private void captureBlockChange(Identifier dim, int blockX, int blockY, int blockZ) {
         MinecraftServer srv = this.server;
         if (srv == null) {
@@ -164,6 +171,25 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     level, pos, live, incumbent);
         }
         PlacementCapture.capture(pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
+
+        // Durable identity (spec Part 3): the placed block's first-touch material becomes the cell's stored
+        // material at once, so the placement persists even before the engine writes it back (vanish-race fix,
+        // generalised to every species). live == firstTouchMaterial(placedBlock) already (computed above).
+        recordDurableIdentity(stores.store(dim), cx, cz, sectionY, sectionCell, live);
+    }
+
+    /** Persist the placed block's first-touch material as the cell's durable {@link SectionStore} identity
+     *  (spec Part 3), so the placement survives the next assemble before the engine writes it back. No-op
+     *  when the block carries no ORGE material ({@code live == null}) or the column is absent/unloaded —
+     *  guarding the store so a non-ORGE placement or an off-store cell is silently skipped. Package-visible
+     *  so the headless suite can drive it against the real §5 store (the enclosing {@code captureBlockChange}
+     *  bails at {@code server == null} and can't be driven there). */
+    static void recordDurableIdentity(SectionStore store, int cx, int cz, int sectionY,
+                                      int sectionCell, Material live) {
+        if (live == null) return;
+        if (store != null && store.isLoaded(cx, cz)) {
+            store.setMaterialAt(cx, cz, sectionY, sectionCell, live.id());
+        }
     }
 
     /** DIAGNOSTIC ONLY (toggle {@code -Dorge.debug.inject}). Traces the per-block capture decision for

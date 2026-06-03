@@ -241,4 +241,38 @@ class MinecraftThermalWorldTest {
         assertTrue(store.get(new SubchunkKey(0, sectionY, 0)).hasMaterials(),
                 "section now has a material layer so E1 reads it as authoritative");
     }
+
+    /**
+     * F2 durable-identity (spec Part 3): on a PLACE, {@code captureBlockChange} records the placed block's
+     * first-touch material as the cell's DURABLE {@link SectionStore} identity AT ONCE — so the placement
+     * persists against the next assemble even before the engine writes it back (the vanish race, now fixed
+     * for every species). Driven here at the {@code recordDurableIdentity} seam against the REAL §5 store,
+     * because the enclosing {@code captureBlockChange} bails at {@code server == null} and cannot be driven
+     * headlessly. Asserts the placed water id lands in the store, and that the guards (no-store, unloaded
+     * column, null material) are silent no-ops.
+     */
+    @Test
+    void recordDurableIdentityPersistsPlacedSpeciesAtOnce(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        SectionStore store = mgr.store(DIM);
+
+        int sectionY = 4;
+        int sectionCell = 3 + 16 * 5 + 256 * 7; // section-local lx=3, ly=5, lz=7
+        Material placedWater = fluid(ORGE_WATER, 1000f);
+
+        // PLACE: the placed water's first-touch identity is recorded immediately.
+        MinecraftThermalWorld.recordDurableIdentity(store, 0, 0, sectionY, sectionCell, placedWater);
+        assertEquals(ORGE_WATER, store.materialAt(0, 0, sectionY, sectionCell),
+                "placed water becomes the cell's durable identity at once (vanish-race fix)");
+
+        // Guard: null material (non-ORGE block) is a silent no-op — the cell identity is untouched.
+        int otherCell = 8 + 16 * 9 + 256 * 2;
+        MinecraftThermalWorld.recordDurableIdentity(store, 0, 0, sectionY, otherCell, null);
+        assertNotEquals(ORGE_WATER, store.materialAt(0, 0, sectionY, otherCell),
+                "null live material records nothing");
+
+        // Guard: a null store and an unloaded column are silent no-ops (no throw).
+        MinecraftThermalWorld.recordDurableIdentity(null, 0, 0, sectionY, sectionCell, placedWater);
+        MinecraftThermalWorld.recordDurableIdentity(store, 99, 99, sectionY, sectionCell, placedWater);
+    }
 }

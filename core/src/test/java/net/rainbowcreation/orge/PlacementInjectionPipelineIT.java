@@ -61,6 +61,13 @@ class PlacementInjectionPipelineIT {
     private static final List<Material> LUT =
             List.of(TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air());
 
+    // Solid-placement LUT: 0 = void, 1 = water, 2 = air, 3 = stone (an immovable solid, viscosity +∞,
+    // defaultMass 2000). Proves a SOLID placement injection displaces+seeds on the real engine (bug 3),
+    // with no movable() special-casing and no new ledger code (F2 verification).
+    private static final char S_WATER = 1, STONE = 3;
+    private static final List<Material> SOLID_LUT = List.of(
+            TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air(), TestMaterials.stone());
+
     private static NativeEngine engineOrSkip() {
         try {
             NativeLoader.load();
@@ -146,5 +153,86 @@ class PlacementInjectionPipelineIT {
         naive.add(out.mass(), task.mass(), task.matIx(), out.matIx(), LUT);
         assertFalse(naive.conserved(),
                 "without the declared injection delta the ledger HOLDs -- acceptance is injection-aware");
+    }
+
+    /**
+     * F2 bug-2/bug-3 core, on the REAL engine: a SOLID placement injection (stone, its defaultMass) into
+     * a floor cell holding a WATER incumbent. This is the exact intent {@link
+     * net.rainbowcreation.orge.scheduler.PlacementCapture#capture} now enqueues for a solid placement
+     * (F1 dropped the movable() gate, so any placed species captures + displaces). It proves:
+     * <ul>
+     *   <li>bug 3 — the solid SEEDS its full {@code defaultMass} (2000 kg stone) at the cell;</li>
+     *   <li>bug 2 — the WATER incumbent is DISPLACED (pushed UP to the void cell above), not deleted;</li>
+     *   <li>the engine's mass ledger is {@code conserved()} once the declared injection deltas are fed —
+     *       no new ledger code is needed; the species-agnostic injection already handles solids.</li>
+     * </ul>
+     * Mirrors the harness/geometry of {@link #placedWaterDisplacesAirAndPersistsAndLedgerNotHeld()}.
+     */
+    @Test
+    void placedSolidDisplacesWaterAndSeedsDefaultMassAndLedgerNotHeld() {
+        NativeEngine engine = engineOrSkip();
+
+        // Place stone at (x=3, y=0, z=4) -- the floor of the loaded column. The displaced water cannot
+        // fall (y-1 out of bounds) and all four horizontal neighbours are absent (one column loaded), so
+        // its only escape is UP to the void cell at y=1. A single PASS_CONDUCTION step keeps the placed
+        // stone at this exact cell (conduction moves heat, never mass/position).
+        final int ci = cellIndex(3, 0, 4);
+
+        char[] mat   = new char[RegionMarshaller.CHUNK_N];   // all 0 = void
+        float[] mass = new float[RegionMarshaller.CHUNK_N];  // all 0
+        float[] temp = new float[RegionMarshaller.CHUNK_N];
+        Arrays.fill(temp, 290f);                              // ambient, avoid 0 K artefacts
+
+        // Incumbent WATER at the placement target (the cell the player places stone into).
+        mat[ci]  = S_WATER;
+        mass[ci] = 1000f;
+        temp[ci] = 290f;
+        // y=1 above stays void -- the relocation receiver for the displaced water.
+
+        List<ColumnTask> cols = new ArrayList<>();
+        cols.add(new ColumnTask(0, 0, mat, mass, temp));
+
+        ColumnTask task = cols.get(0);
+
+        // The SOLID placement injection: stone, its defaultMass (2000 kg), at the target cell, column 0.
+        // This is exactly what PlacementCapture.capture enqueues for a solid placement under F1.
+        EngineInjection inj = new EngineInjection(0, ci, STONE, 2000f, 290f);
+
+        // Drive the REAL native engine through the injection-aware 5-arg overload (same call as fluids).
+        RegionStepResult r = engine.stepWorld(cols, SOLID_LUT, 0.25,
+                OrgeEngine.PASS_CONDUCTION, List.of(inj));
+
+        ColumnResult out = r.columns().get(0);
+
+        // ---- bug 3: the solid SEEDS its full defaultMass at the cell (no half-mass, no vanish). ----
+        assertEquals(STONE, out.matIx()[ci], "placed stone persists at the cell (no vanish)");
+        assertEquals(2000f, out.mass()[ci], 1e-2f, "placed solid seeds its full defaultMass (2000 kg)");
+
+        // ---- bug 2: the WATER incumbent is DISPLACED (relocated UP), not deleted. ----
+        double waterTotal = 0;
+        int waterCell = -1;
+        for (int i = 0; i < out.matIx().length; i++) {
+            if (out.matIx()[i] == S_WATER) { waterTotal += out.mass()[i]; waterCell = i; }
+        }
+        assertEquals(1000.0, waterTotal, 1e-2, "displaced water relocated, not deleted");
+        assertFalse(waterCell == ci, "the water was pushed off the placement cell (displaced, not stomped)");
+
+        // Sanity on the engine's declared placement ledger (the deltas the §9 gate consumes).
+        assertEquals(SOLID_LUT.size(), r.injected().length, "injected.length == lut.size()");
+        assertEquals(2000f, r.injected()[STONE], 1e-2f, "engine booked the injected stone");
+        assertEquals(0f, r.sealedLoss()[S_WATER], 1e-2f, "no sealed loss (water escaped UP to void)");
+
+        // ---- the §9 movable-mass ledger CONSERVES the displaced WATER (the movable incumbent). ----
+        // The §9 SpeciesMassLedger tracks only MOVABLE species (Material#movable() — finite viscosity);
+        // an immovable solid (stone, viscosity +INF) is outside its advection-conservation scope, so the
+        // engine's injected[STONE]=2000 delta is NOT consumed by this ledger (a movable-only invariant).
+        // What the ledger DOES guarantee here is that the displaced water — the only movable species in
+        // play — is conserved on its OWN index: it was relocated (engine injected[WATER]=0,
+        // sealedLoss[WATER]=0), never deleted. With no movable mass created or sealed, the ledger holds
+        // WITHOUT needing any new ledger code -- the species-agnostic injection already handles solids.
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(out.mass(), task.mass(), task.matIx(), out.matIx(), SOLID_LUT);
+        assertTrue(ledger.conserved(),
+                "the §9 movable ledger conserves the displaced water (immovable stone is out of its scope)");
     }
 }
