@@ -133,8 +133,8 @@ class SectionCodecTest {
 
     @Test
     void badVersionThrowsIOException() throws IOException {
-        // Craft a blob with version=2 (unsupported)
-        byte[] blob = new byte[]{2, 0, 0};
+        // Craft a blob with an unsupported version (v1 and v2 are valid; 99 is not).
+        byte[] blob = new byte[]{99, 0, 0};
         assertThrows(IOException.class, () -> SectionCodec.readColumn(blob),
                 "Unsupported version must throw IOException");
     }

@@ -3,6 +3,8 @@ package net.rainbowcreation.orge.section;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
@@ -19,7 +21,7 @@ import java.util.zip.Inflater;
 public final class SectionCodec {
 
     /** Wire format version for column blobs. */
-    public static final byte FORMAT_VERSION = 1;
+    public static final byte FORMAT_VERSION = 2;
 
     private static final byte FORM_UNIFORM = 0;
     private static final byte FORM_FULL    = 1;
@@ -104,6 +106,29 @@ public final class SectionCodec {
         return a;
     }
 
+    /**
+     * Packs a {@code char[]} into a big-endian {@code byte[]} (2 bytes per char).
+     */
+    static byte[] charsToBytes(char[] a) {
+        ByteBuffer buf = ByteBuffer.allocate(a.length * 2).order(ByteOrder.BIG_ENDIAN);
+        for (char c : a) {
+            buf.putChar(c);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Unpacks a big-endian {@code byte[]} into a {@code char[]} (2 bytes per char).
+     */
+    static char[] bytesToChars(byte[] b) {
+        ByteBuffer buf = ByteBuffer.wrap(b).order(ByteOrder.BIG_ENDIAN);
+        char[] a = new char[b.length / 2];
+        for (int i = 0; i < a.length; i++) {
+            a[i] = buf.getChar();
+        }
+        return a;
+    }
+
     // =========================================================================
     // Single section serialization
     // =========================================================================
@@ -138,6 +163,20 @@ public final class SectionCodec {
             out.writeInt(mComp.length);
             out.write(mComp);
         }
+        // v2 material block (uniform for format uniformity; UNIFORM sections never carry materials).
+        if (s.hasMaterials()) {
+            out.writeByte(1);
+            MaterialPalette mp = s.materials();
+            out.writeShort(mp.palette().size());
+            for (net.minecraft.resources.Identifier id : mp.palette()) {
+                out.writeUTF(id.toString());
+            }
+            byte[] iComp = deflate(charsToBytes(mp.indices()));
+            out.writeInt(iComp.length);
+            out.write(iComp);
+        } else {
+            out.writeByte(0);
+        }
     }
 
     /**
@@ -146,11 +185,22 @@ public final class SectionCodec {
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     public static SectionData readSection(DataInputStream in) throws IOException {
+        return readSection(in, true);
+    }
+
+    /**
+     * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
+     * block. v1 blobs carry no material block ({@code withMaterials == false}); v2 blobs do.
+     *
+     * @throws IOException if the form byte is unrecognised or data is corrupt
+     */
+    static SectionData readSection(DataInputStream in, boolean withMaterials) throws IOException {
         byte form = in.readByte();
+        SectionData section;
         if (form == FORM_UNIFORM) {
             float t = in.readFloat();
             float m = in.readFloat();
-            return SectionData.uniform(t, m);
+            section = SectionData.uniform(t, m);
         } else if (form == FORM_FULL) {
             int tLen = in.readInt();
             if (tLen < 0) throw new IOException("corrupt section: negative compressed length " + tLen);
@@ -162,10 +212,26 @@ public final class SectionCodec {
             byte[] mComp = in.readNBytes(mLen);
             float[] m = bytesToFloats(inflate(mComp, SectionData.CELLS * 4));
 
-            return SectionData.full(t, m);
+            section = SectionData.full(t, m);
         } else {
             throw new IOException("unknown section form: " + (form & 0xFF));
         }
+        if (withMaterials) {
+            byte hasMaterials = in.readByte();
+            if (hasMaterials == 1) {
+                int paletteCount = in.readShort() & 0xFFFF;
+                List<net.minecraft.resources.Identifier> paletteList = new ArrayList<>(paletteCount);
+                for (int i = 0; i < paletteCount; i++) {
+                    paletteList.add(net.minecraft.resources.Identifier.parse(in.readUTF()));
+                }
+                int iLen = in.readInt();
+                if (iLen < 0) throw new IOException("corrupt section: negative compressed length " + iLen);
+                byte[] iComp = in.readNBytes(iLen);
+                char[] indices = bytesToChars(inflate(iComp, SectionData.CELLS * 2));
+                section.adoptMaterials(new MaterialPalette(paletteList, indices));
+            }
+        }
+        return section;
     }
 
     // =========================================================================
@@ -211,14 +277,15 @@ public final class SectionCodec {
     public static NavigableMap<Integer, SectionData> readColumn(byte[] blob) throws IOException {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(blob));
         int version = in.readByte() & 0xFF;
-        if (version != FORMAT_VERSION) {
+        if (version != 1 && version != FORMAT_VERSION) {
             throw new IOException("unsupported column format version: " + version);
         }
+        boolean withMaterials = version >= 2;
         int count = in.readShort() & 0xFFFF;
         TreeMap<Integer, SectionData> result = new TreeMap<>();
         for (int i = 0; i < count; i++) {
             int sectionY = in.readInt();
-            SectionData section = readSection(in);
+            SectionData section = readSection(in, withMaterials);
             result.put(sectionY, section);
         }
         return result;
