@@ -136,7 +136,7 @@ public final class SectionCodec {
     /**
      * Writes one {@link SectionData} to {@code out}.
      *
-     * <p>Wire format:
+     * <p>Wire format (v2):
      * <pre>
      * byte  form       ; 0 = UNIFORM, 1 = FULL
      * -- UNIFORM:
@@ -147,6 +147,13 @@ public final class SectionCodec {
      * byte[tLen]
      * int   mLen ; compressed mass array length
      * byte[mLen]
+     * -- material block (v2; absent in legacy v1 blobs):
+     * byte  hasMaterials ; 0 = none, 1 = present
+     * -- if hasMaterials == 1:
+     * short paletteCount
+     * UTF[paletteCount]  ; palette ids (slot 0 = orge:vacuum)
+     * int   iLen         ; compressed char[4096] index array length
+     * byte[iLen]
      * </pre></p>
      */
     public static void writeSection(DataOutputStream out, SectionData s) throws IOException {
@@ -243,7 +250,7 @@ public final class SectionCodec {
      *
      * <p>Wire format:
      * <pre>
-     * byte  version       ; FORMAT_VERSION (1)
+     * byte  version       ; FORMAT_VERSION (2); legacy v1 blobs (no material block) also accepted on read
      * short sectionCount
      * repeat sectionCount (sorted by sectionY ascending):
      *   int   sectionY
