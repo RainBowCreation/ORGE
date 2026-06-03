@@ -32,6 +32,25 @@ public interface OrgeEngine {
                                            java.util.List<net.rainbowcreation.orge.material.Material> lut,
                                            double dtSeconds, int passes);
 
+    /**
+     * Injection-aware step (placement displace-and-inject, spec Part A). Applies {@code injections}
+     * once before advection, then steps as usual. The default implementation IGNORES injections and
+     * delegates to the 4-arg {@link #stepWorld}, returning a zero placement ledger — so engines that
+     * do not support the native injection channel (stub, test fakes) keep working. {@link NativeEngine}
+     * overrides this to marshal the injection arrays and read back the ledger.
+     *
+     * @param injections placements for this step ({@code columnId} = position in {@code columns});
+     *                   an empty list ⇒ identical to the 4-arg form.
+     */
+    default RegionStepResult stepWorld(java.util.List<ColumnTask> columns,
+                                       java.util.List<net.rainbowcreation.orge.material.Material> lut,
+                                       double dtSeconds, int passes,
+                                       java.util.List<EngineInjection> injections) {
+        java.util.List<ColumnResult> cols = stepWorld(columns, lut, dtSeconds, passes);
+        int n = lut.size();
+        return new RegionStepResult(cols, new float[n], new float[n]);
+    }
+
     /** Per-section compute time of the last {@link #step}, ms — drives health throttling. */
     double lastStepMillis();
 }
