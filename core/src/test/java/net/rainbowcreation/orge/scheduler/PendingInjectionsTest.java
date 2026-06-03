@@ -63,6 +63,40 @@ class PendingInjectionsTest {
     }
 
     @Test
+    void cancelRemovalDropsAPendingRemoval() {
+        PendingInjections q = new PendingInjections();
+        int cell = 6 + 16 * 70 + 6144 * 4;
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        assertTrue(q.hasPendingRemoval(DIM, 0, 0, cell), "precondition: removal queued");
+
+        q.cancelRemoval(DIM, 0, 0, cell);
+
+        assertFalse(q.hasPendingRemoval(DIM, 0, 0, cell), "removal cancelled");
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "no intent left at the cell");
+    }
+
+    @Test
+    void cancelRemovalLeavesAPlacementIntentAlone() {   // must not drop a real placement
+        PendingInjections q = new PendingInjections();
+        int cell = 8 + 16 * 70 + 6144 * 4;
+        q.enqueue(DIM, 0, 0, cell, WATER, 1000f, 290f);
+
+        q.cancelRemoval(DIM, 0, 0, cell);
+
+        List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
+        assertEquals(1, got.size(), "a placement intent is NOT a removal and survives cancelRemoval");
+        assertFalse(got.get(0).removal());
+        assertEquals(WATER, got.get(0).species());
+    }
+
+    @Test
+    void cancelRemovalIsANoOpWhenNothingQueued() {
+        PendingInjections q = new PendingInjections();
+        q.cancelRemoval(DIM, 0, 0, 123);   // must not throw
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty());
+    }
+
+    @Test
     void removeClearsOnlyTheGivenIntents() {
         PendingInjections q = new PendingInjections();
         int a = 1 + 16 * 70, b = 2 + 16 * 70;

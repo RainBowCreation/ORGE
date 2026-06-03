@@ -121,53 +121,38 @@ class InjectionDrainTest {
     }
 
     /**
-     * Same-window break+replace-SAME-solid regression (the flow-through-a-phantom-hole bug). A capped
-     * well [water, solid, air]: in ONE scheduler window the middle solid is BROKEN (queues a removal)
-     * then RE-PLACED with the same solid. The capture must read {@code hasPendingRemoval} (true) and
-     * force-capture the re-place so the queue ends with a PLACEMENT, not the lone removal. The drain then
-     * stomps the middle cell back to its solid incumbent and emits a solid injection — it does NOT stomp
-     * the cell to vacuum. (The buggy path left only the removal → middle stomped to vacuum → the left
-     * water flooded through it next step.)
+     * Same-window break+replace-SAME-solid regression (the flow-through-a-phantom-hole bug). The capture
+     * layer ({@link PlacementCapture#captureOrCancelStaleRemoval}) CANCELS the stale break removal for a
+     * same-species re-place, so the queue ends EMPTY: the drain touches nothing, the cell keeps its
+     * durable solid identity + stored mass (no vacuum stomp → no flow-through, no injection → no mass
+     * fabrication). This drains the post-cancel empty queue to prove the drain is a no-op on that cell.
      */
     @Test
-    void sameWindowBreakThenReplaceSameSolidDrainsAsPlacementNotVacuumStomp() {
+    void sameWindowBreakThenReplaceSameSolidLeavesNoIntentToStompOrInject() {
         Material stone = TestMaterials.stone();
-        // Batch LUT: void=0, stone=3 (resolver appends-on-sight, mirroring MaterialLut).
         InjectionDrain.SpeciesResolver resolver = id -> id.equals(stone.id()) ? (char) 3 : (char) 0;
 
         int middle = 5 + 16 * 70 + 6144 * 4;
-
-        // 1) Same-window BREAK queues a removal at the middle cell.
         PendingInjections pi = new PendingInjections();
-        pi.enqueueRemoval(DIM, 0, 0, middle);
-
-        // 2) Same-window PLACE of the SAME solid. Production reads hasPendingRemoval and passes it through;
-        //    the recorded incumbent still names the (stale) broken solid, which would normally be a
-        //    self-write no-op — the pending removal is exactly what forces the capture.
-        boolean pendingRemoval = pi.hasPendingRemoval(DIM, 0, 0, middle);
-        assertTrue(pendingRemoval, "the same-window break left a pending removal at the middle cell");
-        PlacementCapture.capture(pi, DIM, 0, 0, middle, stone, stone, 295f, pendingRemoval);
+        pi.enqueueRemoval(DIM, 0, 0, middle);                                       // same-window BREAK
+        PlacementCapture.captureOrCancelStaleRemoval(pi, DIM, 0, 0, middle, stone, stone, 295f); // re-place
 
         List<PendingInjections.Intent> queued = pi.peekColumn(DIM, 0, 0);
-        assertEquals(1, queued.size(), "the re-place supersedes the removal");
-        assertTrue(!queued.get(0).removal(), "queued intent is the placement, not the break removal");
+        assertTrue(queued.isEmpty(), "the same-species re-place cancelled the removal → nothing queued");
 
-        // 3) Drain the (now-placement) queue: middle resets to its solid incumbent + a solid injection
-        //    is emitted — NOT a vacuum stomp.
+        // Draining the empty queue leaves the (solid) cell exactly as the assembler placed it.
         char[] matIx = new char[RegionMarshaller.CHUNK_N];
         float[] mass = new float[matIx.length];
-        matIx[middle] = 3; mass[middle] = 2500f;   // live snapshot shows the solid currently there
-        float storedSolidMass = 2500f;
-
+        matIx[middle] = 3; mass[middle] = 2500f;   // assembler's durable solid identity + stored mass
         List<EngineInjection> out = new ArrayList<>();
         List<PendingInjections.Intent> emitted = new ArrayList<>();
         InjectionDrain.applyToColumn(0, matIx, mass, resolver, queued,
-                c -> stone.id(), c -> storedSolidMass, out, emitted);
+                c -> stone.id(), c -> 2500f, out, emitted);
 
-        assertEquals(3, matIx[middle], "middle stays its SOLID incumbent (NOT stomped to vacuum 0)");
-        assertEquals(2500f, mass[middle], "middle keeps solid incumbent mass (no movable-water residue)");
-        assertEquals(1, out.size(), "a solid placement injection is emitted (engine re-asserts the solid)");
-        assertEquals(3, out.get(0).species(), "injection places the solid species");
+        assertEquals(3, matIx[middle], "cell stays its SOLID identity (NOT stomped to vacuum 0)");
+        assertEquals(2500f, mass[middle], "cell keeps its stored solid mass (no movable residue)");
+        assertEquals(0, out.size(), "no injection emitted → no fabricated mass");
+        assertEquals(0, emitted.size(), "nothing drained");
     }
 
     @Test

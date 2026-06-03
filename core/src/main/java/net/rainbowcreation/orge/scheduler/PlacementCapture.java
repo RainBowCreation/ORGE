@@ -17,26 +17,37 @@ public final class PlacementCapture {
 
     public static void capture(PendingInjections queue, Identifier dim, int cx, int cz, int cell,
                                Material live, Material incumbent, float biomeAmbientK) {
-        capture(queue, dim, cx, cz, cell, live, incumbent, biomeAmbientK, false);
-    }
-
-    /**
-     * Same as {@link #capture(PendingInjections, Identifier, int, int, int, Material, Material, float)},
-     * but when {@code pendingRemoval} is {@code true} the cell has a same-window BREAK removal already
-     * queued, so the recorded {@code incumbent} (last-cycle engine output, which still names the broken
-     * species) is STALE. Treat the incumbent as absent: a re-place of the SAME species is then captured as
-     * a placement-into-vacuum (rather than dropped as a self-write), and its enqueue supersedes the
-     * removal — so the engine sees break→vacuum→inject and the durable identity stays in sync with the
-     * engine cell. A {@code null} live material (non-ORGE block) is still not captured.
-     */
-    public static void capture(PendingInjections queue, Identifier dim, int cx, int cz, int cell,
-                               Material live, Material incumbent, float biomeAmbientK,
-                               boolean pendingRemoval) {
-        Material effectiveIncumbent = pendingRemoval ? null : incumbent;
-        if (!PlacementInjectionPolicy.isDisplacement(live, effectiveIncumbent)) {
+        if (!PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
             return;
         }
         float temp = live.hasDefaultTemperature() ? live.defaultTemperature() : biomeAmbientK;
         queue.enqueue(dim, cx, cz, cell, live.id(), live.defaultMass(), temp);
+    }
+
+    /**
+     * Removal-aware capture entry point used by the live reconciler. When the cell has a same-window
+     * removal pending AND the placed species equals the recorded incumbent (a re-place of the SAME thing —
+     * a player break+replace, OR a fluid re-asserting over a transient air-level edit that the air-override
+     * turned into a removal), the removal is STALE: cancel it and enqueue nothing. Cancelling — rather than
+     * letting the lone removal stand or force-injecting the species — is the fix for BOTH failure modes:
+     * <ul>
+     *   <li>letting the removal stand stomps a solid's engine cell to vacuum under a still-solid durable
+     *       identity → neighbours flow THROUGH the phantom hole;</li>
+     *   <li>force-injecting the placement (a fresh {@code defaultMass}) FABRICATES mass for a movable fluid
+     *       every time it re-asserts over a transient removal (the mass-doubling regression).</li>
+     * </ul>
+     * The cancelled cell keeps its durable identity + stored mass; no injection is emitted. Any OTHER case
+     * (different species = a genuine displacement, or no pending removal) delegates unchanged to
+     * {@link #capture}.
+     */
+    public static void captureOrCancelStaleRemoval(PendingInjections queue, Identifier dim, int cx, int cz,
+                                                   int cell, Material live, Material incumbent,
+                                                   float biomeAmbientK) {
+        if (live != null && incumbent != null && live.id().equals(incumbent.id())
+                && queue.hasPendingRemoval(dim, cx, cz, cell)) {
+            queue.cancelRemoval(dim, cx, cz, cell);
+            return;
+        }
+        capture(queue, dim, cx, cz, cell, live, incumbent, biomeAmbientK);
     }
 }

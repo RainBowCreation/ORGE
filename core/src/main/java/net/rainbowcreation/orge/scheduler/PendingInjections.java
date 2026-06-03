@@ -100,6 +100,27 @@ public final class PendingInjections {
     }
 
     /**
+     * Drop a queued <b>removal</b> at {@code (dim, cx, cz, cell)} (no-op if the cell holds no intent, or a
+     * placement rather than a removal). Used when a same-window same-species re-place supersedes a stale
+     * break/air-flicker removal: the cell keeps its durable identity + stored mass, so the removal must NOT
+     * stomp it to vacuum, and NO replacement injection is enqueued (which would fabricate mass).
+     */
+    public void cancelRemoval(Identifier dim, int cx, int cz, int cell) {
+        Map<Long, Map<Integer, Intent>> dimMap = byDim.get(dim);
+        if (dimMap == null) {
+            return;
+        }
+        Map<Integer, Intent> colMap = dimMap.get(packCol(cx, cz));
+        if (colMap == null) {
+            return;
+        }
+        Intent in = colMap.get(cell);
+        if (in != null && in.removal()) {
+            colMap.remove(cell);
+        }
+    }
+
+    /**
      * Intents whose cell lies in column {@code (dim, cx, cz)}, in deterministic ascending-cell
      * order. Does NOT remove them (they stay queued until {@link #remove} after a successful
      * write-back).

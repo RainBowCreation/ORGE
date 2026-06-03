@@ -203,13 +203,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return; // never enqueue an air PLACEMENT or record an air identity at a simulated cell
         }
 
-        // Same-window break+replace fix: if a BREAK already queued a removal at this cell in this window,
-        // the recorded incumbent (last engine output) is stale — force-capture the placement so the lone
-        // removal can't stomp the engine cell to vacuum while the durable identity stays solid (the
-        // flow-through-a-phantom-hole bug). The place's enqueue then supersedes the removal.
-        boolean pendingRemoval = pendingInjections.hasPendingRemoval(dim, cx, cz, engineCell);
-        PlacementCapture.capture(pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK,
-                pendingRemoval);
+        // Same-window break/flicker + same-species re-place: cancel a stale pending removal instead of
+        // letting it stomp the cell to vacuum (solid flow-through) or force-injecting a fresh defaultMass
+        // (movable-fluid mass fabrication). Any other case delegates to the ordinary displacement capture.
+        PlacementCapture.captureOrCancelStaleRemoval(
+                pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
 
         // Durable identity (spec Part 3): the placed block's first-touch material becomes the cell's stored
         // material at once, so the placement persists even before the engine writes it back (vanish-race fix,

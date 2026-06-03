@@ -52,45 +52,65 @@ class PlacementCaptureTest {
         assertEquals(air().id(), q.peekColumn(DIM, 0, 0).get(0).species());
     }
 
-    /** Same-window break+replace-SAME-block fix: re-placing the species the cell already had is normally
-     *  a self-write no-op, but when a same-window BREAK already queued a removal at that cell the re-place
-     *  MUST be captured — otherwise the lone removal stomps the engine cell to vacuum while the durable
-     *  identity store keeps the solid, and neighbours flow THROUGH the phantom hole. With the removal
-     *  pending, the re-place is treated as a placement-into-vacuum and supersedes the removal. */
+    // ---- captureOrCancelStaleRemoval: the same-window break/flicker + same-species re-place handler ----
+
+    /** Same-window break+replace-SAME-block fix. Re-placing the species the cell already had, when a
+     *  same-window BREAK (or a transient fluid-level air-edit) already queued a removal at the cell, must
+     *  CANCEL that stale removal — NOT enqueue a fresh defaultMass injection. Force-injecting a movable
+     *  fluid here FABRICATES mass (the regression: water re-asserting over a transient removal injected a
+     *  whole 1000 kg every slosh); letting the lone removal stand instead stomps a solid's engine cell to
+     *  vacuum under a still-solid durable identity (flow-through). Cancelling does neither: the cell keeps
+     *  its durable identity + stored mass, no injection. */
     @Test
-    void rePlaceSameSpeciesOntoPendingRemovalIsCaptured() {
+    void sameSpeciesRePlaceOverPendingRemovalCancelsItAndEnqueuesNothing() {
         PendingInjections q = new PendingInjections();
-        q.enqueueRemoval(DIM, 0, 0, 100);   // the same-window BREAK queued a removal at this cell
+        q.enqueueRemoval(DIM, 0, 0, 100);   // a same-window BREAK / air-flicker queued a removal here
 
-        PlacementCapture.capture(q, DIM, 0, 0, 100, water(), water(), 295f, /*pendingRemoval=*/true);
+        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
 
-        List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
-        assertEquals(1, got.size(), "the re-place supersedes the removal with a single placement intent");
-        assertFalse(got.get(0).removal(), "the surviving intent is a placement, not the break removal");
-        assertEquals(water().id(), got.get(0).species());
-        assertEquals(water().defaultMass(), got.get(0).mass());
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(),
+                "the stale removal is cancelled and NO placement is enqueued (no vacuum stomp, no fabrication)");
     }
 
-    /** The pending-removal force-capture must still respect a non-ORGE block: {@code live == null} has
-     *  nothing to place, so the break removal stays the only queued intent. */
+    /** A DIFFERENT species placed over a pending removal is a genuine displacement: it is enqueued (and
+     *  supersedes the removal, last-write-wins) so the engine places the new species. */
     @Test
-    void pendingRemovalDoesNotForceCaptureOfNonOrgeBlock() {
+    void differentSpeciesOverPendingRemovalEnqueuesPlacementSupersedingRemoval() {
+        PendingInjections q = new PendingInjections();
+        Material stone = TestMaterials.stone();
+        q.enqueueRemoval(DIM, 0, 0, 100);
+
+        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), stone, 295f);
+
+        List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
+        assertEquals(1, got.size(), "the different-species place supersedes the removal");
+        assertFalse(got.get(0).removal(), "the surviving intent is the water placement, not the removal");
+        assertEquals(water().id(), got.get(0).species());
+    }
+
+    /** A non-ORGE block ({@code live == null}) over a pending removal cancels nothing and enqueues
+     *  nothing — the removal stays the only intent (the block genuinely went away). */
+    @Test
+    void nullLiveOverPendingRemovalLeavesRemovalIntact() {
         PendingInjections q = new PendingInjections();
         q.enqueueRemoval(DIM, 0, 0, 100);
 
-        PlacementCapture.capture(q, DIM, 0, 0, 100, null, water(), 295f, /*pendingRemoval=*/true);
+        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, null, water(), 295f);
 
         List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
         assertEquals(1, got.size());
-        assertTrue(got.get(0).removal(), "a non-ORGE place leaves the break removal intact");
+        assertTrue(got.get(0).removal(), "a non-ORGE place leaves the removal intact");
     }
 
-    /** Without a pending removal, a steady-state self-write (reconciler repaint) is still NOT enqueued —
-     *  the fix is scoped to the same-window break+place collapse only. */
+    /** Without a pending removal, a same-species self-write is still a no-op (steady-state repaint), and a
+     *  real displacement still enqueues — captureOrCancelStaleRemoval delegates to capture unchanged. */
     @Test
-    void selfWriteWithoutPendingRemovalStillDoesNotEnqueue() {
+    void noPendingRemovalDelegatesToOrdinaryCapture() {
         PendingInjections q = new PendingInjections();
-        PlacementCapture.capture(q, DIM, 0, 0, 100, water(), water(), 295f, /*pendingRemoval=*/false);
-        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty());
+        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "self-write with no pending removal enqueues nothing");
+
+        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 101, water(), air(), 295f);
+        assertEquals(1, q.peekColumn(DIM, 0, 0).size(), "a real displacement still enqueues");
     }
 }
