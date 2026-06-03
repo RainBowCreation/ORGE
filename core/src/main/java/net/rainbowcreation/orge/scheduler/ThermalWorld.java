@@ -80,14 +80,19 @@ public interface ThermalWorld {
      *  cells) plus the key it came from for write-back. */
     record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task) {}
 
-    /** A cycle's worth of column work: the dimension-tagged columns + the shared material LUT, plus
-     *  this cycle's drained placement injections (and the intents they came from, for clear-on-success). */
-    record ColumnBatch(List<ColumnEntry> entries, List<Material> lut,
+    /** A cycle's worth of column work: the dimension-tagged columns + the shared stable material table,
+     *  the {@code lutEpoch} selecting the engine-resident table, plus this cycle's drained placement
+     *  injections (and the intents they came from, for clear-on-success). */
+    record ColumnBatch(List<ColumnEntry> entries, List<Material> lut, int lutEpoch,
                        List<net.rainbowcreation.orge.engine.EngineInjection> injections,
                        List<PendingInjections.Intent> drained) {
-        /** Back-compat convenience for call sites/tests that build a batch with no injections. */
+        /** Back-compat: no injections, epoch 0 (empty/no-real-table cycles). */
         public ColumnBatch(List<ColumnEntry> entries, List<Material> lut) {
-            this(entries, lut, List.of(), List.of());
+            this(entries, lut, 0, List.of(), List.of());
+        }
+        /** Back-compat: epoch only, no injections. */
+        public ColumnBatch(List<ColumnEntry> entries, List<Material> lut, int lutEpoch) {
+            this(entries, lut, lutEpoch, List.of(), List.of());
         }
     }
 

@@ -601,7 +601,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             }
         }
         lastColumnLut = lut.materials();
-        return new ColumnBatch(entries, lut.materials(), injections, drained);
+        return new ColumnBatch(entries, lut.materials(), mats.lutEpoch(), injections, drained);
     }
 
     /** Recorded engine-output species id for an engine-cell in a column, or null if untracked. */
