@@ -98,6 +98,14 @@ public final class Scheduler {
     private List<ThermalWorld.ColumnEntry> pendingColumns;
     private List<ColumnResult> pendingColumnResults;
 
+    /** The in-flight job's injection-aware engine result (set inside the runner task when injections
+     *  were submitted; null on a 4-arg/empty cycle). Carries the per-species placement ledger deltas
+     *  ({@code injected}/{@code sealedLoss}) the §9 gate declares via {@code ledger.expect(...)}. */
+    private net.rainbowcreation.orge.engine.RegionStepResult pendingRegionResult;
+    /** The intents drained for this cycle's batch (captured at submit). Cleared from the queue only on
+     *  a successful, non-held write-back (durability: a HELD region leaves them queued for next try). */
+    private List<PendingInjections.Intent> pendingDrained = List.of();
+
     /** Whether the in-flight job ran advection (captured at submit), to pick the writeback set. */
     private boolean pendingAdvection;
     /** Batch material table (captured at submit): the region-wide §9 ledger keys species off it. */
@@ -193,13 +201,26 @@ public final class Scheduler {
         pendingAdvection = true;
         pendingColumns = batch.entries();
         pendingColumnResults = null;
+        pendingRegionResult = null;
+        // This cycle's placements: displace-and-inject into the engine + the intents they came from
+        // (cleared from the queue only on a successful write-back, see writeBackColumns).
+        final List<net.rainbowcreation.orge.engine.EngineInjection> injections = batch.injections();
+        pendingDrained = batch.drained();
         final double dt = nextDt();
         pending = runner.submit(() -> {
             // ONE combined call: orgeStepWorld sub-cycles n=round(dt/0.25) interleaved
-            // conduction(sub_dt) -> advection(sub_dt) sub-steps (spec 2026-06-02 A5/B1).
-            pendingColumnResults = input.isEmpty() ? List.of()
-                : engine.stepWorld(input, lut, dt,
-                                   OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION);
+            // conduction(sub_dt) -> advection(sub_dt) sub-steps (spec 2026-06-02 A5/B1). The
+            // 5-arg overload applies this cycle's injections once before advection and returns the
+            // per-species placement ledger (injected/sealedLoss) for the §9 gate to declare.
+            if (input.isEmpty()) {
+                pendingColumnResults = List.of();
+            } else {
+                net.rainbowcreation.orge.engine.RegionStepResult rr =
+                        engine.stepWorld(input, lut, dt,
+                                OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, injections);
+                pendingRegionResult = rr;
+                pendingColumnResults = rr.columns();
+            }
             return List.of();
         });
         ticksSinceSubmit = 0;
@@ -278,12 +299,22 @@ public final class Scheduler {
             ColumnResult r = results.get(i);
             ledger.add(r.mass(), e.task().mass(), e.task().matIx(), r.matIx(), pendingMaterials);
         }
+        if (pendingRegionResult != null) {
+            // A4: declare this cycle's placement deltas so a legit injection (after-before = injected
+            // - sealedLoss) does NOT read as fabrication and HOLD the region.
+            ledger.expect(pendingRegionResult.injected(), pendingRegionResult.sealedLoss());
+        }
         if (!ledger.conserved()) {
             LOGGER.warn("[ORGE] region step mass not conserved (per-species); holding {} columns this cycle", n);
-            return;
+            return; // HELD — drained intents stay queued for the next try (durability)
         }
         for (int i = 0; i < n; i++) {
             world.writeBackColumn(pendingColumns.get(i), results.get(i));
+        }
+        if (!pendingDrained.isEmpty()) {
+            // Success ⇒ the placements are now durably in the store; clear them from the queue.
+            world.pendingInjections().remove(pendingDrained);
+            pendingDrained = List.of();
         }
     }
 
@@ -292,6 +323,10 @@ public final class Scheduler {
         pending = null;
         pendingColumns = null;
         pendingColumnResults = null;
+        // Drop the injection-aware result so a subsequent conduction-only/empty cycle can't reuse stale
+        // placement deltas. pendingDrained is NOT cleared here: when a region HOLDs (or a step fails)
+        // the intents must survive — the next submit re-drains them from the still-populated queue.
+        pendingRegionResult = null;
         ticksSinceSubmit = 0;
         state = State.IDLE;
         // tickCounter is NOT reset here: it free-runs on the 5-tick cadence grid so the cadences

@@ -26,6 +26,11 @@ import net.minecraft.resources.Identifier;
  */
 public final class PendingInjections {
 
+    /** Shared empty queue for non-Minecraft {@link ThermalWorld} impls + test fakes (see
+     *  {@link ThermalWorld#pendingInjections()}). A real empty queue: {@code remove}/{@code peekColumn}
+     *  are harmless no-ops on it, and nothing is ever enqueued, so it stays empty. */
+    public static final PendingInjections EMPTY = new PendingInjections();
+
     /** One placement intent. {@code cell} is the engine index {@code x + 16*y + 6144*z}. */
     public record Intent(
             Identifier dim,

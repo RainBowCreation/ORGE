@@ -81,6 +81,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     }
 
     /** The placement-injection queue (server-thread). Drained at snapshot, cleared on successful write-back. */
+    @Override
     public PendingInjections pendingInjections() {
         return this.pendingInjections;
     }

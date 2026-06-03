@@ -110,4 +110,14 @@ public interface ThermalWorld {
      * boundary. Default no-op for headless test worlds.
      */
     default void writeBackColumn(ColumnEntry entry, ColumnResult result) { }
+
+    /**
+     * The placement-injection queue (spec Part B). Default impl returns a shared empty queue whose
+     * {@code remove}/{@code forgetColumn} are harmless no-ops, so non-Minecraft {@link ThermalWorld}
+     * impls + headless test fakes need no change; {@code MinecraftThermalWorld} overrides it with the
+     * real server-thread queue.
+     */
+    default PendingInjections pendingInjections() {
+        return PendingInjections.EMPTY;
+    }
 }

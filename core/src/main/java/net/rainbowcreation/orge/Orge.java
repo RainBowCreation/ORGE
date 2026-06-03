@@ -159,6 +159,8 @@ public final class Orge {
         SECTION_STORES.setColumnUnloadListener((dim, cx, cz) -> {
             cellMaterials.forgetColumn(dim, cx, cz);
             activeSet.forgetColumn(dim, cx, cz);
+            // Bound the placement queue too: drop any pending intents for the unloaded column.
+            thermalWorld.pendingInjections().forgetColumn(dim, cx, cz);
         });
         thermalWorld = new MinecraftThermalWorld(SECTION_STORES, cellMaterials, activeSet);
         phaseChanger = new MinecraftPhaseChanger(SECTION_STORES);
