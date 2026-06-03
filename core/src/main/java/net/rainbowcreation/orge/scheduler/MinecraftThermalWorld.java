@@ -47,6 +47,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private final ActiveSet activeSet;
     private volatile MinecraftServer server;
 
+    /** Placement-injection queue (spec Part B). Server-thread-confined: written by the capturing wake
+     *  sink, drained at snapshot, cleared on a successful write-back. */
+    private final PendingInjections pendingInjections = new PendingInjections();
+
     /** §10/§7 seams the column write-back drives per section (set in {@link Orge} after construction;
      *  default NOOP so headless tests that never set them do not need a live reconciler/phase changer). */
     private FluidReconciler fluidReconciler = FluidReconciler.NOOP;
@@ -76,9 +80,89 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         this(stores, new CellMaterialTracker(), new ActiveSet());
     }
 
-    /** The wake sink the loader event hooks push into (DESIGN §10 Decision 11). */
+    /** The placement-injection queue (server-thread). Drained at snapshot, cleared on successful write-back. */
+    public PendingInjections pendingInjections() {
+        return this.pendingInjections;
+    }
+
+    /** The wake sink the loader event hooks push into (DESIGN §10 Decision 11). The composite runs the
+     *  placement-injection capture first, then delegates the unchanged wake behaviour to {@link #activeSet}. */
     public WakeSink wakeSink() {
-        return activeSet;
+        return capturingWakeSink;
+    }
+
+    private final WakeSink capturingWakeSink = new WakeSink() {
+        @Override
+        public void wakeBlock(Identifier dim, int blockX, int blockY, int blockZ) {
+            captureBlockChange(dim, blockX, blockY, blockZ);    // enqueue intent if a displacement placement
+            activeSet.wakeBlock(dim, blockX, blockY, blockZ);   // unchanged wake behaviour
+        }
+
+        @Override
+        public void wakeFlowSection(Identifier dim, SubchunkKey key) {
+            activeSet.wakeFlowSection(dim, key);
+        }
+
+        @Override
+        public void wakeThermalSection(Identifier dim, SubchunkKey key) {
+            activeSet.wakeThermalSection(dim, key);
+        }
+    };
+
+    /** Server-thread: read the live block + the recorded incumbent at this cell; enqueue a placement
+     *  intent iff it is a movable→movable displacement (the reconciler's own air/fluid repaint has
+     *  live==recorded incumbent and is filtered out). Fully null/guard-safe (server null, level null,
+     *  chunk not loaded, prior null) so it is inert in the headless suites where {@code server == null}. */
+    private void captureBlockChange(Identifier dim, int blockX, int blockY, int blockZ) {
+        MinecraftServer srv = this.server;
+        if (srv == null) {
+            return;
+        }
+        ServerLevel level = levelFor(srv, dim);
+        if (level == null) {
+            return;
+        }
+        int cx = SectionPos.blockToSectionCoord(blockX);
+        int cz = SectionPos.blockToSectionCoord(blockZ);
+        if (LiveMaterials.loadedChunk(level, cx, cz) == null) {
+            return;
+        }
+        int sectionY = SectionPos.blockToSectionCoord(blockY);
+        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+        ActiveMaterials.State mats = ActiveMaterials.current();
+
+        // Live material from the world block (null for a non-ORGE block — the policy null-guards it).
+        BlockPos pos = new BlockPos(blockX, blockY, blockZ);
+        Material live = LiveMaterials.materialFor(level.getBlockState(pos), mats);
+
+        // Recorded incumbent (last cycle's engine-output species) for this cell, in section-local space.
+        Identifier[] prior = cellMaterials.prior(dim, key);
+        int lx = blockX & 15, ly = blockY & 15, lz = blockZ & 15;
+        int sectionCell = lx + 16 * ly + 256 * lz;
+        Material incumbent = (prior != null && sectionCell < prior.length && prior[sectionCell] != null)
+                ? materialById(prior[sectionCell], mats) : null;
+
+        int engineCell = ColumnSectionCodec.colIdx(lx, sectionY, ly, lz);
+        float ambientK = biomeAmbientK(level, key);
+
+        PlacementCapture.capture(pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
+    }
+
+    /** id→{@link Material} in the active state, or {@code null} when the id is absent (registry not yet
+     *  populated, or the recorded species is no longer defined). Mirrors {@link LiveMaterials}' lookup but
+     *  null-safe (never the fallback) so an unknown incumbent reads as "nothing known to displace". */
+    private static Material materialById(Identifier id, ActiveMaterials.State mats) {
+        return mats.registry().get(id).orElse(null);
+    }
+
+    /** The {@link ServerLevel} for {@code dim}, or null. Mirrors {@code MinecraftPhaseChanger#levelFor}. */
+    private static ServerLevel levelFor(MinecraftServer srv, Identifier dim) {
+        for (ServerLevel level : srv.getAllLevels()) {
+            if (level.dimension().identifier().equals(dim)) {
+                return level;
+            }
+        }
+        return null;
     }
 
     /** Bind the running server (on SERVER_STARTED); unbind on stop. */
