@@ -36,9 +36,6 @@ import net.rainbowcreation.orge.section.SubchunkKey;
  */
 public final class MinecraftFluidReconciler implements FluidReconciler {
 
-    /** ORGE's one managed gas block id; hoisted out of the per-cell reconcile loop (no per-cell alloc). */
-    private static final Identifier ORGE_STEAM = Identifier.fromNamespaceAndPath("orge", "steam");
-
     private final SectionStoreManager stores;
     private volatile MinecraftServer server;
 
@@ -129,14 +126,16 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
             if (renderLevel == FluidReconcileLogic.REMOVE) {
                 // Only clear a cell that currently holds a managed fluid block; leave others alone.
-                if (current.getBlock() instanceof LiquidBlock || isManagedGas(current)) {
+                // (Steam renders as minecraft:air — its representative_block — so a vacated gas cell is
+                // already air and needs no clear.)
+                if (current.getBlock() instanceof LiquidBlock) {
                     setIfChanged(level, pos, current, Blocks.AIR.defaultBlockState());
                 }
                 continue;
             }
 
             // §7 contact whitelist: do not overwrite a block that §7 owns (water+lava→obsidian etc.).
-            // The whitelist is "only place over air or over a managed fluid/gas block"; never stomp a
+            // The whitelist is "only place over air or over a managed fluid block"; never stomp a
             // solid the phase-changer produced.
             if (!isPlaceableTarget(current, levelMaterial)) {
                 continue;
@@ -214,29 +213,21 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         if (current.getBlock() instanceof LiquidBlock && current.hasProperty(LiquidBlock.LEVEL)) {
             return FluidReconcileLogic.levelBucket(current.getValue(LiquidBlock.LEVEL));
         }
-        if (isManagedGas(current)) {
-            return FluidReconcileLogic.levelBucket(0); // gas renders as a single full bucket
-        }
         return FluidReconcileLogic.levelBucket(FluidReconcileLogic.REMOVE);
-    }
-
-    /** True when {@code current} is ORGE's managed gas block ({@code orge:steam}). */
-    private static boolean isManagedGas(BlockState current) {
-        Identifier id = BuiltInRegistries.BLOCK.getKey(current.getBlock());
-        return id != null && id.equals(ORGE_STEAM);
     }
 
     /**
      * §7 contact whitelist (Decision 7): a cell is placeable only when it is currently air/replaceable
-     * OR already the managed fluid/gas block. This refuses to overwrite a solid (e.g. obsidian/stone
-     * the phase-changer produced from a water+lava contact), leaving §7 in charge.
+     * OR already the managed fluid block. This refuses to overwrite a solid (e.g. obsidian/stone the
+     * phase-changer produced from a water+lava contact), leaving §7 in charge. (Steam renders as
+     * minecraft:air, so gas cells are covered by the air branch.)
      */
     private static boolean isPlaceableTarget(BlockState current, Material material) {
         if (current.isAir()) {
             return true;
         }
-        if (current.getBlock() instanceof LiquidBlock || isManagedGas(current)) {
-            return true; // already a managed fluid/gas; updating its level is fine
+        if (current.getBlock() instanceof LiquidBlock) {
+            return true; // already a managed fluid; updating its level is fine
         }
         return false; // solid or other block -> §7 / vanilla owns it, do not stomp
     }

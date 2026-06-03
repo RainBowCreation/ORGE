@@ -22,7 +22,6 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.BlockHitResult;
-import net.rainbowcreation.orge.block.ModBlocks;
 import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.fluid.VanillaFluidSuppressor;
 import net.rainbowcreation.orge.engine.OrgeEngine;
@@ -102,9 +101,9 @@ public final class Orge {
 
         LOGGER.info("ORGE v2 thermal core initializing (Phase 1 skeleton).");
 
-        // DESIGN §7 — register ORGE's blocks (the inert orge:steam gas marker). Must run
-        // during mod init, before any world loads.
-        ModBlocks.register();
+        // ORGE registers NO blocks: every substance is a material, and a material renders via its
+        // representative_block (steam → minecraft:air, an invisible gas). Identity is durable per-cell
+        // in §5 SectionStore, so no block is needed to carry species.
 
         // DESIGN.md §6 — material model: register the datapack reload listener so
         // materials load at server start and refresh on /reload. One

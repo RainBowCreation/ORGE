@@ -9,5 +9,5 @@
   "max_mass": 0.6,
   "min_temp": 373.15,
   "min_target": "orge:water",
-  "representative_block": "orge:steam"
+  "representative_block": "minecraft:air"
 }
