@@ -404,8 +404,62 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                         ColumnAssembler.assemble(cx, cz, lut.materials(), src)));
             }
         }
+        // ---- Drain placement intents into this batch's injection list (spec B3) ----
+        List<net.rainbowcreation.orge.engine.EngineInjection> injections = new ArrayList<>();
+        List<PendingInjections.Intent> drained = new ArrayList<>();
+        for (int columnId = 0; columnId < entries.size(); columnId++) {
+            ColumnEntry e = entries.get(columnId);
+            List<PendingInjections.Intent> colIntents =
+                    pendingInjections.peekColumn(e.dimension(), e.cx(), e.cz());
+            if (colIntents.isEmpty()) {
+                continue;
+            }
+            SectionStore store = stores.store(e.dimension());
+            char[] colMat = e.task().matIx();
+            float[] colMass = e.task().mass();
+            InjectionDrain.applyToColumn(columnId, colMat, colMass, lut.materials(), colIntents,
+                    engineCell -> recordedIncumbentId(e.dimension(), e.cx(), e.cz(), engineCell),
+                    engineCell -> storedMassAt(store, e.cx(), e.cz(), engineCell),
+                    injections);
+            drained.addAll(colIntents);
+        }
         lastColumnLut = lut.materials();
-        return new ColumnBatch(entries, lut.materials());
+        return new ColumnBatch(entries, lut.materials(), injections, drained);
+    }
+
+    /** Recorded engine-output species id for an engine-cell in a column, or null if untracked. */
+    private Identifier recordedIncumbentId(Identifier dim, int cx, int cz, int engineCell) {
+        int x = engineCell & 15;
+        int engineY = (engineCell / 16) % 384;
+        int z = engineCell / 6144;
+        int sectionY = Math.floorDiv(engineY - 64, 16);      // inverse of engineY = sectionY*16 + sy + 64
+        int sy = engineY - 64 - sectionY * 16;
+        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+        Identifier[] prior = cellMaterials.prior(dim, key);
+        int sectionCell = x + 16 * sy + 256 * z;
+        return (prior != null && sectionCell < prior.length) ? prior[sectionCell] : null;
+    }
+
+    /** Stored mass (kg) for an engine-cell in a column. */
+    private float storedMassAt(SectionStore store, int cx, int cz, int engineCell) {
+        if (store == null) {
+            return 0f;
+        }
+        int x = engineCell & 15;
+        int engineY = (engineCell / 16) % 384;
+        int z = engineCell / 6144;
+        int sectionY = Math.floorDiv(engineY - 64, 16);
+        int sy = engineY - 64 - sectionY * 16;
+        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+        if (!store.isLoaded(cx, cz)) {
+            return 0f;
+        }
+        SectionData data = store.get(key);
+        if (data == null) {
+            return 0f;
+        }
+        int sectionCell = x + 16 * sy + 256 * z;
+        return data.massAt(sectionCell);
     }
 
     /**

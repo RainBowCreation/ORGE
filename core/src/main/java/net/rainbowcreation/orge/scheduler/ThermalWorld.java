@@ -80,8 +80,16 @@ public interface ThermalWorld {
      *  cells) plus the key it came from for write-back. */
     record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task) {}
 
-    /** A cycle's worth of column work: the dimension-tagged columns + the shared material LUT. */
-    record ColumnBatch(List<ColumnEntry> entries, List<Material> lut) {}
+    /** A cycle's worth of column work: the dimension-tagged columns + the shared material LUT, plus
+     *  this cycle's drained placement injections (and the intents they came from, for clear-on-success). */
+    record ColumnBatch(List<ColumnEntry> entries, List<Material> lut,
+                       List<net.rainbowcreation.orge.engine.EngineInjection> injections,
+                       List<PendingInjections.Intent> drained) {
+        /** Back-compat convenience for call sites/tests that build a batch with no injections. */
+        public ColumnBatch(List<ColumnEntry> entries, List<Material> lut) {
+            this(entries, lut, List.of(), List.of());
+        }
+    }
 
     /**
      * Assemble this cycle's active+apron column set (the player-sphere union at {@code range}
