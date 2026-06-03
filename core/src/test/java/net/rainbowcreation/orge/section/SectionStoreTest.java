@@ -1,5 +1,6 @@
 package net.rainbowcreation.orge.section;
 
+import net.minecraft.resources.Identifier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -234,6 +235,65 @@ class SectionStoreTest {
     // -------------------------------------------------------------------------
     // Test 8: flushAll correctly round-trips negative chunk coordinates
     // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // Task D3: SectionStore is the per-cell material authority
+    // -------------------------------------------------------------------------
+
+    private static Identifier matId(String p) {
+        return Identifier.fromNamespaceAndPath("orge", p);
+    }
+
+    @Test
+    void setMaterialAt_thenMaterialAt_returnsStoredId() {
+        RegionStore region = new RegionStore(world);
+        SectionStore store = new SectionStore(region, AMB);
+
+        store.setMaterialAt(0, 0, 3, 5, matId("water"));
+        assertEquals(matId("water"), store.materialAt(0, 0, 3, 5),
+                "materialAt must return the id written by setMaterialAt");
+
+        region.closeAll();
+    }
+
+    @Test
+    void materialAt_neverWritten_returnsVacuum() {
+        RegionStore region = new RegionStore(world);
+        SectionStore store = new SectionStore(region, AMB);
+
+        // Materialize the section by writing one cell, then probe a sibling cell.
+        store.setMaterialAt(0, 0, 3, 5, matId("water"));
+        assertEquals(MaterialPalette.VACUUM_ID, store.materialAt(0, 0, 3, 6),
+                "unwritten cell in a stored section reads vacuum");
+
+        // A wholly unstored section reads vacuum without synthesizing/storing anything.
+        assertEquals(MaterialPalette.VACUUM_ID, store.materialAt(0, 0, 99, 0),
+                "unstored section reads vacuum");
+        assertFalse(store.hasSection(new SubchunkKey(0, 99, 0)),
+                "materialAt read must not store the section");
+
+        region.closeAll();
+    }
+
+    @Test
+    void setMaterialAt_survivesUnloadReloadRoundTrip() throws IOException {
+        RegionStore region = new RegionStore(world);
+        SectionStore store = new SectionStore(region, AMB);
+
+        store.setMaterialAt(0, 0, 3, 5, matId("water"));
+        store.unloadColumn(0, 0);
+        region.closeAll();
+
+        // Fresh stores on the same world dir
+        RegionStore region2 = new RegionStore(world);
+        SectionStore store2 = new SectionStore(region2, AMB);
+        store2.loadColumn(0, 0);
+
+        assertEquals(matId("water"), store2.materialAt(0, 0, 3, 5),
+                "material must survive demote + codec + save/load round-trip");
+
+        region2.closeAll();
+    }
 
     @Test
     void flushAll_negativeChunkCoords_roundTrips() {

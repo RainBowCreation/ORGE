@@ -1,5 +1,7 @@
 package net.rainbowcreation.orge.section;
 
+import net.minecraft.resources.Identifier;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -198,5 +200,42 @@ public final class SectionStore {
                 loaded.computeIfAbsent(ck, k -> new TreeMap<>());
         col.put(key.sectionY(), data);
         dirty.add(ck);
+    }
+
+    // -------------------------------------------------------------------------
+    // Per-cell material authority (DESIGN §5 — durable material store)
+    // -------------------------------------------------------------------------
+
+    /**
+     * The durable material id stored at world cell {@code (cx, cz, sectionY, cell)}, or
+     * {@link MaterialPalette#VACUUM_ID} if the section is not stored (never synthesizes
+     * or stores a section on a read).
+     */
+    public Identifier materialAt(int cx, int cz, int sectionY, int cell) {
+        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+        if (!hasSection(key)) {
+            return MaterialPalette.VACUUM_ID;
+        }
+        return get(key).materialAt(cell);
+    }
+
+    /**
+     * Sets the durable material id at world cell {@code (cx, cz, sectionY, cell)},
+     * materializing and storing the section (and marking its column dirty) if it was not
+     * already stored.
+     */
+    public void setMaterialAt(int cx, int cz, int sectionY, int cell, Identifier id) {
+        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+        SectionData s;
+        if (hasSection(key)) {
+            s = get(key);                       // already stored — mutate in place
+        } else {
+            s = SectionData.uniform(
+                    ambient.ambientTemperatureK(key),
+                    ambient.ambientMassKg(key));
+            put(key, s);                        // store it (marks the column dirty)
+        }
+        s.setMaterialAt(cell, id);
+        dirty.add(colKey(cx, cz));              // ensure dirty even if it was already stored
     }
 }
