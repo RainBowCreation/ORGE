@@ -99,8 +99,8 @@ class MaterialLoaderTest {
         assertFalse(m.movable(), "frozen => not movable");
         assertEquals(2500f, m.minMass(), 0f, "absent min_mass => default_mass");
         assertEquals(2500f, m.maxMass(), 0f, "absent max_mass => default_mass");
-        assertEquals(Identifier.fromNamespaceAndPath("minecraft", "air"), m.representativeBlock(),
-                "absent representative_block => minecraft:air");
+        assertEquals(Identifier.fromNamespaceAndPath("minecraft", "test_mat"), m.representativeBlock(),
+                "absent representative_block => minecraft:<path>");
         assertFalse(m.pinned(), "absent pinned => false");
         assertNull(m.minTarget());
         assertNull(m.maxTarget());

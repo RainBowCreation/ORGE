@@ -90,8 +90,8 @@ class MaterialCodecTest {
         // Nullable id fields — absent means null
         assertNull(m.maxTarget(),       "max_target absent → null");
         assertNull(m.minTarget(),      "min_target absent → null");
-        assertEquals(Identifier.fromNamespaceAndPath("minecraft", "air"), m.representativeBlock(),
-                "representative_block absent → minecraft:air (canonical default)");
+        assertEquals(Identifier.fromNamespaceAndPath("minecraft", "test_stone"), m.representativeBlock(),
+                "representative_block absent → minecraft:<path> (canonical default)");
     }
 
     // -------------------------------------------------------------------------

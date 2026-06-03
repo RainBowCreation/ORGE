@@ -34,7 +34,8 @@ import java.util.Optional;
  *     {@code viscosity} → absent ⇒ {@code +∞} frozen ({@code 0} stays {@code 0}, fastest),
  *     {@code min_mass} → {@code default_mass}, {@code max_mass} → {@code default_mass},
  *     {@code max_temp} → +∞, {@code min_temp} → -∞, {@code pinned} → false,
- *     {@code representative_block} → {@code minecraft:air}</li>
+ *     {@code representative_block} → {@code minecraft:<path>} (derived from the id's path; air-downgrade
+ *     for nonexistent blocks happens at the registry boundary)</li>
  *   <li><b>Optional MATERIAL-id targets:</b> {@code min_target}, {@code max_target}
  *       (paired: if {@code min_temp} is present {@code min_target} is required;
  *       if {@code max_temp} is present {@code max_target} is required)</li>
@@ -142,7 +143,7 @@ public final class MaterialCodec {
         }
 
         // The builder applies the canonical absent-defaults (viscosity → +∞ frozen,
-        // min/max_mass → default_mass, representative_block → minecraft:air).
+        // min/max_mass → default_mass, representative_block → minecraft:<path>).
         Material.Builder b = Material.builder(id)
                 .thermalConductivity(bd.thermalConductivity())
                 .heatCapacity(bd.heatCapacity())

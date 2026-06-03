@@ -24,7 +24,11 @@ import net.minecraft.resources.Identifier;
  * @param maxTemp             K — upper threshold; above it the cell becomes {@code maxTarget}
  * @param minTarget           MATERIAL id placed when temperature drops below {@code minTemp}, or null
  * @param maxTarget           MATERIAL id placed when temperature rises above {@code maxTemp}, or null
- * @param representativeBlock block placed when something <i>becomes</i> this material; defaults to {@code minecraft:air}
+ * @param representativeBlock block placed when something <i>becomes</i> this material; defaults to
+ *                            {@code minecraft:<path>} (the id's path under the {@code minecraft}
+ *                            namespace, e.g. {@code orge:blue_ice → minecraft:blue_ice}). When that
+ *                            block doesn't exist the registry boundary downgrades it to
+ *                            {@code minecraft:air} at placement time
  * @param pinned              when true the cell temperature is held at {@code defaultTemperature} every tick
  */
 public record Material(
@@ -64,8 +68,9 @@ public record Material(
 
     /**
      * Fluent builder applying the absent-field defaults: viscosity → {@code +∞} (frozen),
-     * min/maxMass → {@code defaultMass}, representativeBlock → {@code minecraft:air}, pinned → false.
-     * Optional temps default to ∓∞ and targets to null.
+     * min/maxMass → {@code defaultMass}, representativeBlock → {@code minecraft:<path>} (derived from
+     * the id's path; air-downgrade for nonexistent blocks happens at the registry boundary), pinned →
+     * false. Optional temps default to ∓∞ and targets to null.
      */
     public static final class Builder {
         private final Identifier id;
@@ -117,7 +122,7 @@ public record Material(
             float maxM = maxMass != null ? maxMass : defaultMass;                 // absent => default_mass
             Identifier repr = representativeBlock != null
                     ? representativeBlock
-                    : Identifier.fromNamespaceAndPath("minecraft", "air");         // absent => minecraft:air
+                    : Identifier.fromNamespaceAndPath("minecraft", id.getPath());  // absent => minecraft:<path>
             return new Material(id, thermalConductivity, heatCapacity, molarMass, defaultMass,
                     defaultTemperature, visc, minM, maxM, minTemp, maxTemp,
                     minTarget, maxTarget, repr, pinned);

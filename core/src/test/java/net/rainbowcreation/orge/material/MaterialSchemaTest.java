@@ -33,7 +33,7 @@ class MaterialSchemaTest {
         assertTrue(Float.isInfinite(m.viscosity()));          // absent => frozen (+INF)
         assertEquals(2500f, m.minMass(), 0f);                 // absent => default_mass
         assertEquals(2500f, m.maxMass(), 0f);                 // absent => default_mass
-        assertEquals(id("minecraft:air"), m.representativeBlock()); // absent => minecraft:air
+        assertEquals(id("minecraft:stone"), m.representativeBlock()); // absent => minecraft:<path>
         assertFalse(m.pinned());
     }
 

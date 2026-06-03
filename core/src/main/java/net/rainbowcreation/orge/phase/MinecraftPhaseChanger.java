@@ -116,9 +116,11 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
             // (§8 geometry rescan reads it back through the first-touch BlockMaterialRule).
             Optional<Identifier> repr =
                     PhaseRenderResolver.representativeBlock(mats.registry()::get, t.materialId());
-            if (repr.isEmpty() || !BuiltInRegistries.BLOCK.containsKey(repr.get())) {
-                continue;
+            if (repr.isEmpty()) {
+                continue; // material unregistered → nothing to draw
             }
+            // Nonexistent repr block downgrades to minecraft:air (BLOCK is a defaulted registry whose
+            // getValue returns AIR for unknown ids), matching the material schema's air-fallback.
             int i = t.cellIndex();
             int x = i & 15;
             int y = (i >> 4) & 15;

@@ -145,7 +145,7 @@ and the phase system all conform to it — **no more, no fewer fields** (full sp
 | `max_mass` | `= default_mass` | per-cell compression ceiling; a cell never exceeds this |
 | `min_temp` / `max_temp` | no phase change | below `min_temp` → `min_target`; above `max_temp` → `max_target` |
 | `min_target` / `max_target` | — | **material id** (not block id) to become; required if its temp is set |
-| `representative_block` | `minecraft:air` | block **drawn** for this material — *not* its identity (see below) |
+| `representative_block` | `minecraft:<path>` | block **drawn** for this material — *not* its identity (see below). Absent ⇒ the id's path under `minecraft` (`orge:blue_ice → minecraft:blue_ice`); a nonexistent block downgrades to `minecraft:air` at placement |
 | `pinned` | `false` | hold cell temperature at `default_temperature` every tick (Dirichlet heat source/sink) |
 
 - **Identity is the material id, not the block.** `representative_block` is only what's

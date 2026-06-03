@@ -9,6 +9,5 @@
   "max_mass": 3100,
   "min_temp": 1000,
   "min_target": "orge:stone",
-  "representative_block": "minecraft:lava",
   "pinned": true
 }

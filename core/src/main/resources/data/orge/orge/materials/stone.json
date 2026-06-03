@@ -3,6 +3,5 @@
   "heat_capacity": 840,
   "molar_mass": 0.060,
   "default_mass": 2500,
-  "default_temperature": 290,
-  "representative_block": "minecraft:stone"
+  "default_temperature": 290
 }
