@@ -1,3 +1,9 @@
+> **SUPERSEDED re: material LUT** — see `docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md`.
+> `matIx` ids are now globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM, slots 1..N
+> = `MaterialRegistry.all()` sorted by namespaced id). The LUT is engine-resident (register-once via
+> `orgeRegisterMaterials`), NOT shipped per `orgeStepWorld` call. Passages below describing a per-step /
+> batch-local / first-seen LUT are historical.
+
 # Engine Track (DESIGN.md §2) — Native Conduction Step via JNI
 
 **Date:** 2026-05-29

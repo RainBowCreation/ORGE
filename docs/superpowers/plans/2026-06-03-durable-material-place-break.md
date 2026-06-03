@@ -1,3 +1,9 @@
+> **SUPERSEDED re: material LUT** — see `docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md`.
+> `matIx` ids are now globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM, slots 1..N
+> = `MaterialRegistry.all()` sorted by namespaced id). The LUT is engine-resident (register-once via
+> `orgeRegisterMaterials`), NOT shipped per `orgeStepWorld` call. Passages below describing a per-step /
+> batch-local / first-seen LUT are historical.
+
 # Durable per-cell Material + first-touch rule + unified place/break Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -287,6 +293,9 @@ class SectionMaterialTest {
 - [ ] **Step 2: Run, verify fail.**
 
 - [ ] **Step 3: Implement.** Add a `MaterialPalette` helper (`core/.../section/MaterialPalette.java`) holding `List<Identifier>` (index 0 reserved for `orge:vacuum` = `VACUUM_ID`) + `char[4096]` indices, with `indexOf(id)` appending on first sight. Add to `SectionData`: `private MaterialPalette materials;` (null until first material write), `boolean hasMaterials()`, `Identifier materialAt(int i)` (returns `VACUUM_ID` when `materials==null` or the cell index is 0), `void setMaterialAt(int i, Identifier id)` (lazily allocates the palette, also promotes temp/mass to FULL so the three layers stay aligned), `List<Identifier> palette()`, and array accessors for the codec. Keep temp/mass untouched.
+
+> NOTE: the SectionData **on-disk** `MaterialPalette` legitimately stays first-seen (it is `Identifier`-keyed
+> and stable); only the **engine-bound** `matIx` encoding became global. Do not conflate the two.
 
 - [ ] **Step 4: Run, verify PASS.**
 
