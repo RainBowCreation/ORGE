@@ -1,6 +1,9 @@
 package net.rainbowcreation.orge.section;
 
+import net.minecraft.resources.Identifier;
+
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * Per-cell thermal metadata for one section (DESIGN.md §5).
@@ -35,6 +38,7 @@ public final class SectionData {
     private float uniformMass;
     private float[] temperature; // null while UNIFORM
     private float[] mass;        // null while UNIFORM
+    private MaterialPalette materials; // null until the first per-cell material write
 
     private SectionData(Form form, float uniformTemperature, float uniformMass,
                         float[] temperature, float[] mass) {
@@ -211,6 +215,55 @@ public final class SectionData {
         mass = null;
         form = Form.UNIFORM;
         return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Material identity layer (durable-material §): per-section palette + char[4096]
+    // -------------------------------------------------------------------------
+
+    /** Whether this section has allocated its per-cell material layer (first material write). */
+    public boolean hasMaterials() {
+        return materials != null;
+    }
+
+    /**
+     * The material id of cell {@code i} (0..{@value CELLS}-1). Reads the {@code orge:vacuum}
+     * sentinel ({@link MaterialPalette#VACUUM_ID}) for any cell never written — including every
+     * cell when no material layer has been allocated.
+     */
+    public Identifier materialAt(int i) {
+        return materials == null ? MaterialPalette.VACUUM_ID : materials.get(i);
+    }
+
+    /**
+     * Sets the material id of cell {@code i} (0..{@value CELLS}-1), lazily allocating the material
+     * layer on first call. Also promotes temp/mass to {@code FULL} so all three per-cell layers stay
+     * aligned for the codec.
+     */
+    public void setMaterialAt(int i, Identifier id) {
+        if (materials == null) {
+            materials = new MaterialPalette();
+        }
+        promote();
+        materials.set(i, id);
+    }
+
+    /**
+     * The material palette (size includes the slot-0 vacuum sentinel). When no material layer is
+     * allocated, returns a singleton {@code [VACUUM_ID]}.
+     */
+    public List<Identifier> palette() {
+        return materials == null ? List.of(MaterialPalette.VACUUM_ID) : materials.palette();
+    }
+
+    /** The live material layer, or {@code null} if none has been allocated. For the codec (D2). */
+    public MaterialPalette materials() {
+        return materials;
+    }
+
+    /** Installs a reconstructed material layer (codec, on load). */
+    public void adoptMaterials(MaterialPalette m) {
+        this.materials = m;
     }
 
     // -------------------------------------------------------------------------
