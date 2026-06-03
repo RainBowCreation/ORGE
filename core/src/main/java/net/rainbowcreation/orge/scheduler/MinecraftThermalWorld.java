@@ -194,14 +194,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             decision = "ENQUEUE inject=" + liveId;
         } else if (live == null) {
             decision = "SKIP live-null (non-ORGE block / no material)";
-        } else if (!live.movable()) {
-            decision = "SKIP live-immovable (solid: NOT mass-reseeded — keeps stored mass, not defaultMass)";
-        } else if (incumbent == null) {
-            decision = "SKIP incumbent-null (untracked cell: fluid NOT made durable -> vanish-race exposed)";
-        } else if (!incumbent.movable()) {
-            decision = "SKIP incumbent-immovable";
         } else {
-            decision = "SKIP other";
+            decision = "SKIP self-write (live==incumbent repaint)";
         }
         InjectDebug.LOG.info(
                 "[capture] pos=({},{},{}) cell={} block={} live={} defMass={} incumbent={} prior={} stored({}) -> {}",

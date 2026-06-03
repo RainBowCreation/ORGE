@@ -43,10 +43,11 @@ class PlacementCaptureTest {
     }
 
     @Test
-    void breakToAirOverSolidDoesNotEnqueue() {       // incumbent non-movable -> existing seed path
+    void airOverSolidIsDisplacement() {               // different ids → enqueue (movable() irrelevant)
         PendingInjections q = new PendingInjections();
         Material stone = TestMaterials.stone();
         PlacementCapture.capture(q, DIM, 0, 0, 100, air(), stone, 295f);
-        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty());
+        assertEquals(1, q.peekColumn(DIM, 0, 0).size());
+        assertEquals(air().id(), q.peekColumn(DIM, 0, 0).get(0).species());
     }
 }

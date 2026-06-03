@@ -7,16 +7,21 @@ import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import org.junit.jupiter.api.Test;
 
-/** B1/B5 decision: enqueue an injection ONLY for a genuine movable→movable placement where the new
- *  species differs from the recorded incumbent (so reconciler self-writes and solid breaks are skipped). */
+/**
+ * A placement is captured (enqueued for displace-and-inject) when the placed material differs from the
+ * recorded incumbent species (or the cell is untracked). A self-write (live == incumbent id, the
+ * reconciler's own engine-output repaint) is skipped. {@code movable()} no longer participates in this
+ * decision — it governs only post-placement flow.
+ */
 class PlacementInjectionPolicyTest {
 
-    // Use the project's shared test material factory (same helper used by other scheduler tests).
     // TestMaterials.air() and .water() have finite viscosity (movable() == true).
     // TestMaterials.stone() has no viscosity set → loads as +∞ (frozen, movable() == false).
     private static Material air()   { return TestMaterials.air(); }
     private static Material water() { return TestMaterials.water(); }
-    private static Material stone() { return TestMaterials.stone(); }   // visc = +inf
+    private static Material stone() { return TestMaterials.stone(); }
+
+    // --- fluid-over-fluid (previously tested) ---
 
     @Test
     void waterOverAirIsDisplacement() {
@@ -24,28 +29,47 @@ class PlacementInjectionPolicyTest {
     }
 
     @Test
-    void sameSpeciesIsNotDisplacement() {              // reconciler self-write: live == incumbent
+    void sameSpeciesFluidIsNotDisplacement() {          // reconciler self-write: live == incumbent
         assertFalse(PlacementInjectionPolicy.isDisplacement(water(), water()));
     }
 
     @Test
-    void nonMovableIncumbentIsNotDisplacement() {      // /setblock water over stone: existing seed path
-        assertFalse(PlacementInjectionPolicy.isDisplacement(water(), stone()));
-    }
-
-    @Test
-    void nonMovableNewSpeciesIsNotDisplacement() {     // placing stone: not an injection
-        assertFalse(PlacementInjectionPolicy.isDisplacement(stone(), air()));
-    }
-
-    @Test
-    void fluidOverNullIncumbentIsDisplacement() {      // bug 1: untracked cell — still enqueue so the
-        // placement is made durable (otherwise a stale in-flight step stomps the live fluid → vanish).
+    void fluidOverNullIncumbentIsDisplacement() {       // untracked cell — enqueue for durability
         assertTrue(PlacementInjectionPolicy.isDisplacement(water(), null));
     }
 
     @Test
-    void nullLiveIsNotDisplacement() {                 // nothing placed → nothing to inject
+    void nullLiveIsNotDisplacement() {                  // nothing placed → nothing to inject
         assertFalse(PlacementInjectionPolicy.isDisplacement(null, air()));
+    }
+
+    // --- solid cases (BUG 2: previously returned false, now must be true) ---
+
+    @Test
+    void solidOverFluidIsDisplacement() {               // placing stone into water must displace
+        assertTrue(PlacementInjectionPolicy.isDisplacement(stone(), water()));
+    }
+
+    @Test
+    void solidOverSolidDifferentIdIsDisplacement() {    // different solid species → displace
+        // stone id != air id; both are non-movable — movable() must not affect outcome
+        assertTrue(PlacementInjectionPolicy.isDisplacement(stone(), air()));
+    }
+
+    @Test
+    void solidOverNullIncumbentIsDisplacement() {       // untracked cell with solid placement
+        assertTrue(PlacementInjectionPolicy.isDisplacement(stone(), null));
+    }
+
+    @Test
+    void sameSpeciesSolidIsNotDisplacement() {          // reconciler repaint with solid species
+        assertFalse(PlacementInjectionPolicy.isDisplacement(stone(), stone()));
+    }
+
+    // --- previously-named tests updated to new contract ---
+
+    @Test
+    void sameSpeciesIsNotDisplacement() {               // alias: same id regardless of movable()
+        assertFalse(PlacementInjectionPolicy.isDisplacement(water(), water()));
     }
 }

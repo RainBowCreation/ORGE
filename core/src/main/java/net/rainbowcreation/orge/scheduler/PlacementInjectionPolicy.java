@@ -3,22 +3,21 @@ package net.rainbowcreation.orge.scheduler;
 import net.rainbowcreation.orge.material.Material;
 
 /**
- * Pure decision for the placement-injection capture (spec B1/B5): a movable fluid placement becomes a
- * durable displace-and-inject. A placement is captured when:
+ * Pure decision for the placement-injection capture: a placement is captured (enqueued for
+ * displace-and-inject) when the placed material differs from the recorded incumbent species, or when the
+ * cell is untracked. Specifically:
  * <ul>
- *   <li>the placed (live) material is movable (a fluid), AND</li>
- *   <li>EITHER the cell is untracked ({@code incumbent == null}) — bug 1: an engine never recorded this
- *       cell yet, so we still enqueue to make the placement durable against the stale-write-back vanish
- *       race (the drain treats the unknown incumbent as void; the engine simply places the fluid);</li>
- *   <li>OR there is a recorded, movable incumbent of a DIFFERENT species to displace.</li>
+ *   <li>the cell is untracked ({@code incumbent == null}) — enqueue so the placement is made durable
+ *       against the stale-write-back vanish race;</li>
+ *   <li>OR the placed species id differs from the incumbent species id — the new block replaces whatever
+ *       was there (fluid, solid, or anything else).</li>
  * </ul>
- * Not captured: a non-movable (solid) placement, a self-write (live == incumbent, the reconciler's own
- * engine-output repaint), or a movable-over-a-recorded-non-movable-incumbent (the existing seed path).
+ * Not captured: {@code live == null} (no ORGE material for the placed block), or a self-write where
+ * {@code live.id()} equals {@code incumbent.id()} (the reconciler's own engine-output repaint).
  *
- * <p>NOTE (unified-substance direction): the {@code live.movable()} requirement here and the
- * {@code m.movable()} seed gate in {@code ColumnAssembler} are what currently exclude SOLID placements
- * from the displace-and-inject + default-mass-seed path. Generalising "every block is a substance"
- * (solid placement also displaces + seeds its defaultMass) is the pending bug 2 / bug 3 change.</p>
+ * <p>{@code movable()} is NOT consulted here. It governs only whether a substance flows after placement,
+ * not whether the placement itself is captured. Both solid and fluid placements over a different recorded
+ * incumbent are treated identically: enqueue for displace-and-inject.</p>
  */
 public final class PlacementInjectionPolicy {
 
@@ -31,12 +30,8 @@ public final class PlacementInjectionPolicy {
      *                  or {@code null} if the cell is untracked.
      */
     public static boolean isDisplacement(Material live, Material incumbent) {
-        if (live == null || !live.movable()) {
-            return false;
-        }
-        if (incumbent == null) {
-            return true; // bug 1: untracked cell — enqueue anyway so the placement is durable
-        }
-        return incumbent.movable() && !live.id().equals(incumbent.id());
+        if (live == null) return false;
+        if (incumbent == null) return true;           // untracked cell — enqueue for durability
+        return !live.id().equals(incumbent.id());     // different species → displace-and-inject
     }
 }
