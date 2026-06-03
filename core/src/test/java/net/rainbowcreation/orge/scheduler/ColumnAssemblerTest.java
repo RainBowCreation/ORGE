@@ -94,10 +94,11 @@ class ColumnAssemblerTest {
     }
 
     @Test
-    void storedMaterialIsAuthoritative_overridesFirstTouchAndAppendsToLut() {
-        // A LUT that has NOT yet seen water: only vacuum + air present so water gets APPENDED on resolve.
-        MaterialLut lut = new MaterialLut();
-        char airIx = lut.indexOf(TestMaterials.air());     // appends air at index 1
+    void storedMaterialIsAuthoritative_overridesFirstTouch() {
+        // A stable-slot view holding air (1) and water (2): the cell's first-touch is air, but its
+        // durable STORED material (water) is authoritative and must resolve to water's fixed slot.
+        MaterialLut lut = TestMaterials.lutOf(List.of(TestMaterials.air(), TestMaterials.water()));
+        char airIx = lut.indexOf(TestMaterials.air());     // fixed slot 1
         MaterialRegistry reg = registry();
         // The cell's block first-touch is air (matIx=airIx), but its STORED material is orge:water.
         ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
@@ -117,13 +118,13 @@ class ColumnAssemblerTest {
 
         ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
 
-        char waterIx = lut.indexOf(TestMaterials.water()); // now resolvable (was appended during assemble)
-        assertNotEquals(airIx, waterIx, "water must have its own appended slot, not air's");
+        char waterIx = lut.indexOf(TestMaterials.water()); // water's fixed slot (2)
+        assertNotEquals(airIx, waterIx, "water must have its own slot, not air's");
         int wi = colIdx(1, 4, 2, 3);
         assertEquals(waterIx, t.matIx()[wi],
                 "stored water id resolves to water's LUT index, NOT the block's first-touch air index");
         assertEquals(WATER_ID, lut.materials().get(t.matIx()[wi]).id(),
-                "the assembled slot is water (appended into the batch LUT)");
+                "the assembled slot is water (its stable slot in the view)");
     }
 
     @Test

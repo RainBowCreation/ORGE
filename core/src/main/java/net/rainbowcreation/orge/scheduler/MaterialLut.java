@@ -2,74 +2,47 @@ package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialTable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Builds the per-batch material lookup table passed to {@link
- * net.rainbowcreation.orge.engine.OrgeEngine#step}. Index 0 is always the
- * {@link #VACUUM} sentinel — a material with {@code thermalConductivity = 0}, so the
- * engine's {@code k <= 0} skip makes vacuum cells inert (matches §2's tests).
- * Real materials are appended in first-seen order and keyed by id, so a repeated
- * material reuses its index. Rebuilt fresh each step; no cross-tick stability needed.
+ * A read-only VIEW over a published {@link net.rainbowcreation.orge.material.ActiveMaterials.State}'s
+ * stable material table (spec 2026-06-03-engine-resident-material-table §4/§6). {@code matIx} ids are
+ * now globally STABLE: slot 0 = {@link #VACUUM}, slots 1..N fixed at load/{@code /reload} by
+ * {@link MaterialTable}. {@code indexOf} returns the fixed slot for an id and NEVER appends.
+ *
+ * <p>(Historical: this class used to be {@code new}-ed per step and assigned indices in first-seen
+ * encounter order. That batch-local model is gone — see the spec.)</p>
  */
 public final class MaterialLut {
 
-    /**
-     * The index-0 vacuum sentinel. Per spec invariant 5 it is the lightest <i>movable</i> fluid:
-     * {@code molar==0, minMass==0, maxMass==0} (displaceable / nothing to hold) with a FINITE
-     * viscosity (NOT frozen — earlier it was +∞ which wrongly froze it). Conductivity 0 keeps
-     * it inert to heat flux; temperature is absent ({@link Float#NaN}).
-     */
-    public static final Material VACUUM = Material.builder(
-                    Identifier.fromNamespaceAndPath("orge", "vacuum"))
-            .thermalConductivity(0f)        // inert to heat flux
-            .heatCapacity(1f)               // never divided by (void cells are never stepped)
-            .molarMass(0f)                  // slot 0 packs molar 0
-            .defaultMass(0f)
-            .defaultTemperature(Float.NaN)  // absent natural temperature
-            .viscosity(0f)                  // FINITE ⇒ movable/displaceable (not frozen)
-            .minMass(0f).maxMass(0f)        // slot 0 packs minMass 0, maxMass 0
-            .build();
+    /** The index-0 vacuum sentinel; aliases {@link MaterialTable#VACUUM} (its canonical home). */
+    public static final Material VACUUM = MaterialTable.VACUUM;
 
-    private final List<Material> lut = new ArrayList<>();
-    private final Map<Identifier, Character> byId = new HashMap<>();
+    private final List<Material> ordered;          // slot -> material (slot 0 = VACUUM); immutable
+    private final Map<Identifier, Character> byId;  // material id -> fixed slot; immutable
 
-    public MaterialLut() {
-        lut.add(VACUUM);
-        byId.put(VACUUM.id(), (char) 0);
+    /** Wrap a published stable table. Both args come from {@link MaterialTable} (same State). */
+    public MaterialLut(List<Material> ordered, Map<Identifier, Character> byId) {
+        this.ordered = ordered;
+        this.byId = byId;
     }
 
-    /** Returns the LUT index for {@code material}, appending it on first sight. */
+    /** Fixed slot for {@code material}, or 0 (VACUUM) if its id is not in the table. Never appends. */
     public char indexOf(Material material) {
-        Character existing = byId.get(material.id());
-        if (existing != null) {
-            return existing;
-        }
-        if (lut.size() > Character.MAX_VALUE) {
-            throw new IllegalStateException("MaterialLut overflow: more than 65535 materials");
-        }
-        char ix = (char) lut.size();
-        lut.add(material);
-        byId.put(material.id(), ix);
-        return ix;
+        return indexOf(material.id());
     }
 
-    /** The LUT index already assigned to {@code id}, or 0 (the {@link #VACUUM} sentinel) if this id has
-     *  not been seen in this batch. Read-only — never appends. Used by the {@link ColumnAssembler}
-     *  seed gate to translate a recorded prior-species {@link Identifier} into the section's LUT space
-     *  (an unknown/never-simulated prior maps to the vacuum sentinel, which differs from any real fluid ⇒ seeds). */
+    /** Fixed slot for {@code id}, or 0 (the {@link #VACUUM} sentinel) if this id is not in the table. */
     public char indexOf(Identifier id) {
         Character existing = byId.get(id);
         return existing != null ? existing : (char) 0;
     }
 
-    /** The table to hand to the engine; index 0 = {@link #VACUUM}. */
+    /** The table handed to the engine register/assembly; index 0 = {@link #VACUUM}. Immutable. */
     public List<Material> materials() {
-        return Collections.unmodifiableList(lut);
+        return ordered;
     }
 }

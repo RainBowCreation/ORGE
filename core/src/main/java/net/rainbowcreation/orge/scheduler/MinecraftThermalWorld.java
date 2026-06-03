@@ -508,7 +508,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return new ColumnBatch(List.of(), List.of(MaterialLut.VACUUM));
         }
         ActiveMaterials.State mats = ActiveMaterials.current();
-        MaterialLut lut = new MaterialLut();
+        MaterialLut lut = new MaterialLut(mats.orderedMaterials(), mats.materialSlots());
         List<ColumnEntry> entries = new ArrayList<>();
 
         for (ServerLevel level : srv.getAllLevels()) {

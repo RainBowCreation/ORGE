@@ -72,17 +72,23 @@ public final class TestMaterials {
     }
 
     /**
-     * Builds a {@link MaterialLut} whose slot order matches {@code slots} (index 0 = vacuum sentinel),
-     * for tests that previously passed a {@code List<Material>} to {@code ColumnAssembler.assemble}.
-     * {@code slots.get(0)} is expected to be the {@code orge:vacuum} sentinel (it reuses the LUT's
-     * built-in index-0 slot); the rest are appended in order.
+     * Builds a read-only {@link MaterialLut} VIEW whose slot order matches {@code slots}
+     * (index 0 = vacuum sentinel), for tests that previously relied on first-seen append order.
+     * The order is PRESERVED as given (NOT id-sorted) so existing hard-coded slot expectations stay
+     * valid. Any {@code orge:vacuum}-id entry collapses onto the canonical slot-0
+     * {@link net.rainbowcreation.orge.material.MaterialTable#VACUUM} sentinel; the rest follow in order.
      */
     public static MaterialLut lutOf(List<Material> slots) {
-        MaterialLut lut = new MaterialLut();
+        java.util.List<Material> ordered = new java.util.ArrayList<>();
+        ordered.add(net.rainbowcreation.orge.material.MaterialTable.VACUUM);
         for (Material m : slots) {
-            lut.indexOf(m); // appends (or reuses the vacuum sentinel for slot 0)
+            if (m.id().equals(net.rainbowcreation.orge.material.MaterialTable.VACUUM.id())) {
+                continue; // reuse the canonical slot-0 sentinel
+            }
+            ordered.add(m);
         }
-        return lut;
+        java.util.List<Material> immut = java.util.List.copyOf(ordered);
+        return new MaterialLut(immut, net.rainbowcreation.orge.material.MaterialTable.slots(immut));
     }
 
     /**

@@ -16,10 +16,18 @@ class GeometryAssemblerTest {
                 .build();
     }
 
+    static MaterialLut lutOf(net.rainbowcreation.orge.material.Material... reals) {
+        java.util.List<net.rainbowcreation.orge.material.Material> ordered = new java.util.ArrayList<>();
+        ordered.add(net.rainbowcreation.orge.material.MaterialTable.VACUUM);
+        for (var m : reals) ordered.add(m);
+        java.util.List<net.rainbowcreation.orge.material.Material> immut = java.util.List.copyOf(ordered);
+        return new MaterialLut(immut, net.rainbowcreation.orge.material.MaterialTable.slots(immut));
+    }
+
     @Test
     void uniformSectionGetsOneRealIndexAndItsDefaultMass() {
         Material stone = mat("stone", 2700f);
-        MaterialLut lut = new MaterialLut();
+        MaterialLut lut = lutOf(stone);
         GeometryAssembler.Geometry g = GeometryAssembler.assemble(i -> stone, lut);
 
         assertEquals(SectionData.CELLS, g.matIx().length);
@@ -34,7 +42,7 @@ class GeometryAssemblerTest {
     void heterogeneousSectionGetsPerCellIndicesAndMasses() {
         Material stone = mat("stone", 2700f);
         Material air = mat("air", 1.2f);
-        MaterialLut lut = new MaterialLut();
+        MaterialLut lut = lutOf(stone, air);
         GeometryAssembler.Geometry g =
                 GeometryAssembler.assemble(i -> (i % 2 == 0) ? stone : air, lut);
 
@@ -82,7 +90,7 @@ class GeometryAssemblerTest {
             // SHARED LUT, as in production: snapshot() assembles the section (populating the LUT)
             // and every neighbour face against the same MaterialLut, so indices agree. (Independent
             // LUTs would diverge because assembleFace visits cells in a different order.)
-            MaterialLut lut = new MaterialLut();
+            MaterialLut lut = lutOf(palette);
             GeometryAssembler.Geometry full = GeometryAssembler.assemble(cells, lut);
             GeometryAssembler.Geometry faceGeo = GeometryAssembler.assembleFace(cells, lut, face);
 
