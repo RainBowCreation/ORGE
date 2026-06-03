@@ -1,8 +1,0 @@
-{
-  "thermal_conductivity": 1.0,
-  "heat_capacity": 1000,
-  "molar_mass": 0.06,
-  "default_mass": 100,
-  "default_temperature": 255,
-  "pinned": true
-}
