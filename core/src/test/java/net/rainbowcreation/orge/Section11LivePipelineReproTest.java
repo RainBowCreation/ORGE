@@ -143,7 +143,8 @@ class Section11LivePipelineReproTest {
     // -------------------------------------------------------------------------------------------------
     private static void liveCycle(NativeEngine e, FakeColumn col) {
         ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
-        List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
+        e.registerMaterials(1, LUT);
+        List<ColumnResult> res = e.stepWorld(List.of(task), 1, 0.25, OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
         StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
         ledger.add(r.mass(), task.mass(), task.matIx(), r.matIx(), LUT);

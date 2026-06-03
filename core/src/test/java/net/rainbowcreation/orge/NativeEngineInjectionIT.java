@@ -95,7 +95,8 @@ class NativeEngineInjectionIT {
         // Use PASS_CONDUCTION so the engine step does not move mass after the injection;
         // conduction only affects temperature, not material positions or mass. The injection
         // displacement (pre-step) is what this test gates on.
-        RegionStepResult r = engine.stepWorld(cols, LUT, 0.25,
+        engine.registerMaterials(1, LUT);
+        RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
                 OrgeEngine.PASS_CONDUCTION,
                 List.of(new EngineInjection(0, ci, WATER, 1000f, 290f)));
 

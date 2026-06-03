@@ -133,6 +133,7 @@ class WholeRegionLivePipelineTest {
     @Test
     void waterCrossesXSeamAndConserves() {
         NativeEngine e = engineOrSkip();
+        e.registerMaterials(1, LUT);
         FakeColumn col0 = new FakeColumn(0, 0);
         FakeColumn col1 = new FakeColumn(1, 0);
         col0.floor();
@@ -157,7 +158,7 @@ class WholeRegionLivePipelineTest {
             ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT_M, LUT_R, col1.source());
 
             // BOTH columns in ONE call so the engine can flow across the X seam.
-            List<ColumnResult> res = e.stepWorld(List.of(t0, t1), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
+            List<ColumnResult> res = e.stepWorld(List.of(t0, t1), 1, 0.25, OrgeEngine.PASS_ADVECTION);
             ColumnResult r0 = res.get(0), r1 = res.get(1);
 
             // region-wide per-species conservation gate over BOTH columns in one ledger.

@@ -13,9 +13,7 @@ class RegionMarshallerTest {
         ColumnTask a = new ColumnTask(2, -1, mi, ms, tt);
         ColumnTask b = new ColumnTask(7, 4, new char[N], new float[N], new float[N]);
 
-        RegionMarshaller.Flat f = RegionMarshaller.flatten(List.of(a, b),
-                List.of(net.rainbowcreation.orge.engine.TestMaterials.voidMat(),
-                        net.rainbowcreation.orge.engine.TestMaterials.water()));
+        RegionMarshaller.Flat f = RegionMarshaller.flatten(List.of(a, b));
         assertEquals(2, f.nCols());
         assertArrayEquals(new int[]{2, 7}, f.cx());
         assertArrayEquals(new int[]{-1, 4}, f.cz());

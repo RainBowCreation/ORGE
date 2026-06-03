@@ -15,9 +15,30 @@ public final class EngineFactory {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
 
+    private static volatile OrgeEngine instance;
+
     private EngineFactory() {}
 
+    /** The process-wide shared engine, built lazily on first use (double-checked locking). */
+    public static OrgeEngine instance() {
+        OrgeEngine local = instance;
+        if (local == null) {
+            synchronized (EngineFactory.class) {
+                local = instance;
+                if (local == null) {
+                    local = build();
+                    instance = local;
+                }
+            }
+        }
+        return local;
+    }
+
     public static OrgeEngine create() {
+        return instance();
+    }
+
+    private static OrgeEngine build() {
         try {
             NativeLoader.load();
             LOGGER.info("[ORGE] engine = NativeEngine (native liborge loaded from {}) -- "

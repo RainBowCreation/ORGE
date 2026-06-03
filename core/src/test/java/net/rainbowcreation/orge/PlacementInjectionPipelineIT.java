@@ -88,6 +88,7 @@ class PlacementInjectionPipelineIT {
     @Test
     void placedWaterDisplacesAirAndPersistsAndLedgerNotHeld() {
         NativeEngine engine = engineOrSkip();
+        engine.registerMaterials(1, LUT);
 
         // Inject at (x=3, y=0, z=4) -- the floor of the full-height column. Water cannot fall (y-1
         // out of bounds) and all four horizontal neighbours are absent (one column loaded), so the
@@ -115,7 +116,7 @@ class PlacementInjectionPipelineIT {
         EngineInjection inj = new EngineInjection(0, ci, WATER, 1000f, 290f);
 
         // Drive the REAL native engine through the injection-aware 5-arg overload.
-        RegionStepResult r = engine.stepWorld(cols, LUT, 0.25,
+        RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
                 OrgeEngine.PASS_CONDUCTION, List.of(inj));
 
         ColumnResult out = r.columns().get(0);
@@ -171,6 +172,7 @@ class PlacementInjectionPipelineIT {
     @Test
     void placedSolidDisplacesWaterAndSeedsDefaultMassAndLedgerNotHeld() {
         NativeEngine engine = engineOrSkip();
+        engine.registerMaterials(1, SOLID_LUT);
 
         // Place stone at (x=3, y=0, z=4) -- the floor of the loaded column. The displaced water cannot
         // fall (y-1 out of bounds) and all four horizontal neighbours are absent (one column loaded), so
@@ -199,7 +201,7 @@ class PlacementInjectionPipelineIT {
         EngineInjection inj = new EngineInjection(0, ci, STONE, 2000f, 290f);
 
         // Drive the REAL native engine through the injection-aware 5-arg overload (same call as fluids).
-        RegionStepResult r = engine.stepWorld(cols, SOLID_LUT, 0.25,
+        RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
                 OrgeEngine.PASS_CONDUCTION, List.of(inj));
 
         ColumnResult out = r.columns().get(0);

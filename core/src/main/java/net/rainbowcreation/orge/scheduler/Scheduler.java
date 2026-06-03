@@ -198,6 +198,7 @@ public final class Scheduler {
         for (ThermalWorld.ColumnEntry e : batch.entries()) input.add(e.task());
         List<Material> lut = batch.lut();
         pendingMaterials = lut;
+        final int lutEpoch = batch.lutEpoch();
         pendingAdvection = true;
         pendingColumns = batch.entries();
         pendingColumnResults = null;
@@ -220,7 +221,7 @@ public final class Scheduler {
                 pendingColumnResults = List.of();
             } else {
                 net.rainbowcreation.orge.engine.RegionStepResult rr =
-                        engine.stepWorld(input, lut, dt,
+                        engine.stepWorld(input, lutEpoch, dt,
                                 OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, injections);
                 pendingRegionResult = rr;
                 pendingColumnResults = rr.columns();

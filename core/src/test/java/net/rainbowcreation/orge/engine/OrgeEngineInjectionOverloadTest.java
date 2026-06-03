@@ -14,7 +14,8 @@ class OrgeEngineInjectionOverloadTest {
     /** Minimal fake: identity step, records the columns it was handed. */
     private static final class IdentityEngine implements OrgeEngine {
         List<ColumnTask> lastColumns;
-        @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
+        @Override public void registerMaterials(int lutEpoch, List<Material> table) { }
+        @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, int lutEpoch,
                                                       double dtSeconds, int passes) {
             lastColumns = columns;
             ColumnTask t = columns.get(0);
@@ -34,13 +35,13 @@ class OrgeEngineInjectionOverloadTest {
                 TestMaterials.voidMat(),
                 TestMaterials.water());
 
-        RegionStepResult result = engine.stepWorld(cols, lut, 0.25, OrgeEngine.PASS_ADVECTION,
+        RegionStepResult result = engine.stepWorld(cols, 1, 0.25, OrgeEngine.PASS_ADVECTION,
                 List.of(new EngineInjection(0, 42, (char) 1, 1000f, 290f)));
 
         assertSame(cols, engine.lastColumns);                 // delegated to the 4-arg form
         assertEquals(1, result.columns().size());
-        assertEquals(lut.size(), result.injected().length);    // ledger sized to the LUT
-        assertEquals(lut.size(), result.sealedLoss().length);
+        assertEquals(0, result.injected().length);    // default returns an empty ledger
+        assertEquals(0, result.sealedLoss().length);
         for (float v : result.injected())   assertEquals(0f, v);   // default ignores injections
         for (float v : result.sealedLoss()) assertEquals(0f, v);
     }

@@ -4,18 +4,21 @@ import net.rainbowcreation.orge.material.Material;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * A no-op {@link OrgeEngine} for the Phase 1 skeleton: returns each section's input
- * temperatures unchanged. Lets the scheduler and section-store plumbing be built and
- * tested before the native liborge FFI binding lands (DESIGN.md §2).
- */
 public final class StubEngine implements OrgeEngine {
 
     private double lastStepMillis = 0.0;
+    private final Map<Integer, Integer> epochMatCount = new ConcurrentHashMap<>();
 
     @Override
-    public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
+    public void registerMaterials(int lutEpoch, List<Material> table) {
+        epochMatCount.put(lutEpoch, table.size());
+    }
+
+    @Override
+    public List<ColumnResult> stepWorld(List<ColumnTask> columns, int lutEpoch,
                                         double dtSeconds, int passes) {
         List<ColumnResult> out = new ArrayList<>(columns.size());
         for (ColumnTask c : columns) {
@@ -23,6 +26,13 @@ public final class StubEngine implements OrgeEngine {
         }
         lastStepMillis = 0.0;
         return out;
+    }
+
+    @Override
+    public RegionStepResult stepWorld(List<ColumnTask> columns, int lutEpoch,
+                                      double dtSeconds, int passes, List<EngineInjection> injections) {
+        int n = epochMatCount.getOrDefault(lutEpoch, 0);
+        return new RegionStepResult(stepWorld(columns, lutEpoch, dtSeconds, passes), new float[n], new float[n]);
     }
 
     @Override

@@ -16,39 +16,23 @@ public interface OrgeEngine {
     int PASS_ADVECTION  = 2;
 
     /**
-     * Step the joined active region as one engine {@code World}: each {@link ColumnTask} is a full-height
-     * column ({@link RegionMarshaller#CHUNK_N} cells, engine index {@code x + 16*y + 6144*z}). Native
-     * cross-column X/Z flow + contiguous Y. Returns next-state columns in the same order as {@code columns}.
-     *
-     * <p>This is the sole engine entry point: the dormant per-section {@code step(...)} path was removed
-     * in the unified-fluid rebuild (the section/halo model is abandoned; physics is boundary-agnostic).</p>
-     *
-     * @param columns  full-height columns to step
-     * @param lut      material table, indexed by the columns' matIx values
-     * @param dtSeconds time step (DESIGN.md §4: 1.0 s for conduction; §10: 0.25 s for advection)
-     * @param passes   pass bitmask ({@link #PASS_CONDUCTION} and/or {@link #PASS_ADVECTION})
+     * Register the resident material table for {@code lutEpoch}. Called on every publish (initial
+     * datapack load + each {@code /reload}). Later {@link #stepWorld} calls select it by epoch. The
+     * {@link StubEngine} no-ops (records matCount only). Unknown epoch at step time is a safe no-op.
      */
-    java.util.List<ColumnResult> stepWorld(java.util.List<ColumnTask> columns,
-                                           java.util.List<net.rainbowcreation.orge.material.Material> lut,
-                                           double dtSeconds, int passes);
+    void registerMaterials(int lutEpoch, java.util.List<net.rainbowcreation.orge.material.Material> table);
 
-    /**
-     * Injection-aware step (placement displace-and-inject, spec Part A). Applies {@code injections}
-     * once before advection, then steps as usual. The default implementation IGNORES injections and
-     * delegates to the 4-arg {@link #stepWorld}, returning a zero placement ledger — so engines that
-     * do not support the native injection channel (stub, test fakes) keep working. {@link NativeEngine}
-     * overrides this to marshal the injection arrays and read back the ledger.
-     *
-     * @param injections placements for this step ({@code columnId} = position in {@code columns});
-     *                   an empty list ⇒ identical to the 4-arg form.
-     */
+    /** Step the joined active region; material physics is supplied out-of-band by {@link #registerMaterials}
+     *  and selected by {@code lutEpoch}. Unknown epoch ⇒ safe no-op (inputs pass through). */
+    java.util.List<ColumnResult> stepWorld(java.util.List<ColumnTask> columns,
+                                           int lutEpoch, double dtSeconds, int passes);
+
+    /** Injection-aware step; default delegates to the 4-arg form with an empty ledger. */
     default RegionStepResult stepWorld(java.util.List<ColumnTask> columns,
-                                       java.util.List<net.rainbowcreation.orge.material.Material> lut,
-                                       double dtSeconds, int passes,
+                                       int lutEpoch, double dtSeconds, int passes,
                                        java.util.List<EngineInjection> injections) {
-        java.util.List<ColumnResult> cols = stepWorld(columns, lut, dtSeconds, passes);
-        int n = lut.size();
-        return new RegionStepResult(cols, new float[n], new float[n]);
+        java.util.List<ColumnResult> cols = stepWorld(columns, lutEpoch, dtSeconds, passes);
+        return new RegionStepResult(cols, new float[0], new float[0]);
     }
 
     /** Per-section compute time of the last {@link #step}, ms — drives health throttling. */

@@ -117,7 +117,8 @@ class SchedulerTest {
      */
     private static OrgeEngine deltaEngine(float delta, double millis) {
         return new OrgeEngine() {
-            @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
+            @Override public void registerMaterials(int lutEpoch, List<Material> table) { }
+            @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, int lutEpoch,
                     double dt, int passes) {
                 boolean conduction = (passes & PASS_CONDUCTION) != 0;
                 List<ColumnResult> out = new ArrayList<>(columns.size());
@@ -135,7 +136,8 @@ class SchedulerTest {
     private static final class RecordingEngine implements OrgeEngine {
         static final class Call { final int passes; final double dt; Call(int p, double d) { passes = p; dt = d; } }
         final List<Call> calls = new ArrayList<>();
-        @Override public List<ColumnResult> stepWorld(List<ColumnTask> in, List<Material> lut,
+        @Override public void registerMaterials(int lutEpoch, List<Material> table) { }
+        @Override public List<ColumnResult> stepWorld(List<ColumnTask> in, int lutEpoch,
                                                       double dtSeconds, int passes) {
             calls.add(new Call(passes, dtSeconds));
             List<ColumnResult> out = new ArrayList<>(in.size());

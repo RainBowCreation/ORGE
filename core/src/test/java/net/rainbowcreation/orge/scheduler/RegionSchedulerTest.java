@@ -73,7 +73,8 @@ class RegionSchedulerTest {
         SeamEngine(boolean conserve, int cellA, int cellB, float transfer) {
             this.conserve = conserve; this.cellA = cellA; this.cellB = cellB; this.transfer = transfer;
         }
-        @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, List<Material> lut,
+        @Override public void registerMaterials(int lutEpoch, List<Material> table) { }
+        @Override public List<ColumnResult> stepWorld(List<ColumnTask> columns, int lutEpoch,
                 double dt, int passes) {
             stepWorldCalls++;
             lastColumnCount = columns.size();

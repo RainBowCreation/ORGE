@@ -78,6 +78,7 @@ class BreakRemovalPipelineIT {
     @Test
     void brokenCellBecomesVacuumThenWaterFlowsInAndLedgerConservesWater() {
         NativeEngine engine = engineOrSkip();
+        engine.registerMaterials(1, LUT);
 
         final int floor = cellIndex(3, 0, 4);   // the broken stone cell (floor)
         final int above = cellIndex(3, 1, 4);   // the water cell directly above it
@@ -116,7 +117,7 @@ class BreakRemovalPipelineIT {
         assertEquals(0f, task.mass()[floor], 0f, "broken cell enters the step at 0 kg");
 
         // ---- Drive the REAL native engine: water falls into the vacated cell. ----
-        RegionStepResult r = engine.stepWorld(cols, LUT, 0.25,
+        RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
                 OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, injections);
         ColumnResult out = r.columns().get(0);
 
@@ -151,6 +152,7 @@ class BreakRemovalPipelineIT {
     @Test
     void durableVacuumCellStaysVacuumWithNoInflowNoAirReseed() {
         NativeEngine engine = engineOrSkip();
+        engine.registerMaterials(1, LUT);
 
         final int broken = cellIndex(3, 0, 4);   // an isolated vacuum cell, no neighbour fluid
 
@@ -164,7 +166,7 @@ class BreakRemovalPipelineIT {
         cols.add(new ColumnTask(0, 0, mat, mass, temp));
         ColumnTask task = cols.get(0);
 
-        RegionStepResult r = engine.stepWorld(cols, LUT, 0.25,
+        RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
                 OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, List.of());
         ColumnResult out = r.columns().get(0);
 

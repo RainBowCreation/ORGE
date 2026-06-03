@@ -164,7 +164,7 @@ class UnifiedFluidLivePipelineTest {
     /** assemble → stepWorld(advection) → region ledger gate → verbatim persist. Single column. */
     private static void liveAdvectCycle(NativeEngine e, FakeColumn col) {
         ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
-        List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
+        List<ColumnResult> res = e.stepWorld(List.of(task), 1, 0.25, OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
         StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
         ledger.add(r.mass(), task.mass(), task.matIx(), r.matIx(), LUT);
@@ -182,6 +182,7 @@ class UnifiedFluidLivePipelineTest {
     @Test
     void tubeSortAcrossSectionBoundary() {
         NativeEngine e = engineOrSkip();
+        e.registerMaterials(1, LUT);
         FakeColumn col = new FakeColumn(0, 0);
         col.stoneFloorAt(0);   // floor
         col.stoneFloorAt(48);  // cap — seal the tube so nothing leaves the top
@@ -193,7 +194,7 @@ class UnifiedFluidLivePipelineTest {
 
         for (int cycle = 0; cycle < 80; cycle++) {
             ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
-            List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
+            List<ColumnResult> res = e.stepWorld(List.of(task), 1, 0.25, OrgeEngine.PASS_ADVECTION);
             ColumnResult r = res.get(0);
             StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
             ledger.add(r.mass(), task.mass(), task.matIx(), r.matIx(), LUT);
@@ -224,6 +225,7 @@ class UnifiedFluidLivePipelineTest {
     @Test
     void crossChunkIntoPureAir() {
         NativeEngine e = engineOrSkip();
+        e.registerMaterials(1, LUT);
         FakeColumn col0 = new FakeColumn(0, 0);
         FakeColumn col1 = new FakeColumn(1, 0);
         col0.stoneFloorAt(0);
@@ -233,7 +235,7 @@ class UnifiedFluidLivePipelineTest {
         for (int cycle = 0; cycle < 30; cycle++) {
             ColumnTask t0 = ColumnAssembler.assemble(col0.cx, col0.cz, LUT_M, LUT_R, col0.source());
             ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT_M, LUT_R, col1.source());
-            List<ColumnResult> res = e.stepWorld(List.of(t0, t1), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
+            List<ColumnResult> res = e.stepWorld(List.of(t0, t1), 1, 0.25, OrgeEngine.PASS_ADVECTION);
             ColumnResult r0 = res.get(0), r1 = res.get(1);
 
             StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
@@ -267,6 +269,7 @@ class UnifiedFluidLivePipelineTest {
     @Test
     void frozenShelfNotPenetratedButStoneConducts() {
         NativeEngine e = engineOrSkip();
+        e.registerMaterials(1, LUT);
 
         // (a) advection: water on a frozen stone shelf does not sink through it.
         FakeColumn col = new FakeColumn(0, 0);
@@ -319,7 +322,7 @@ class UnifiedFluidLivePipelineTest {
         for (int cycle = 0; cycle < 200; cycle++) {
             pinHotShell.accept(cond); // re-pin the hot Dirichlet shell each cycle
             ColumnTask ct = ColumnAssembler.assemble(cond.cx, cond.cz, LUT_M, LUT_R, cond.source());
-            List<ColumnResult> cres = e.stepWorld(List.of(ct), LUT, 0.25, OrgeEngine.PASS_CONDUCTION);
+            List<ColumnResult> cres = e.stepWorld(List.of(ct), 1, 0.25, OrgeEngine.PASS_CONDUCTION);
             cond.persist(cres.get(0));
         }
 
@@ -351,12 +354,13 @@ class UnifiedFluidLivePipelineTest {
     @Test
     void regionLedgerHoldsOnInjectedNonConservation() {
         NativeEngine e = engineOrSkip();
+        e.registerMaterials(1, LUT);
         FakeColumn col = new FakeColumn(0, 0);
         col.stoneFloorAt(0);
         col.set(8, 1, 8, WATER, 1000f, 290f);
 
         ColumnTask task = ColumnAssembler.assemble(col.cx, col.cz, LUT_M, LUT_R, col.source());
-        List<ColumnResult> res = e.stepWorld(List.of(task), LUT, 0.25, OrgeEngine.PASS_ADVECTION);
+        List<ColumnResult> res = e.stepWorld(List.of(task), 1, 0.25, OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
 
         // Sanity: the honest engine output DOES conserve.

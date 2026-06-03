@@ -1,6 +1,5 @@
 package net.rainbowcreation.orge.engine;
 
-import net.rainbowcreation.orge.material.Material;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -11,10 +10,9 @@ public final class RegionMarshaller {
     public static final int CHUNK_N = CHUNK_W * CHUNK_H * CHUNK_D; // 98304
 
     public record Flat(int nCols, int[] cx, int[] cz,
-                       char[] matIx, float[] mass, float[] tIn,
-                       LutArrays lut) {}
+                       char[] matIx, float[] mass, float[] tIn) {}
 
-    public static Flat flatten(List<ColumnTask> cols, List<Material> lut) {
+    public static Flat flatten(List<ColumnTask> cols) {
         int n = cols.size();
         int[] cx = new int[n], cz = new int[n];
         char[] matIx = new char[n * CHUNK_N];
@@ -30,7 +28,7 @@ public final class RegionMarshaller {
             System.arraycopy(t.mass(), 0, mass, base, CHUNK_N);
             System.arraycopy(t.temperature(), 0, tIn, base, CHUNK_N);
         }
-        return new Flat(n, cx, cz, matIx, mass, tIn, LutArrays.pack(lut));
+        return new Flat(n, cx, cz, matIx, mass, tIn);
     }
 
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut, int nCols) {

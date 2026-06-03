@@ -117,9 +117,11 @@ public final class ActiveMaterials {
         if (next == null) {
             throw new NullPointerException("next state must not be null");
         }
-        next.assignEpoch(EPOCHS.incrementAndGet());
+        int epoch = EPOCHS.incrementAndGet();
+        next.assignEpoch(epoch);
         active = next;
-        // Engine registration is wired in a later task (needs OrgeEngine.registerMaterials + the singleton).
+        net.rainbowcreation.orge.engine.EngineFactory.instance()
+                .registerMaterials(epoch, next.orderedMaterials());
     }
 
     /**
