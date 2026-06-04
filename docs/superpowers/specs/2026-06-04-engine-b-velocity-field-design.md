@@ -1,11 +1,16 @@
-# Engine B — Velocity-Field Unified Fluid Engine — design spec
+# Engine B — Unified Energy-Flux Fluid+Thermal Engine — design spec
 
 **Date:** 2026-06-04
 **Status:** **RATIFIED** (§9 decisions settled with the user 2026-06-04). Ready for implementation
 planning (staged, TDD, subagent-driven).
 **Track:** parent `rebuild` ↔ engine `rebuild` (worktree `/home/claude/ORGE-B`). Engine A (the
 relaxation model) continues on `main` as the *A-unify* refactor; Engine B is the from-the-ground-up
-velocity-field successor. They are developed in parallel; whichever proves out in-game wins.
+successor. They are developed in parallel; whichever proves out in-game wins.
+
+> **The one-sentence model:** every cell, in parallel, computes a single directed **energy-flux vector
+> `J_E`** ("energy moving per time") from its **own state only**; a resolve pass moves energy between cells
+> reading **only each other's `J_E`** (never raw mass/temperature/density); flow, pressure, buoyancy,
+> cell-swaps, convection, **and heat conduction** all emerge as **energy taking the lowest-energy path.**
 
 ---
 
@@ -14,354 +19,345 @@ velocity-field successor. They are developed in parallel; whichever proves out i
 Two in-game defects, same root:
 
 1. **Light fluid moves heavy fluid.** A churning air column laterally displaced water on flat ground
-   ("random wander"). 1 kg of air cannot relocate 125 kg of water — momentum says ~0.008 m/s. *(Stopgap
-   shipped on `main`/engine `e8999ea`: cross-species displacement gated to strict density. It treats the
-   symptom.)*
+   ("random wander"). 1 kg of air cannot relocate 125 kg of water. *(Stopgap shipped on `main`/engine
+   `e8999ea`: cross-species displacement gated to strict density. It treats the symptom.)*
 
-2. **The species split is not physics.** The engine has `Pass B` (same-species + vacuum leveling) and
-   `Pass B'` (cross-species displacement) as separate algorithms. Real fluid flow has **no** "same vs
-   different species" branch — there is one momentum equation; species is a label advected by the flow.
+2. **The species split is not physics.** Engine A has `Pass B` (same-species leveling) and `Pass B'`
+   (cross-species displacement) as separate algorithms. Real transport has **no** "same vs different
+   species" branch — there is one conservation law; species is a label carried by the flux.
 
-**Both are consequences of two missing things in Engine A:**
+**Both are consequences of Engine A having no carried state and re-deriving transport per pass, branching
+on species, and doing displacement-at-a-distance via a GPU-hostile serial DFS chain.** The user's
+insight, refined across this brainstorm: transport should be defined by **one carried per-cell vector** —
+and that vector is most honestly an **energy flux**, because energy is the universal currency that unifies
+motion, pressure, buoyancy, and heat into a single quantity.
 
-- **No velocity field.** Engine A is *quasi-static relaxation*: each tick it recomputes a pressure
-  gradient and nudges mass downhill. There is no momentum carried tick-to-tick, so "where and how much
-  flows" has no single source of truth — it is re-derived per pass, differently for same/different
-  species. The user's insight: *flow should be defined by the cell's velocity vector* — one vector,
-  one rule, any species.
-- **Displacement-at-a-distance done by a serial DFS chain.** Because a cell holds one incompressible
-  substance with no momentum, relocating water out of the way of injected lava requires a variable-length
-  serial search (`down → hash4 → up`) to a remote sink. That chain is the GPU-hostile holdout and the
-  thing that makes the model branch on species.
-
-Engine B replaces the relaxation passes with **one momentum-driven advection + a local weakly-compressible
-pressure**. The same/different branch, the molar "sort pass", the leveling pass, and the displacement
-chain all collapse into a single per-cell stencil.
+Engine B replaces *all* of Engine A's transport (Pass A sort / Pass B relax / Pass B' displace / DFS chain
+/ molar sort) **and** the separate conduction pass with **one unified energy-flux step**.
 
 ---
 
-## §1 — Design laws (carried over) and what Engine B changes
+## §1 — Design laws
 
-**Non-negotiable, inherited verbatim from the Engine A spec (still true):**
+**Inherited verbatim from Engine A (still true):**
 
 - **L1. One substance, one identical calculation.** No `gas`/`liquid`/`solid` concept, no `state` field,
-  no fluid/solid filter. Java hands the engine the whole chunk unfiltered, exactly like conduction.
+  no fluid/solid filter. Java hands the engine the whole chunk unfiltered.
 - **L2. Immovability is data, not a branch.** `viscosity` absent ⇒ frozen (`+∞` ⇒ flow rate 0). The test
   `movable ⟺ flow-rate > 0` replaces every fluid/solid branch. Sand/gravel = finite viscosity with
   `min_mass ≈ max_mass`.
-- **L3. Gravity is buoyancy by density, not a "fall" rule.** Heavier sinks, lighter rises. "Falling" is a
-  heavy fluid sorting below the lightest fluid (void/air).
+- **L3. Gravity is buoyancy by density, not a "fall" rule.** Heavier sinks, lighter rises — emergent, not
+  a swap pass (§4.4).
 - **L4. Sections & chunks are storage ONLY.** No `% SECTION_EDGE`, no seam/halo. Every pass walks the full
   column across all loaded chunks as one continuous medium.
 - **L5. Void is the lightest fluid** (`molar=min=max=0`, finite viscosity), not a special case.
 - **L7. Conservation by construction + backstop.** Antisymmetric flux from a single pre-step snapshot;
-  region-wide reconciliation backstop in Java (§9 of the orchestration).
+  region-wide reconciliation backstop in Java. **Engine B conserves ENERGY and MASS** (mass rides the
+  advective energy flux).
 
-**What Engine B CHANGES (ratified):**
+**Changed / NEW in Engine B (ratified):**
 
-- **ΔL2 — motion gains state.** A cell's *material* is still the same handful of numbers, but its
-  *motion* is no longer fully described by them: Engine B adds a **velocity vector** `v = (vx,vy,vz)` as
-  **dynamic per-cell state** that persists across ticks. This is the user's "final vector": it tells
-  where the cell's contents flow and how much.
-- **L1 is RESTORED, not weakened.** Engine A *claims* L1 but violates it with the B/B' species branch.
-  Engine B makes L1 literally true: the per-face flux rule is identical for every pair of cells; species
-  only changes the *commit* (merge vs relabel), never the *decision* of amount/direction.
-- **L6 (one species per cell) is KEPT** — decision §9.A = **A1 sharp interface**. A cell holds exactly one
-  substance (mass + material + velocity); the velocity field advects a sharp label.
+- **ΔL2 — transport gains carried state: the energy-flux vector.** A cell's *material* is still the same
+  handful of numbers, but its *transport* is now carried as **dynamic per-cell state**: a velocity vector
+  `v` (the kinetic part of `J_E`, persistent across ticks — gives inertia/sloshing). The full `J_E` is
+  recomputed each step from `{m, v, T, material}`.
+- **L1 RESTORED.** The per-face energy-flux rule is identical for every pair of cells; species only
+  changes the *commit* (merge vs relabel/swap), never the *decision*.
+- **L6 KEPT (§9.A = A1 sharp):** one species + mass + velocity + temperature per cell.
+- **L8 NEW — conduction is unified (§9.F = Option B).** The standing "advection never touches
+  `orge_kernel.hpp` conduction" rule is **lifted for Engine B.** Heat conduction is the *diffusive channel*
+  of `J_E`; there is no separate conduction pass. (Engine A on `main` keeps the split.)
+- **L9 NEW — cells share ONLY `J_E`.** No cell ever reads a neighbor's raw mass, temperature, density, or
+  EOS. The only inter-cell quantity is the energy-flux vector. Everything else is own-state, used to
+  *generate* `J_E` (Pass 1) and to *unpack* a received `J_E` into Δmass/Δvelocity/Δtemperature (Pass 2).
 
 ---
 
-## §2 — Physical model (the user's vector model, refined to real physics)
+## §2 — Physical model: the total energy flux
 
-Engine B is a per-cell **force balance → velocity vector** model — Newton's second law for a fluid parcel
-(the Cauchy / Navier–Stokes momentum equation), discretised on the existing voxel grid and applied
-**identically on all three axes, to every species, with no branch**. Governing per-cell quantities:
+The shared per-cell quantity is the **total energy flux** of continuum mechanics — a real, complete object
+that by construction contains every transport channel:
 
-- **mass** `m` (kg) of the cell's one substance,
-- **velocity** `v = (vx,vy,vz)` (m/s) — NEW, persistent,
-- **temperature** `T` (unchanged; conduction stays in `orge_kernel.hpp`, untouched, runs as its own pass).
+```
+J_E  =  ρ(e + ½v² + g·z)·v   +   p·v   +   q
+         │      │      │            │        │
+      internal kinetic gravit.   pressure  conductive
+      (thermal)(motion)potential   work    heat (diffusive)
+```
 
-**Density is mass-based (§9.C):** `ρ = m / V_cell`.
+Each term maps to a phenomenon the engine must produce:
 
-### 2.1 The forces (one rule, every axis, every species)
+| Channel | Resolves to |
+|---|---|
+| `ρ·½v²·v` (kinetic) | **velocity / momentum / inertia / sloshing** |
+| `ρ·g·z·v` (gravitational) | **falling, buoyancy, density sorting** (heavier ⇒ more downward PE flux) |
+| `p·v` (pressure work) | **leveling, incompressibility, the hard wall** |
+| `ρ·e·v` (internal, advected) | **convective heat** (heat carried by moving mass) |
+| `q` (diffusive) | **heat conduction** (Fourier, in relaxation form — §4.5) |
+| `·v` on the advective terms | **mass movement** (mass carries all advective energy) |
+| net energy-lowering exchange | **cell swap** (two cells trade contents when it lowers total energy) |
 
-| Force | Physics | In the engine |
-|---|---|---|
-| **Buoyancy** (gravity folded in) | density-difference body force | `a_buoy = g·(ρ_cell − ρ_neighbor)/ρ_cell` — vertical only; ~0 across a horizontal face. The resting density order (L3) is the *steady state of this flux* — there is **no separate sort/swap pass** (§4.5). A lighter fluid can **never** push a heavier one by construction. |
-| **Pressure** (temperature-coupled EOS) | `−∇p` drives flow high→low | weakly-compressible EOS in `m` and `T` (§2.2). Gives leveling, gas fill, hydrostatic head, displacement, and thermal convection — **all from one term**. |
-| **Advected momentum** | fluid carries its own momentum | `a_advect = (Σ mass_in·v_donor − Σ mass_out·v_self)/m` — the inertia Engine A structurally lacks (enables sloshing). |
-| **External** | hook for forces from outside the engine | `a_ext = f_ext/m` — entities, explosions, etc. |
-| **Viscosity** | momentum dissipation | a **drag denominator** (§2.3), not a force term: `÷(1 + dt·μ/m)`. `μ→∞`/absent ⇒ `v→0` (frozen, skip). |
+Velocity is *one projection* of `J_E` (the kinetic term); capping the shared quantity to velocity would
+drop pressure, buoyancy, and heat. Energy is the whole thing.
 
-> **Why gravity, "molar bias", and "heat bias" are ONE term, not three.** Raw gravity pulls every cell
-> down by `m·g`; buoyancy is the surrounding fluid pushing back. Counting both separately double-counts
-> gravity. The exact combination is the single density-difference term `g·(ρ_cell − ρ_neighbor)`. Heat
-> does **not** enter here (heating changes neither `m` nor `V`, so `ρ=m/V` is unchanged) — heat enters
-> **only** through the pressure EOS (§2.2), which is what actually makes hot fluid rise.
+### 2.1 Two channels of flux: advective (mass-carrying) vs diffusive (mass-free)
 
-### 2.2 The equation of state (temperature-coupled, derived from existing fields)
+- **Advective flux** moves at the fluid's velocity `v` and **carries mass** (and with it kinetic,
+  gravitational, internal, and pressure-work energy). This is flow, buoyancy, displacement, swaps,
+  convection.
+- **Diffusive flux** `q` is **mass-free** energy transport — conduction. It is the unified replacement for
+  `orge_kernel.hpp` (§4.5, L8).
 
-Engine B uses the material's existing `min_mass`, `default_mass`, `max_mass` fields. `default_mass` is the
-**comfortable density at 1 atm** ⇒ zero gauge pressure there. Mass above it = overpressure (push out);
-below it = wants to expand. **Gas-vs-liquid is a continuous property read from where `default_mass` sits**
-— no `if gas` branch:
+The commit (§4.3) splits a received `J_E` by these two carriers: the advective part changes
+mass+momentum+enthalpy; the diffusive part changes enthalpy only.
+
+### 2.2 The equation of state (feeds the pressure-work channel; temperature-coupled)
+
+`J_E`'s pressure term needs a per-cell pressure `p`. Engine B uses the material's existing `min_mass`,
+`default_mass`, `max_mass`. `default_mass` = comfortable density at 1 atm ⇒ zero gauge pressure. Gas-vs-
+liquid is a **continuous property read from data** (no branch):
 
 ```
 χ      = (max_mass − default_mass) / (max_mass − min_mass)      ∈ [0,1]   # 0 = liquid … 1 = gas
-m_rest = default_mass · (1 − α·χ·(T − T_ref)/T_ref)            # clamp to (min_mass, max_mass); heat lowers it
+m_rest = default_mass · (1 − α·χ·(T − T_ref)/T_ref)            # clamp (min,max); heat lowers it
 p(m,T) = m ≥ m_rest ?  K·((m − m_rest)/(max_mass − m_rest))^γ   # compression → stiff wall at max_mass
                     : −K·χ·((m_rest − m)/(m_rest − min_mass))   # expansion → toward min_mass, χ-scaled
 ```
 
-- **Liquid (χ≈0):** stiff under compression; ~0 pressure below `m_rest` ⇒ **free surface**, no suction,
-  won't stretch to fill a ceiling. Pools and levels under gravity. `m_rest` barely shifts with heat (weak
-  thermal expansion).
-- **Gas (χ≈1):** strongly negative pressure below `m_rest` ⇒ **actively expands toward `min_mass`**, fills
-  any vacuum/void. `m_rest` drops sharply with heat (ideal-gas `ρ ∝ 1/T`, linearized).
-- **Hydrostatic head emerges:** gravity over-fills lower cells → `m > m_rest` → pressure resists →
-  equilibrium where `∇p` balances gravity = hydrostatic. No separate leveling pass.
-- **Thermal convection emerges (the chain):** `T↑ → m_rest↓ → m > m_rest → p>0 → expands, mass leaves →
-  ρ=m/V↓ → buoyancy lifts it → rises`. Temperature lives only in pressure ⇒ **no double-counting** with
-  buoyancy. (Convection has a natural lag — physically honest. Fallback if too sluggish: an explicit
-  Boussinesq term `g·β·(T_cell−T_neighbor)`, added **only** if needed, since it risks double-counting.)
+- **Liquid (χ≈0):** stiff under compression; ~0 pressure below `m_rest` ⇒ free surface, won't fill a
+  ceiling. `m_rest` barely shifts with heat.
+- **Gas (χ≈1):** strongly negative below `m_rest` ⇒ actively expands toward `min_mass`; `m_rest` drops
+  sharply with heat (ideal-gas `ρ ∝ 1/T`, linearized) ⇒ thermal convection emerges.
+- **Hydrostatic head** emerges (gravity over-fills lower cells → `p` resists → equilibrium = hydrostatic).
+- Globals (not material fields): `K` (stiffness), `γ ≥ 2`, `α ≈ 1`, `T_ref`.
 
-Globals (not material fields): `K` (stiffness), `γ ≥ 2` (compression ramp), `α ≈ 1` (thermal-expansion
-scale), `T_ref` (reference temperature).
+### 2.3 Gravity is uniform; buoyancy is emergent (no neighbor density read)
 
-### 2.3 The unified per-cell velocity update (identical code, all axes)
+Gravitational *acceleration* is `g` for every cell (`a=F/m=g`, mass cancels) — Pass 1 adds it with no
+neighbor read. **Buoyancy is not a density comparison;** it emerges in the resolve: a denser cell carries
+more downward gravitational + kinetic energy flux and, on hitting an incompressible neighbor or floor,
+**reflects** that energy sideways/up, carrying lighter fluid up. Heavy ends low, light ends high, with no
+cell ever reading another's density (L9).
 
-```
-ρ        = m / V_cell
-a_buoy   = g·(ρ_cell − ρ_neighbor)/ρ_cell          # vertical only; ~0 horizontally
-a_press  = −(1/ρ)·∇p                               # all axes; p from §2.2
-a_advect = (Σ mass_in·v_donor − Σ mass_out·v_self)/m
-a_ext    = f_ext/m
-v_new    = (v_old + dt·(a_buoy + a_press + a_advect + a_ext)) / (1 + dt·μ/m)
-```
+### 2.4 Absorb vs reflect (incompressibility, from own EOS)
 
-The **drag denominator** is the user's "÷ viscosity", made time-correct:
+How a cell responds to an incoming energy flux is set by its **own** EOS:
 
-- At rest (`v_new=v_old`) it solves to **`v = a_drive·m/μ`** — the user's "force ÷ viscosity" as the
-  equilibrium.
-- `μ→∞` (or absent) ⇒ denominator → ∞ ⇒ **`v→0`** — frozen solid; the cell is **skipped** (L2).
-- small `μ` (water) ⇒ keeps most of `v_old` + the new impulse ⇒ **momentum persists across ticks**
-  (sloshing/inertia — impossible in Engine A).
+- **Compressible cell** (own χ≈1): **absorbs** the flux — it compresses, so the flow passes through it.
+- **Incompressible cell** (own χ≈0): **reflects** the flux — it bounces the push back/sideways (its `p`
+  shoots up the stiff `^γ` ramp).
 
-Use the **implicit** form (`/(1 + dt·μ/m)`): unconditionally stable, and frozen at `μ→∞` by construction.
+The neighbor never announces "I'm full/dense"; you learn it because next step its `J_E` either kept going
+(absorbed) or bounced back (reflected). **Pressure is transduced into the energy flux**, never shared as a
+raw value.
 
 ---
 
 ## §3 — Cell state & material model
 
 **Material (unchanged schema, L2):** `heat_capacity, thermal_conductivity, molar_mass, min_mass,
-max_mass, viscosity` (+ the existing `default_mass`). No new material fields are required. Roles in
-Engine B:
+default_mass, max_mass, viscosity`. **No new material fields.** Roles in Engine B:
 
-- `min_mass / default_mass / max_mass` — feed the EOS (§2.2): expansion floor, 1-atm rest point, hard
-  compression wall. Their relative positions define χ (gas↔liquid spectrum).
+- `min/default/max_mass` — EOS (§2.2): expansion floor, 1-atm rest, hard wall; positions define χ.
 - `molar_mass` — characteristic full-cell density / sort rank (consistent with `ρ=m/V` when full).
-- `viscosity` — the **drag coefficient** in §2.3 (`+∞`/absent ⇒ frozen, `v≡0`).
+- `viscosity` — **drag coefficient** for the kinetic channel (`+∞`/absent ⇒ frozen, `v≡0`).
+- `thermal_conductivity` — coefficient of the diffusive channel `q` (§4.5).
+- `heat_capacity` — unpacks received internal energy into ΔT.
 
-**Per-cell dynamic state (NEW, persisted in SectionStore):**
+**Per-cell dynamic state, persisted in SectionStore:**
 
-- `v = (vx, vy, vz)` — `float16` per axis (storage: §6). The only state addition.
+- `v = (vx, vy, vz)` — the carried kinetic part of `J_E` (`float16`/axis). **NEW persisted channel.**
+- `T` (temperature / internal energy) — already persisted.
+- `m`, species — already persisted.
 
-**Persistence:** velocity must survive save/load (a sloshing pool mid-motion). It is added to the
-SectionStore region format as a new channel, defaulting to `0` on load of an old region (a resting start,
-conservation-neutral). This is the only storage-format change.
+`J_E` itself is *derived* each step from `{m, v, T, material}`; only `v` is the new thing to persist
+(defaults to 0 on old-region load — a resting start, conservation-neutral).
 
 ---
 
-## §4 — The unified per-step algorithm (ONE calculation)
+## §4 — The unified per-step algorithm (TWO passes, ONE calculation)
 
-Per `orgeStepWorld(world, dt)` — every cell, identical code, no species/state branch. **No global solve;
-all stencils are local** (§9.B = local weakly-compressible).
+Per `orgeStepWorld(world, dt)`. **No global solve; all stencils local.** **No species/state branch.**
 
-### 4.1 Compute pressure (local)
-For each cell: `p = p(m, T)` per §2.2 from a single pre-step snapshot. Pure local read of material fields
-+ `m` + `T`.
+### 4.1 Pass 1 — parallel, per cell, OWN STATE ONLY → emit `J_E`
+For every cell, from `{m, v, T, material}` and gravity (uniform `g`), compute the cell's energy-flux
+vector `J_E` (§2): the advective channels (kinetic from `v`, gravitational from `g`, internal from `T`,
+pressure-work from `p(m,T)`) plus the diffusive channel `q` from `thermal_conductivity`, all damped by the
+viscous drag (kinetic channel only). **Zero neighbor reads.** Frozen cells (`viscosity →∞`/absent):
+kinetic/advective channels = 0 (they can still conduct via `q`). This pass is embarrassingly parallel —
+pure map, GPU-ideal.
 
-### 4.2 Update velocity → `v_new` (local stencil)
-Apply §2.3: `a_buoy + a_press + a_advect + a_ext`, then the viscous-drag denominator. Buoyancy reads the
-vertical neighbor density; `a_press` reads the 6-neighbor pressure gradient; `a_advect` reads neighbor
-velocities + the snapshot mass fluxes. Frozen cells (`μ→∞`/absent) ⇒ `v_new=0`, skip. **Free-slip walls
-(§9.D):** terrain faces impose zero normal flux but do **not** zero tangential velocity (no boundary
-drag — spread rate is governed solely by `μ`).
+### 4.2 Pass 2 — resolve, reads ONLY neighbors' `J_E`
+For each face, compute the **antisymmetric** net energy flux from the two cells' `J_E` (single pre-step
+snapshot, L7): `F_ij = −F_ji`. Energy flows down the energy gradient (second law). The face flux splits
+into:
+- **advective part** — carries mass at the donor's velocity (donor uses its **own** density for the mass
+  amount); brings the donor's species + enthalpy + momentum;
+- **diffusive part** — mass-free conduction (§4.5).
 
-### 4.3 Advect mass, species, momentum, enthalpy along `v_new`
-Flux-form, antisymmetric, single-snapshot (L7): each face moves `ρ·(v_new·n)·dt·area`, carrying the
-donor's species + temperature + momentum. **Identical for same/different species** — only the commit
-differs:
-- receiver same species ⇒ **merge** (add mass, mix enthalpy/momentum),
-- receiver different species ⇒ **relabel** the displaced amount (L6 sharp).
+**Absorb/reflect (§2.4)** is applied here: an incompressible receiver's stiff `p` makes its `J_E` oppose
+the inflow ⇒ the donor's advective momentum is **reflected** (redirected to open faces) instead of
+overfilling. **Free-slip walls (§9.D):** terrain faces pass no advective flux and impose no tangential
+drag.
 
-This single step replaces Pass B (leveling = pressure-driven flux), Pass B' (cross-species displacement =
-the *same* flux with a relabel commit), **and the old molar "sort pass" — which no longer exists** (§4.5).
+### 4.3 Commit + conserve (energy AND mass)
+Each cell unpacks its net received/sent `J_E` into its **own** state using its **own** material:
+- advective in/out ⇒ Δmass (+species: **merge** if same species, **relabel/swap** if different, L6 sharp),
+  Δmomentum ⇒ Δ`v` (`v` persists), Δinternal ⇒ ΔT via `heat_capacity`;
+- diffusive in/out ⇒ ΔT only.
+Energy is conserved by the antisymmetric flux; mass is conserved because it rides the advective energy;
+the Java reconciler stays as the hard backstop. As a conservation backstop the advective commit
+capacity-limits so no receiver grossly exceeds `max_mass` (the stiff `^γ` ramp keeps it off the wall
+almost always; transient overshoot is relaxed next step by `p`).
 
-### 4.4 Hard `max_mass` wall + commit + conserve
-The §2.2 stiff ramp keeps cells off the wall almost always; as the conservation backstop, the commit
-**capacity-clamps** every face flux so no receiver exceeds `max_mass` (`flux = min(planned,
-free_capacity_of_receiver)`, donor keeps the remainder — antisymmetric, mass-conserving). The donor's
-velocity component **normal to a blocked face is damped and redirected** (the bounce/splash — the user's
-"carry the vector instead of letting it flow in"). Below `min_mass`, a cell converts to **void** (L5) and
-the substance consolidates. Write back mass/species/velocity/enthalpy; the region-wide conservation
-backstop (Java §9) stays as the safety net.
+### 4.4 Vertical sorting / displacement is EMERGENT — no sort pass, no threshold, no surface tension
+Density sorting, displacement, tube-pinning, and bubbles are **not** separate steps or value comparisons.
+They fall out of §4.1–§4.3 (gravity + absorb/reflect + the energy flux):
+- **Compressible displaced fluid yields:** water sinks through *air* (air absorbs/compresses), tube
+  `[W,A,A] → [A,A,W]`.
+- **Incompressible + no room pins** ("balls in a tube can't pass"): lava on *water* in a closed 1-cell
+  tube reflects → `[L,A,W] → [A,L,W]` and stays. The stiff-but-finite wall ⇒ an extreme drive can still
+  creep through (the "swap if force is large enough" exception) — automatic.
+- **Pool ⇒ bubbles, emergent:** with lateral room, reflected energy redirects sideways → circulation →
+  the heavier fluid descends in **plumes/bubbles** (one cell already reads as a bubble; pillow-lava free).
 
-> **Note on "law C" (one sweep per JNI call).** Engine A's scheduler does one advection sweep per call,
-> `dt` scaling *amount* not *distance*. Engine B keeps this: one velocity-update + one advect per call.
-> Long-range incompressible motion (vessels equalising, deep displacement) propagates through the local
-> pressure gradient over successive steps — gradual, but stable, fully local, and GPU-portable (§9.B
-> tradeoff, §6).
+**Implementation guard:** there must be **no** `if(denser_above) swap()` pass and **no** density-threshold
+test. Order is whatever the energy flux settles to.
 
-### 4.5 Vertical sorting is EMERGENT — there is no sort pass, no threshold, no surface tension
+### 4.5 Conduction is the diffusive channel `q` (unified, L8) — no temperature sharing
+There is **no separate conduction pass.** A cell emits a diffusive energy flux `q` from its **own** thermal
+energy and `thermal_conductivity` (Pass 1). At a face, the net diffusive flux is the difference of the two
+cells' emitted `q` ⇒ energy flows hot→cold **without sharing temperature** (the emitted `q` encodes `T`
+via own state) — Fourier conduction in relaxation form. The receiver unpacks it into ΔT via its own
+`heat_capacity`. Pure conduction (no flow) is recovered when the advective channels are zero. *(This
+replaces `orge_kernel.hpp`; see §7/§8.)*
 
-Density sorting (heavy sinks, light rises) is **not** a separate step and **not** a value comparison. It
-is purely §4.1–§4.4: the buoyancy vector advects the sharp interface, and the *only* thing that gates a
-cross-species swap is **where the displaced fluid can go** — which is already decided by the EOS (§2.2),
-the hard `max_mass` wall, and lateral redirection (§4.4). No new field, no surface-tension term, no extra
-pass. The behavior the user specified falls out for free:
-
-- **Compressible displaced fluid yields.** A heavier fluid sinks through a lighter *compressible* one (air,
-  χ≈1) because the light fluid **compresses to make room** and springs back — e.g. a 1-cell tube
-  `[W,A,A] → [A,A,W]`: water descends as the air column compresses past it.
-- **Incompressible fluid with no room pins** ("balls in a tube can't pass"). A heavier fluid resting on an
-  *incompressible* one (water, χ≈0) in a closed 1-cell tube with no lateral bypass is **blocked** — the
-  stiff wall gives flux ≈ 0 — e.g. `[L,A,W] → [A,L,W]`, lava pinned on water. Because the wall is stiff
-  but **finite**, an extreme drive can still creep through (the user's "swap if the willing force is large
-  enough" exception) — also automatic, no special case.
-- **Pool ⇒ bubbles, emergent.** With lateral room, blocked vertical momentum **redirects sideways** (the
-  same reflection as the `max_mass` wall), the incompressible fluid circulates around, and the heavier
-  fluid descends in **plumes/bubbles**. One cell already reads as a bubble, so the bubble/pillow-lava look
-  is a *consequence of the correct simulation*, not something engineered in.
-
-**Implementation guard:** there must be **no** `if (denser_above) swap()` pass and **no** density-threshold
-test anywhere. Vertical order is whatever the single vector flux settles to.
+> **Note on "law C" (one sweep per call).** One Pass-1 + one Pass-2 per `orgeStepWorld` call; `dt` scales
+> amount, not distance. Long-range equilibration (vessels, deep displacement, heat soak) propagates
+> through the local energy flux over successive steps — gradual, stable, fully local, GPU-portable.
 
 ---
 
 ## §5 — Conservation & stability
 
-- **Mass:** flux-form + antisymmetric single-snapshot + capacity clamp ⇒ each species conserved to FP;
-  backstop reconciler unchanged.
-- **Momentum:** advected conservatively; buoyancy + pressure + drag are momentum-stable; blocked-face
-  reflection conserves (redirects, never creates) momentum up to boundary conditions (free-slip walls,
-  §9.D).
-- **Energy:** enthalpy rides the mass flux (as today); conduction kernel untouched and runs as its own
-  pass.
-- **Stability:** the implicit drag denominator is unconditionally stable; the weakly-compressible EOS is
-  bounded by the stiff wall + capacity clamp; the body force needs `dt` within a buoyancy/acoustic CFL —
-  clamp as the scheduler already clamps `dt∈[0.25,0.5]`, and bound `K` so the EOS sound speed respects it.
+- **Energy:** antisymmetric single-snapshot flux ⇒ total energy conserved to FP; energy cannot be created
+  ⇒ no blow-ups.
+- **Mass:** rides the advective energy flux; conserved per species; capacity-limited commit + Java
+  reconciler backstop.
+- **Momentum:** carried in `v`; reflection redirects (never creates) momentum, up to BCs (free-slip).
+- **Stability:** implicit viscous drag is unconditionally stable; the weakly-compressible EOS is bounded
+  by the stiff wall; bound `K`/conduction rate within the `dt` CFL (scheduler clamps `dt∈[0.25,0.5]`).
 
 ---
 
-## §6 — Performance & GPU portability (the "performance-friendly" requirement)
+## §6 — Performance & GPU portability
 
-- **Everything is a local stencil** — buoyancy, pressure (local EOS), advection, drag are all 6-neighbor
-  reads. **No global pressure solve, no serial DFS, no global claim buffer, no variable-length chains.**
-  Engine B is **structurally more GPU-portable than the spec's original projection lean** (§9.B): one
-  pass, fixed stencil, embarrassingly parallel.
-- **Per the compute-topology design:** the per-cell stencil (force + advect) is the GPU-worker workload on
-  the client; the server runs the CPU fallback + scheduling.
-- **Storage cost:** `+3×float16/cell` for velocity (6 bytes/cell). (LBM's 19 floats/cell was rejected in
-  §9.A as too heavy.)
-- **The §9.B tradeoff (accepted):** without a global solve, communicating vessels equalise *gradually*
-  (pressure walks ~one cell/step) rather than instantly. For Minecraft this reads as natural. If
-  equalisation is ever too slow, a multigrid pressure accelerator can be bolted on later **without**
-  changing the model.
+- **Two local stencils** (Pass 1 = pure per-cell map; Pass 2 = fixed 6-neighbour energy-flux). **No global
+  solve, no serial DFS, no claim buffer, no chains, no separate conduction pass.** Structurally GPU-ideal.
+- **One unified step** replaces both advection *and* conduction (fewer passes than Engine A overall).
+- **Storage cost:** `+3×float16/cell` for `v` (6 bytes/cell). Temperature already stored.
+- **Tradeoff (accepted):** relaxation ⇒ equilibration (vessels, heat) is **gradual** (energy walks ~one
+  cell/step). Natural-looking in Minecraft; a multigrid accelerator can be added later without model
+  change.
 
 ---
 
-## §7 — Integration with ORGE orchestration (what stays)
+## §7 — Integration with ORGE orchestration
 
-- **Conduction (`orge_kernel.hpp`) is untouched** — advection never touches it (standing rule). Engine B
-  replaces only `advect_world`.
-- **JNI ABI:** add a velocity channel (`vx,vy,vz`) to the marshalled arrays; the resident material LUT,
-  `orgeStepWorld` signature, and `PASS_CONDUCTION`/`PASS_ADVECTION` flags stay. (Velocity in/out is the
-  one ABI growth.)
-- **Scheduler:** unchanged (snapshot → bg step → validate → write). `dt` handling unchanged; per-World
-  cadence clock retained.
-- **SectionStore:** +1 velocity channel in the region format (defaults to 0 on old-region load).
-- **Phase change, placement injection, material registry:** unchanged seams. Placement injects a cell
-  with `v=0`; the EOS + advection naturally accommodate the new occupant.
+- **Conduction kernel SUBSUMED (the big change, L8).** `orge_kernel.hpp`'s conduction becomes the
+  diffusive channel of `J_E`; Engine B owns heat + flow in one step. (Engine A on `main` is untouched.)
+- **JNI ABI:** add the velocity channel (`vx,vy,vz`) to the marshalled arrays; temperature already
+  marshalled. Resident material LUT and the `orgeStepWorld` signature stay; the `PASS_CONDUCTION`/
+  `PASS_ADVECTION` flag split collapses into one unified step (flags retained as no-ops / for A-parity).
+- **Scheduler:** unchanged shape (snapshot → bg step → validate → write). Because conduction is now in the
+  same step, the separate heat cadence folds in; `dt` handling and the per-World cadence clock stay.
+- **SectionStore:** +1 velocity channel (defaults 0 on old-region load).
+- **Phase change, placement injection, material registry:** unchanged seams. Placement injects a cell with
+  `v=0`; the energy flux accommodates it.
 
 ---
 
 ## §8 — Migration from Engine A
 
-- **Deleted:** `pass_a_sort`, `pass_b_relax`, `pass_bprime_displace`, the DFS displacement chain,
-  `compute_overburden` / `O_ss`, the frontier-distance BFS, the per-donor budget, the same/different
-  species branch. (All fold into §4.)
-- **Reused:** `World`/`Chunk`/`MaterialLUT`, the snapshot machinery, the resident LUT, the JNI/scheduler
-  scaffolding, conduction, the test harness, the Java reconciler backstop, the `min/default/max_mass`
-  fields.
-- **Added:** the per-cell velocity channel (state + storage + JNI), the temperature-coupled EOS, the
-  unified velocity-update stencil, the capacity-clamp/reflection commit.
-- **Parity strategy:** Engine B will NOT be bit-identical to A (different model). Validation is by
-  *physical* acceptance tests (§10), not golden parity. Keep A on `main` until B passes the in-game gate.
+- **Deleted:** `pass_a_sort`, `pass_b_relax`, `pass_bprime_displace`, the DFS chain, `compute_overburden`/
+  `O_ss`, the frontier BFS, the per-donor budget, the same/different species branch, **and the separate
+  conduction pass** (folded into `q`).
+- **Reused:** `World`/`Chunk`/`MaterialLUT`, snapshot machinery, resident LUT, JNI/scheduler scaffolding,
+  the test harness, the Java reconciler backstop, the `min/default/max_mass`/`thermal_*` fields.
+- **Added:** the per-cell velocity channel (state+storage+JNI), the `J_E` formulation, the two-pass
+  energy-flux step, absorb/reflect commit, the unified diffusive conduction channel.
+- **Parity strategy:** Engine B is NOT bit-identical to A (different model). Validation is by *physical*
+  acceptance tests (§10). Keep A on `main` until B passes the in-game gate. Conduction parity vs the old
+  kernel is a *physical* equilibration check (§10.10), not golden.
 
 ---
 
 ## §9 — DECISIONS (RATIFIED 2026-06-04 with the user)
 
-- **§9.A — Interface representation → A1: sharp, keep L6.** One species + mass + velocity per cell; the
-  velocity field advects a sharp label; relabel on cross-species displacement. (Rejected: A2 volume-of-
-  fluid — breaks L6/rendering; A3 LBM — ~19 floats/cell too heavy, weak at 1000:1.2 density ratio.)
-- **§9.B — Solver core → local weakly-compressible vector solver.** No global pressure projection. The
-  temperature-coupled EOS (§2.2) provides incompressibility locally (stiff wall) and propagates
-  displacement/equalisation cell-by-cell. Chosen over the global MAC/projection for **maximum GPU
-  portability**; the gradual-equalisation tradeoff is accepted (§6) and re-acceleratable later.
-- **§9.C — Density → mass-based**, `ρ = m / V_cell` (couples to fill level and compression; `molar_mass`
-  is the full-cell rank).
-- **§9.D — Wall boundary → free-slip.** Zero normal flux, no tangential drag; spread rate set by `μ`.
-  (No-slip rejected: sub-cell boundary layer at 1m voxels ⇒ artificial drag, double-damps with viscosity.)
-- **§9.E — Air compressibility → weakly-compressible, temperature-coupled** (§2.2). Yields gas fill,
-  pressure relief, and thermal convection. (Temperature pulled into pressure **from stage 1**, per user —
-  without it, "hot rises" cannot occur given `ρ=m/V`.)
+- **§9.A — Interface → A1 sharp, keep L6.** One species + mass + velocity + temperature per cell.
+- **§9.B — Solver core → local energy-flux relaxation, NO global projection.** The EOS provides
+  incompressibility locally; equalisation propagates cell-by-cell. Chosen for **maximum GPU portability**;
+  the gradual-equalisation tradeoff is accepted (§6).
+- **§9.C — Density → mass-based**, `ρ = m / V_cell`.
+- **§9.D — Wall boundary → free-slip.**
+- **§9.E — Air compressibility → weakly-compressible, temperature-coupled EOS** (§2.2); temperature is in
+  pressure from stage 1.
+- **§9.F — Conduction → UNIFIED (Option B).** Heat conduction is the diffusive channel of `J_E`; the
+  separate `orge_kernel.hpp` conduction pass is subsumed (L8). The standing "conduction untouched" rule is
+  lifted for Engine B only.
+- **§9.G — Shared inter-cell quantity → the total ENERGY-FLUX vector `J_E`** (not velocity). Velocity is
+  its kinetic projection. Cells share only `J_E` (L9); raw mass/temp/density never cross a cell boundary.
 
 ---
 
 ## §10 — Validation / acceptance tests (physical, not golden)
 
-1. **Flat-surface rest:** a placed water cell spreads to `floor(m/min)` tiles and **stops** (no wander) —
-   the defect that started this.
+1. **Flat-surface rest:** a placed water cell spreads to `floor(m/min)` tiles and **stops** (no wander).
 2. **Communicating vessels:** single-driver U-tube self-levels; multi-arm/manometer **equalises**
-   (gradually, via local pressure — the banked Engine-A limitation B fixes by construction).
+   (gradually, via local energy flux).
 3. **Buoyancy ordering (bulk):** in an open pool, lava/water/air settle to lava < water < air; a light
-   fluid never displaces a heavy one laterally (defect #1) — assert by construction. **No sort pass exists**
-   (§4.5).
-4. **Tube pinning (emergent, no surface tension):** closed 1-cell vertical tube. `[W,A,A] → [A,A,W]`
-   (water sinks through *compressible* air). `[L,A,W] → [A,L,W]` and **stays** (lava pinned on
-   *incompressible* water, no lateral bypass). Both must arise purely from §4.1–§4.5 — assert there is no
-   density-threshold code path.
-5. **Bubble / plume (emergent):** release a pocket of light fluid at the bottom of a water *pool* (lateral
-   room); it rises as rounded blobs via lateral circulation, not a flat piston. Symmetric: lava released
-   on top of a water pool descends in plumes. Validates §4.5 emergence.
-6. **Incompressible displacement:** inject lava into a full water pocket; water rises elsewhere, mass
-   conserved, **no chain**; no receiver ever exceeds `max_mass`.
-7. **Sloshing/inertia:** tilt a filled basin (or remove a wall); water oscillates and settles — proves
-   the velocity field carries momentum (impossible in Engine A).
-8. **Gas fill:** a gas (χ≈1) released into vacuum/void spreads to fill, thinning toward `min_mass`; a
-   liquid (χ≈0) does **not** fill a ceiling (free surface).
-9. **Thermal convection:** heat a gas column from below; it over-pressures, thins, and rises; a cooler
-   column sinks — a convection cell forms. Liquid convects weakly. (Validates the temperature-coupled EOS
-   chain, §2.2.)
-10. **Conservation soak:** thousands of steps, per-species mass invariant; velocity bounded (no blow-up).
-11. **Performance:** per-tick cost vs Engine A at fixed loaded-region size.
+   fluid never displaces a heavy one laterally. **No sort pass exists** (§4.4).
+4. **Tube pinning (emergent):** closed 1-cell tube. `[W,A,A] → [A,A,W]` (water through compressible air);
+   `[L,A,W] → [A,L,W]` and **stays** (lava pinned on incompressible water). No density-threshold path.
+5. **Bubble / plume (emergent):** light fluid released at the bottom of a water *pool* rises as rounded
+   blobs via circulation; lava on a pool descends in plumes.
+6. **Incompressible displacement:** inject lava into a full water pocket; water rises elsewhere, mass +
+   energy conserved, **no chain**.
+7. **Sloshing/inertia:** tilt a filled basin; water oscillates and settles — proves `v` carries momentum.
+8. **Gas fill:** a gas (χ≈1) released into vacuum/void fills, thinning toward `min_mass`; a liquid (χ≈0)
+   does **not** fill a ceiling.
+9. **Thermal convection:** heat a gas column from below; it over-pressures, thins, rises; a cooler column
+   sinks — a convection cell forms (validates the EOS chain + advective heat).
+10. **Pure conduction (unified `q`):** a static temperature gradient through immovable material relaxes to
+    equilibrium and matches the Fourier solution (validates L8 — the conduction channel replacing the
+    kernel) with **no mass motion**.
+11. **Conservation soak:** thousands of steps — total **energy** and per-species **mass** invariant; `v`
+    bounded; no blow-up.
+12. **Performance:** per-tick cost of the unified step vs Engine A (advection + conduction combined).
 
 ---
 
 ## §11 — Risks
 
-- **Gradual equalisation** (the §9.B tradeoff) — communicating vessels level over many steps; mitigated
-  by it looking natural in Minecraft and by a later optional multigrid accelerator (no model change).
-- **EOS tuning** — `K`, `γ`, `α`, `T_ref` must be tuned so leveling is brisk, the wall is stiff but
-  stable, and convection is visible but not explosive. Bound `K` by the `dt` CFL (§5).
-- **Numerical diffusion of the sharp interface (A1)** — advecting a label smears; needs an
-  anti-diffusion/interface-sharpening step or a level-set if smearing is visible.
-- **Storage growth** — the mandatory velocity channel (`+6 bytes/cell`) in regions/save format.
-- **Scope:** this is a real solver, not a refactor. Stage it (force+advect+EOS first, hard-wall/commit
-  second, interface sharpening + thermal convection tuning third) behind acceptance tests; keep Engine A
-  shipping on `main` throughout.
+- **Scope (largest):** Engine B now subsumes conduction (L8) — it replaces *two* Engine A subsystems. Stage
+  it carefully (see below); keep Engine A shipping on `main` throughout.
+- **Energy decomposition:** splitting a received `J_E` into mass-carrying vs mass-free (and into
+  Δv/ΔT/Δm) needs a clean, conservative rule — the core implementation risk.
+- **Gradual equalisation** (the §9.B/§9.F tradeoff): vessels level and heat soaks over many steps;
+  mitigated by it looking natural + an optional later multigrid accelerator.
+- **EOS / conduction tuning:** `K, γ, α, T_ref`, conduction rate must be tuned for brisk-but-stable
+  behavior; bound by the `dt` CFL.
+- **Numerical diffusion of the sharp interface (A1):** advecting a label smears; needs an
+  anti-diffusion/interface-sharpening step if visible.
+- **Storage growth:** the mandatory `v` channel (`+6 bytes/cell`).
+
+**Staging (writing-plans will detail):**
+1. **Energy-flux core, mechanical only** — Pass 1/Pass 2, kinetic+gravitational+pressure channels;
+   acceptance tests 1,3,4,6,8.
+2. **Inertia + emergent sort/bubbles + reflection** — momentum persistence, absorb/reflect; tests 2,5,7.
+3. **Thermal unification** — internal/advective + diffusive `q` channels (L8, subsume the kernel); tests
+   9,10,11.
+4. **Tune + interface sharpening + perf** — test 12, anti-diffusion, multigrid only if needed.
 
 ---
 
