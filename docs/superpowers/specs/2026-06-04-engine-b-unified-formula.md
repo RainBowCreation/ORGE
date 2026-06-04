@@ -1,7 +1,7 @@
 # Engine B — Unified Energy-Vector Engine — explicit formulas (companion to the design spec)
 
 **Date:** 2026-06-04
-**Status:** **DRAFT for user review.** Companion to `2026-06-04-engine-b-velocity-field-design.md` (RATIFIED).
+**Status:** **RATIFIED** (user sign-off 2026-06-04). Companion to `2026-06-04-engine-b-velocity-field-design.md` (RATIFIED).
 That spec is the *model*; this document is the *math* — it upgrades §2/§4 from design-level to explicit
 formulas and closes the nine open formula questions from the handoff.
 **Track:** parent `rebuild` ↔ engine `rebuild` (worktree `/home/claude/ORGE-B`).
@@ -401,4 +401,4 @@ gated by test 16 so v1 ships stable-but-soft and sharpens later without a model 
 
 ---
 
-*Next: user review of this document → `writing-plans` (staged, TDD, subagent-driven) on `rebuild`.*
+*RATIFIED 2026-06-04. Implementation plan: `docs/superpowers/plans/2026-06-04-engine-b-stage1-energy-flux-core.md` (Stage 1; Stages 2–4 planned per-stage as each lands).*
