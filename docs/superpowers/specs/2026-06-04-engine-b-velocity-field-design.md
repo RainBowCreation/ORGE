@@ -87,7 +87,7 @@ Engine B is a per-cell **force balance → velocity vector** model — Newton's 
 
 | Force | Physics | In the engine |
 |---|---|---|
-| **Buoyancy** (gravity folded in) | density-difference body force | `a_buoy = g·(ρ_cell − ρ_neighbor)/ρ_cell` — vertical only; ~0 across a horizontal face. Recovers L3 molar sort as the vertical steady state; a lighter fluid can **never** push a heavier one by construction. |
+| **Buoyancy** (gravity folded in) | density-difference body force | `a_buoy = g·(ρ_cell − ρ_neighbor)/ρ_cell` — vertical only; ~0 across a horizontal face. The resting density order (L3) is the *steady state of this flux* — there is **no separate sort/swap pass** (§4.5). A lighter fluid can **never** push a heavier one by construction. |
 | **Pressure** (temperature-coupled EOS) | `−∇p` drives flow high→low | weakly-compressible EOS in `m` and `T` (§2.2). Gives leveling, gas fill, hydrostatic head, displacement, and thermal convection — **all from one term**. |
 | **Advected momentum** | fluid carries its own momentum | `a_advect = (Σ mass_in·v_donor − Σ mass_out·v_self)/m` — the inertia Engine A structurally lacks (enables sloshing). |
 | **External** | hook for forces from outside the engine | `a_ext = f_ext/m` — entities, explosions, etc. |
@@ -195,8 +195,8 @@ differs:
 - receiver same species ⇒ **merge** (add mass, mix enthalpy/momentum),
 - receiver different species ⇒ **relabel** the displaced amount (L6 sharp).
 
-This single step subsumes Pass B (leveling = pressure-driven flux), Pass B' (cross-species displacement =
-the *same* flux with a relabel commit), and the molar sort (vertical buoyant flux).
+This single step replaces Pass B (leveling = pressure-driven flux), Pass B' (cross-species displacement =
+the *same* flux with a relabel commit), **and the old molar "sort pass" — which no longer exists** (§4.5).
 
 ### 4.4 Hard `max_mass` wall + commit + conserve
 The §2.2 stiff ramp keeps cells off the wall almost always; as the conservation backstop, the commit
@@ -212,6 +212,30 @@ backstop (Java §9) stays as the safety net.
 > Long-range incompressible motion (vessels equalising, deep displacement) propagates through the local
 > pressure gradient over successive steps — gradual, but stable, fully local, and GPU-portable (§9.B
 > tradeoff, §6).
+
+### 4.5 Vertical sorting is EMERGENT — there is no sort pass, no threshold, no surface tension
+
+Density sorting (heavy sinks, light rises) is **not** a separate step and **not** a value comparison. It
+is purely §4.1–§4.4: the buoyancy vector advects the sharp interface, and the *only* thing that gates a
+cross-species swap is **where the displaced fluid can go** — which is already decided by the EOS (§2.2),
+the hard `max_mass` wall, and lateral redirection (§4.4). No new field, no surface-tension term, no extra
+pass. The behavior the user specified falls out for free:
+
+- **Compressible displaced fluid yields.** A heavier fluid sinks through a lighter *compressible* one (air,
+  χ≈1) because the light fluid **compresses to make room** and springs back — e.g. a 1-cell tube
+  `[W,A,A] → [A,A,W]`: water descends as the air column compresses past it.
+- **Incompressible fluid with no room pins** ("balls in a tube can't pass"). A heavier fluid resting on an
+  *incompressible* one (water, χ≈0) in a closed 1-cell tube with no lateral bypass is **blocked** — the
+  stiff wall gives flux ≈ 0 — e.g. `[L,A,W] → [A,L,W]`, lava pinned on water. Because the wall is stiff
+  but **finite**, an extreme drive can still creep through (the user's "swap if the willing force is large
+  enough" exception) — also automatic, no special case.
+- **Pool ⇒ bubbles, emergent.** With lateral room, blocked vertical momentum **redirects sideways** (the
+  same reflection as the `max_mass` wall), the incompressible fluid circulates around, and the heavier
+  fluid descends in **plumes/bubbles**. One cell already reads as a bubble, so the bubble/pillow-lava look
+  is a *consequence of the correct simulation*, not something engineered in.
+
+**Implementation guard:** there must be **no** `if (denser_above) swap()` pass and **no** density-threshold
+test anywhere. Vertical order is whatever the single vector flux settles to.
 
 ---
 
@@ -302,19 +326,27 @@ backstop (Java §9) stays as the safety net.
    the defect that started this.
 2. **Communicating vessels:** single-driver U-tube self-levels; multi-arm/manometer **equalises**
    (gradually, via local pressure — the banked Engine-A limitation B fixes by construction).
-3. **Buoyancy ordering:** lava < water < air resting order; a light fluid never displaces a heavy one
-   laterally (defect #1) — assert by construction.
-4. **Incompressible displacement:** inject lava into a full water pocket; water rises elsewhere, mass
+3. **Buoyancy ordering (bulk):** in an open pool, lava/water/air settle to lava < water < air; a light
+   fluid never displaces a heavy one laterally (defect #1) — assert by construction. **No sort pass exists**
+   (§4.5).
+4. **Tube pinning (emergent, no surface tension):** closed 1-cell vertical tube. `[W,A,A] → [A,A,W]`
+   (water sinks through *compressible* air). `[L,A,W] → [A,L,W]` and **stays** (lava pinned on
+   *incompressible* water, no lateral bypass). Both must arise purely from §4.1–§4.5 — assert there is no
+   density-threshold code path.
+5. **Bubble / plume (emergent):** release a pocket of light fluid at the bottom of a water *pool* (lateral
+   room); it rises as rounded blobs via lateral circulation, not a flat piston. Symmetric: lava released
+   on top of a water pool descends in plumes. Validates §4.5 emergence.
+6. **Incompressible displacement:** inject lava into a full water pocket; water rises elsewhere, mass
    conserved, **no chain**; no receiver ever exceeds `max_mass`.
-5. **Sloshing/inertia:** tilt a filled basin (or remove a wall); water oscillates and settles — proves
+7. **Sloshing/inertia:** tilt a filled basin (or remove a wall); water oscillates and settles — proves
    the velocity field carries momentum (impossible in Engine A).
-6. **Gas fill:** a gas (χ≈1) released into vacuum/void spreads to fill, thinning toward `min_mass`; a
+8. **Gas fill:** a gas (χ≈1) released into vacuum/void spreads to fill, thinning toward `min_mass`; a
    liquid (χ≈0) does **not** fill a ceiling (free surface).
-7. **Thermal convection:** heat a gas column from below; it over-pressures, thins, and rises; a cooler
+9. **Thermal convection:** heat a gas column from below; it over-pressures, thins, and rises; a cooler
    column sinks — a convection cell forms. Liquid convects weakly. (Validates the temperature-coupled EOS
    chain, §2.2.)
-8. **Conservation soak:** thousands of steps, per-species mass invariant; velocity bounded (no blow-up).
-9. **Performance:** per-tick cost vs Engine A at fixed loaded-region size.
+10. **Conservation soak:** thousands of steps, per-species mass invariant; velocity bounded (no blow-up).
+11. **Performance:** per-tick cost vs Engine A at fixed loaded-region size.
 
 ---
 
