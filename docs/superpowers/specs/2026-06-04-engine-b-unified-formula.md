@@ -104,7 +104,7 @@ discrete divergence of the energy field "by `dt`".
 ṁ      = ρ_donor · W · A · dt                      # MASS flux  — exact: out of donor = into receiver
 p⃗_adv  = ṁ · u_g,donor                             # MOMENTUM carried by that mass (gravity-updated u_g)
 E_adv  = ṁ · h_donor                               # ENERGY carried by that mass (thermal+kin+pwork)
-species: the donor's `s` rides with ṁ (commit in §D.3)
+species: the donor's `s` rides with ṁ (commit in §D.5)
 ```
 Plus the **pressure-gradient kick** in conservative **flux form** ("pressure has direction" = high→low):
 ```
@@ -171,7 +171,18 @@ T'       = T + ΔE_th / (m'·c)                        # new temperature — clo
 Total energy (internal + kinetic) is conserved because every joule in `ΔE_i` lands in either `E_kin'` or
 `ΔE_th`; KE lost when two streams merge becomes heat (physical viscous dissipation), never vanishes.
 
-### D.4 Species commit under L6 sharp (handoff Q6)
+### D.4 Vacuum & velocity guards (near-empty cells — red-team #3)
+Mass and momentum leave a donor at the **same** velocity, so an emptying cell keeps a finite `u` (=`u_g`),
+never a spike — from advection. The pathological case is a **pressure kick into a near-zero-mass cell**
+(`Δp⃗/m' → ∞`). Two cheap guards close it:
+```
+m_floor = max(ε, min_mass)                          # ε ≈ 1e-6 kg
+if m' < m_floor:  u' = 0 ;  cell is VOID (p from EOS ≈ min, no momentum)   # kills the m→0 blow-up
+u' = u' · min(1, (Δx/dt)/‖u'‖)                       # CFL speed cap: never move >1 cell/tick
+```
+The clamp/void rarely fire; the tiny momentum they discard is picked up by the reconciler (L7).
+
+### D.5 Species commit under L6 sharp (handoff Q6)
 One species per cell. If a cell's mass goes to ~0 and refills from a different-species inflow, it
 **relabels** to the donor species (full-cell swap is the `Δm` total change). If same species, **merge**
 (mass adds, `T'`/`u'` are the mass-weighted blends above — already conservative). Species rides purely as
@@ -202,7 +213,7 @@ sharp interface is deferred to a later anti-diffusion sharpening step (spec §11
    diffusive (`q`); §D splits advective into `Δm` / `Δp⃗→Δu` / `ΔE_th→ΔT`. Conserves mass **and** energy. ✔
 4. **Absorb vs reflect** → §C.5, emergent from the EOS, no branch. ✔
 5. **Advective mass amount + hard wall** → §C.2 (`ṁ`), §C.5 capacity clamp + `^γ` wall. ✔
-6. **Species commit under L6** → §D.4: cargo on `ṁ`, relabel/merge, no comparison. ✔
+6. **Species commit under L6** → §D.5: cargo on `ṁ`, relabel/merge, no comparison. ✔
 7. **Conduction `q` with no temperature sharing** → §C.3: amplitude-difference Fourier, mass-free,
    from rest. ✔ (Resolve reads the *amplitude*, exactly as "thermal has amplitude, not direction" demands.)
 8. **Tunables + calibration** → §G. ✔
@@ -221,6 +232,18 @@ sharp interface is deferred to a later anti-diffusion sharpening step (spec §11
 | `T_ref` | EOS reference temp | 288 K | so `m_rest ≈ m_0` at room temp |
 | `k`-scale | conduction rate | match old kernel's relax rate | Fourier (test 10) |
 | `λ`-scale | viscous drag | from material `μ` | sloshing decay (test 7) |
+
+### G.1b Acoustic CFL — the hard ceiling on `K` (red-team #1)
+`K`/`γ` are bounded not only by hydrostatics but by the **artificial sound speed**
+`c_s = √(∂p/∂ρ)`. At the stiffest expected compression this must stay sub-CFL:
+```
+c_s · dt_max / Δx ≤ 1     ⇒  with Δx=1 m, dt_max=0.5 s:  c_s ≤ 2 m/s
+```
+This is the **pseudo-compressibility tradeoff**: the fluid is deliberately *soft* (artificial `c_s`, not
+water's real 1500 m/s) so the explicit step is unconditionally stable and no shockwave can outpace `dt`. The
+capacity clamp (§C.5) is the hard backstop against gross overfill; a genuine over-squeeze relaxes over many
+ticks (§6 gradual-equalisation tradeoff), it does not detonate. A stiffer/faster wall would need sub-cycling
+or an implicit pressure solve — **banked**, not in v1.
 
 ### G.2 Calibration method
 Bisection per global against its single acceptance test, holding others fixed, in the order
@@ -344,6 +367,37 @@ MATCH ✓   bit-for-bit. Off-balance (say p_L too low), BOTH compute the same +�
   `p⃗_adv`; example B with `ρ_i=1.2` (air) moving into `ρ_j=1000` (water) transfers `ṁ=1.2·0.5·0.25=0.15 kg`
   and momentum `0.15 kg·m/s` into 1000 kg — `u_j⁺ = 0.15/1000.15 ≈ 0.00015 m/s`. Physically negligible, by
   construction, with no density gate.
+
+---
+
+---
+
+## §K — Numerical edge cases (red-team) & their guards
+
+| # | Situation | Does it break? | Guard / answer | Where |
+|---|---|---|---|---|
+| 1 | **Over-compression** — cell squeezed hard | **No** — no real acoustics resolved | `c_s` capped sub-CFL (`K` bound) + capacity clamp on `ṁ`; over-squeeze relaxes over ticks, no shockwave | §G.1b, §C.5 |
+| 2 | **Liquid–gas surface** — wave hits the interface | **No artificial bounce** | water `p≈0` above `m_rest` = true free surface; air is compressible ⇒ it *absorbs*, not reflects; χ-continuous EOS ⇒ waves transmit; artificial acoustic mode viscously damped | §B.1, §C.5 |
+| 3 | **Near-vacuum** — `m → 0` holding momentum | **No infinity** | mass+momentum leave at same `u` ⇒ donor stays finite; void-floor `m'<ε ⇒ u'=0` + CFL clamp `‖u'‖≤Δx/dt` kill the pressure-kick-into-vacuum spike | §D.4 |
+| 4 | **Moving sharp edge** (hot/cold, species) | **Blurs ~1 cell** with 1st-order upwind | accepted in v1; staged fix = slope-limited (MUSCL/minmod) flux for `u`/`T` + species-label sharpening (THINC/anti-diffusion) | §11 stage 4, §D.5 |
+
+**On #4 (the one real accuracy cost in v1):** first-order upwind has numerical diffusion `~½‖u‖Δx`, so a
+crisp interface smears over `O(Δx/‖u‖)` ticks. This is monotone (no spurious oscillation/over-shoot) — it
+errs toward *too smooth*, never unstable. The slope-limiter recovers 2nd-order on smooth regions while
+staying monotone at the edge; the label-sharpening keeps species crisp. Both are deferred to stage 4 and
+gated by test 16 so v1 ships stable-but-soft and sharpens later without a model change.
+
+---
+
+## §I-bis — Added acceptance tests from the red-team
+13. **Over-compression soak:** force a 2×-overfull cell; it must relax to `≤ m_max` without `c_s`-CFL
+    blow-up, energy bounded (validates §G.1b + §C.5).
+14. **Free-surface transmission:** a pressure pulse in a water column reaching the air interface must not
+    hard-reflect; surface displaces and damps (validates §B.1 absorb, no artificial bounce).
+15. **Vacuum stability:** drain a cell to `m→0` while a neighbor pressure-pushes it; `‖u‖` stays `≤ Δx/dt`,
+    no NaN/Inf (validates §D.4 guards).
+16. **Sharp-interface sharpness:** advect a crisp hot/cold (and species) edge `N` cells; measure blur width.
+    v1: monotone, ≤ ~1-cell smear/transit acceptable; stage-4: edge stays within 1 cell (limiter+sharpen).
 
 ---
 
