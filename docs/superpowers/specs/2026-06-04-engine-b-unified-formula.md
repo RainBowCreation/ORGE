@@ -40,8 +40,9 @@ Derived each tick: `ρ = m/V`.
 
 ## §B — ENCRYPT  (Pass 1: parallel, own state only → `E = (Ex,Ey,Ez)`)
 
-One function, zero neighbor reads, pure map (GPU-ideal). Gravity and pressure **aim** the vector; thermal
-sets its **amplitude** — exactly the user's rule.
+One function, zero neighbor reads, pure map (GPU-ideal). **Gravity aims** the vector; thermal sets its
+**amplitude**; **pressure** is isotropic from own state so it aims in Resolve, not here (§B.3) — a faithful
+reading of the user's rule once "direction needs a neighbor" is taken seriously.
 
 ### B.1 Equation of state (own `m`,`T` → scalar pressure `p`)
 ```
@@ -57,18 +58,18 @@ p      =  m ≥ m_rest ?  K·((m − m_rest)/(m_max − m_rest))^γ          # c
 h = c·T  +  p/ρ  +  ½‖u‖²            # stagnation specific energy. Thermal is pure amplitude (no direction).
 ```
 
-### B.3 Direction `w` (m/s — aimed by motion, gravity, pressure)
-Gravity is applied as a body impulse to the velocity **once per tick, here** (it then both aims the vector
-and seeds Decrypt's momentum — never re-applied, so no double count):
+### B.3 Direction `w` (m/s — aimed by motion + gravity; pressure aims in Resolve)
+Only **gravity** has an intrinsic direction from own state; **pressure and heat are isotropic** (no axis
+until a neighbor exists), so they aim in Resolve where the gradient lives — not here. Gravity is applied as
+a body impulse **once per tick, here** (it then both aims the vector and seeds Decrypt's momentum):
 ```
 u_g = u + dt·g·ĝ_down                 # gravity body impulse (uniform accel a=g, mass-independent)
-w_x = u_g,x
-w_z = u_g,z
-w_y = u_g,y + dt·( p/(ρ·Δy) )         # = u_y + dt·(p/(ρΔy) − g) ; gauge pressure pushes up vs gravity
+w   = u_g                             # the vector's direction = current motion + gravity
 ```
-Own state can only resolve pressure's direction **along gravity** (buoyancy). Lateral pressure spreading is
-not faked here — it emerges in Resolve (§C.2). A still cell with `p/(ρΔy) = g` has `w = 0` and does not move
-(hydrostatic). `u_g` is the gravity-updated velocity that Decrypt (§D.2) starts its momentum from.
+Pressure does **not** aim `w` (an own-pressure buoyancy proxy was tried and *fails hydrostatic balance for
+interior cells* — see §J.5). Pressure instead drives momentum via the exact high→low flux in Resolve
+(§C.2); that changes `u`, which aims the vector next tick. So pressure *does* have direction — realised
+where a gradient can actually be measured. `u_g` is the gravity-updated velocity Decrypt (§D.2) starts from.
 
 ### B.4 The vector + viscous drag
 ```
@@ -79,7 +80,7 @@ E = ρ · h · w / (1 + dt·λ)           # λ = μ/(ρ·Δx²)  → dt·λ dime
 - A **light** cell (small `ρ`) emits a **weak** `E`; it cannot overpower a heavy cell's strong `E` in
   Resolve. *This is the structural fix for the air-pushes-water bug — by construction, not by a density gate.*
 
-Also exposed to Resolve (read from the stored partition, not re-derived): `ρ`, `p`, `Φ = c·T`, `u`, `s`.
+Also exposed to Resolve (read from the stored partition, not re-derived): `ρ`, `p`, `T`, `u_g`, `h`, `s`.
 
 ---
 
@@ -105,25 +106,29 @@ p⃗_adv  = ṁ · u_g,donor                             # MOMENTUM carried by t
 E_adv  = ṁ · h_donor                               # ENERGY carried by that mass (thermal+kin+pwork)
 species: the donor's `s` rides with ṁ (commit in §D.3)
 ```
-Plus the **pressure-gradient kick** (this is "pressure has direction", realized across the face high→low):
+Plus the **pressure-gradient kick** in conservative **flux form** ("pressure has direction" = high→low):
 ```
-p⃗_pres = (p_i − p_j) · A · dt · n̂                  # momentum kick i receives; antisymmetric
+p_face  = ½ (p_i + p_j)                            # face pressure (free-slip wall ⇒ p_face = own p)
+Δp⃗_pres(i) += − p_face · A · dt · n̂_out            # i loses momentum across each outward face
+                                                   # Σ over the shared pair = 0 (conserved); = −∮p dA = −∇p·V
 ```
 
 ### C.3 Diffusive channel — conduction, mass-free (antisymmetric; the unified `q`, L8)
-Thermal is amplitude; Resolve turns the amplitude **difference** into a direction:
+Thermal is amplitude; Resolve turns the amplitude **difference** into a direction. The driving potential is
+**temperature** `T` (the intensive amplitude of thermal energy — two equal-`T` cells of different mass do
+**not** conduct):
 ```
-q = k_face · (Φ_i − Φ_j) · (A/Δx) · dt             # Φ = c·T ; k_face = harmonic mean(k_i,k_j)
+q = k_face · (T_i − T_j) · (A/Δx) · dt             # exact Fourier; k_face = harmonic mean(k_i,k_j)
 ```
-Works from rest (`u=0, W=0`) — pure Fourier conduction, no mass motion. This is the entire replacement for
-`orge_kernel.hpp`; there is **no separate conduction pass**.
+Works from rest (`u=0, W=0`) — pure Fourier conduction, no mass motion. The energy `q` heats the receiver
+via its own `m·c` (§D.3). This is the entire replacement for `orge_kernel.hpp`; **no separate conduction pass**.
 
 ### C.4 Per-cell accumulation (the "new vector map result")
 Summing the six faces gives cell `i` its resolved exchange:
 ```
-Δm_i = Σ (±ṁ)                          # net mass            (signed: + into i)
-Δp⃗_i = Σ (±p⃗_adv ± p⃗_pres)            # net momentum exchange (gravity already in u_g, NOT re-added)
-ΔE_i = Σ (±E_adv ± q)                   # net energy (advective + diffusive)
+Δm_i = Σ_faces (±ṁ)                              # net mass            (signed: + into i)
+Δp⃗_i = Σ_faces (±p⃗_adv − p_face·A·dt·n̂_out)      # advective momentum + pressure flux (−∇p·V); gravity in u_g
+ΔE_i = Σ_faces (±E_adv ± q)                       # net energy (advective + diffusive)
 ```
 
 ### C.5 Absorb vs reflect (incompressibility, emergent — §9 handoff Q4)
@@ -190,7 +195,8 @@ sharp interface is deferred to a later anti-diffusion sharpening step (spec §11
 ## §F — Mapping to the handoff's nine open questions
 
 1. **Pass-1 `J_E` construction** → §B. Gravity = impulse into `w` (no global-z term; only `Δ` matters);
-   isotropic pressure resolved along gravity in `w`, laterally in Resolve; thermal = amplitude `h`. ✔
+   pressure & thermal are isotropic from own state ⇒ their direction is set in Resolve (pressure flux /
+   conduction), not in `w`; thermal magnitude rides in amplitude `h`. ✔
 2. **Pass-2 antisymmetric face flux** → §C.1–C.3, proven antisymmetric in §E. ✔
 3. **The energy decomposition (biggest)** → §C.2 splits the face transfer into advective (`ṁ·h`) vs
    diffusive (`q`); §D splits advective into `Δm` / `Δp⃗→Δu` / `ΔE_th→ΔT`. Conserves mass **and** energy. ✔
@@ -232,8 +238,10 @@ cycles and lava barely moves.
 
 - **D1 — mass is exactly conserved**, not reconciler-patched: upwind antisymmetric face flux (§C.2). The
   energy vector still drives direction+amount; the stored partition tells Resolve the mass it carries.
-- **D2 — pressure aims the vector along gravity** in Encrypt (buoyancy/hydrostatic, §B.3) and acts
-  laterally via the high→low kick in Resolve (§C.2). Thermal stays amplitude; gravity+pressure are direction.
+- **D2 — only gravity aims the vector in Encrypt; pressure aims in Resolve.** Pressure and heat are
+  isotropic from own state, so they get their direction from the high→low / hot→cold flux in Resolve, which
+  is exact (§J.5 proof). An own-pressure buoyancy predictor in `w` was tried and *removed* — it breaks
+  hydrostatic balance for interior cells. Pressure still "has direction" — realised where a gradient exists.
 - **D3 — conduction is the amplitude-difference channel** in Resolve (§C.3): "thermal has amplitude, not
   direction" → Resolve supplies the direction. One Resolve step, no separate conduction pass (L8).
 - **D4 — Resolve may read the stored partition** (`ρ,p,Φ,u,s`) of both cells; only Encrypt and Decrypt are
@@ -250,6 +258,92 @@ cycles and lava barely moves.
 
 Each maps to a stage (spec §11): core mechanical (1,3,4,6,8) → inertia+reflection (2,5,7) → thermal
 unification (9,10,11) → tune+sharpen+perf (12).
+
+---
+
+## §J — Proof: Encrypt→Resolve→Decrypt ≡ the standard *separate* calculation
+
+**Claim.** The unified pipeline is not a new physics — it is the standard separate finite-volume
+conservation laws (continuity + momentum + internal-energy + Fourier), re-bookkept through one vector
+object. Channel by channel, each Resolve term is **algebraically identical** to its separate-calc flux, so
+the per-cell update is the same number. We show the identity, then three fully-worked examples.
+
+### J.1 The "separate calculation" reference (textbook explicit FV, `Δx=1 m`, `V=1 m³`, `A=1 m²`)
+```
+(mass)      m_i⁺ = m_i − dt·Σ_f ρ_don (u·n̂) A
+(momentum)  (mu)_i⁺ = (mu)_i − dt·Σ_f ρ_don u_don (u·n̂) A − dt·Σ_f p_face n̂_out A + m_i g dt
+(internal)  (mcT)_i⁺ = (mcT)_i − dt·Σ_f ρ_don (cT)_don (u·n̂) A + dt·Σ_f k_face (T_j−T_i)(A/Δx)
+```
+
+### J.2 Term-by-term identity (with the §B–§D mappings, drag off for clarity: `λ=0`)
+| separate-calc flux term | unified Resolve term | identical because |
+|---|---|---|
+| face velocity `(u·n̂)` | `W = ½(w_i+w_j)·n̂` with `w=u_g` | same central face velocity; donor = upwind sign of `W` |
+| mass `ρ_don(u·n̂)A·dt` | `ṁ = ρ_don·W·A·dt` (§C.2) | term-for-term equal |
+| momentum advect `ρ_don u_don(u·n̂)A·dt` | `p⃗_adv = ṁ·u_g,don` (§C.2) | `ṁ` already equals the mass flux |
+| pressure `p_face n̂_out A·dt` | `−p_face·A·dt·n̂_out` (§C.2) | **identical flux form** (after Bug-2 fix) |
+| internal advect `ρ_don(cT)_don(u·n̂)A·dt` | internal part of `E_adv=ṁ·h_don` | `ṁ·c·T_don`; `h`'s `p/ρ+½u²` parts are the flow-work+KE that §D.3 routes to `u'`/dissipation |
+| Fourier `k_face(T_j−T_i)(A/Δx)dt` | `q = k_face(T_i−T_j)(A/Δx)dt` (§C.3) | **identical** (after Bug-1 fix), sign = direction of net flux |
+| gravity `m_i g dt` | `u_g = u + g·dt` in §B.3, carried to §D.2 | applied exactly once |
+
+Since every flux matches, the conservation laws (`Σ Δm = Σ Δp⃗ = Σ ΔE = 0`) hold identically, and the
+**fixed points coincide** (hydrostatic `w=0`; thermal equilibrium `T_i=T_j ⇒ q=0`). With pressure handled
+entirely in Resolve (§B.3 fix), the pipeline is **bit-for-bit textbook explicit FV** — no approximation,
+no extra model choice. The unification is purely in the *bookkeeping* (one vector object, one rule), not in
+the arithmetic.
+
+### J.3 Worked example A — pure conduction (no motion)
+Two immovable cells, `u=0`, `c=1000 J/(kg·K)`, `m=1000 kg`, `k_face=1 W/(m·K)`, `dt=1 s`, `T_i=400`, `T_j=300`.
+```
+SEPARATE:  Q = k(T_i−T_j)(A/Δx)dt = 1·100·1·1 = 100 J  (i→j)
+           ΔT_i = −100/(1000·1000) = −1.0e-4 K ;  ΔT_j = +1.0e-4 K
+UNIFIED:   w=0 ⇒ E=0 ⇒ ṁ=0, p⃗_adv=0, E_adv=0
+           q = 1·(400−300)·1·1 = 100 J  (i→j)  [§C.3]
+           ΔE_th,i=−100 ⇒ ΔT_i=−1.0e-4 ; ΔE_th,j=+100 ⇒ ΔT_j=+1.0e-4   [§D.3]
+MATCH ✓   energy moved 100 J, mass unchanged, exactly Fourier.
+```
+
+### J.4 Worked example B — pure advection (mass moving, no gradient)
+`ρ=1000` (V=1), same species & `T`, no gravity/pressure. `u_i=(+1,0,0)`, `u_j=0`, `A=1`, `dt=0.25 s`.
+```
+face velocity:  W = ½(1+0) = 0.5 m/s   donor = i
+SEPARATE & UNIFIED identical:
+  ṁ      = 1000·0.5·1·0.25 = 125 kg   (i→j)
+  m_i⁺   = 1000−125 = 875     m_j⁺ = 1000+125 = 1125     (Σ = 2000 conserved ✓)
+  p_adv  = 125·1 = 125 kg·m/s (i→j)
+  u_i⁺   = (1000·1 − 125)/875  = 1.000 m/s   (donor keeps its speed)
+  u_j⁺   = (0     + 125)/1125 = 0.111 m/s
+MATCH ✓   standard upwind continuity + momentum advection, exactly.
+```
+
+### J.5 Worked example C — hydrostatic pressure (the conservation-critical one)
+Interior water cell `M` with neighbor `A` above and `L` below, `ρ=1000`, `g=10`, `Δy=A=1`, `dt=0.25`,
+`u=0`. Hydrostatic means `dp/dy=−ρg`, so pressure rises by `ρgΔy=10000 Pa` per cell downward:
+`p_A=10000`, `p_M=20000`, `p_L=30000`.
+```
+SEPARATE momentum on M:
+  pressure flux:  top face (with A,  n̂_out=+y, p_face=½(20000+10000)=15000)
+                  bottom face (with L, n̂_out=−y, p_face=½(20000+30000)=25000)
+  Δ(mu_y)_M,pres = −dt·[ 15000·(+1) + 25000·(−1) ]·A = −0.25·(15000−25000) = +2500
+  gravity:        Δ(mu_y)_M,grav = m·g·(−1)·dt = 1000·10·(−1)·0.25 = −2500
+  TOTAL Δ(mu_y)_M = +2500 − 2500 = 0          ⇒ no flow (hydrostatic) ✓
+
+UNIFIED:  §C.4 uses the IDENTICAL pressure-flux form ⇒ Δp⃗_pres = +2500 ; gravity enters via u_g ⇒ −2500.
+          Net momentum change 0 ⇒ u stays 0 ⇒ w=0 ⇒ E=0 ⇒ ṁ=0.   No flow.
+MATCH ✓   bit-for-bit. Off-balance (say p_L too low), BOTH compute the same +Δ(mu_y) and M sinks; the
+          unified pipeline carries no approximation here — it IS the separate pressure flux.
+```
+*(This is why the §B.3 own-pressure buoyancy predictor was removed: it would have given M a spurious
+`w_y = dt(p_M/(ρΔy) − g) = 0.25(20−10) = +2.5 ≠ 0` — wrong. The Resolve flux is exact; the predictor was not.)*
+
+### J.6 What the unification buys (and what it does not)
+- **Does not** change the numbers vs separate calc — proven identical per channel.
+- **Does** collapse four passes (advect / momentum / energy / conduction) into one snapshot+resolve, with a
+  single per-cell vector as the only inter-cell object, no species/phase/state branch — the GPU + L1 win.
+- The air-pushes-water fix is **emergent here too**: a light donor has small `ρ_don` ⇒ small `ṁ` and small
+  `p⃗_adv`; example B with `ρ_i=1.2` (air) moving into `ρ_j=1000` (water) transfers `ṁ=1.2·0.5·0.25=0.15 kg`
+  and momentum `0.15 kg·m/s` into 1000 kg — `u_j⁺ = 0.15/1000.15 ≈ 0.00015 m/s`. Physically negligible, by
+  construction, with no density gate.
 
 ---
 
