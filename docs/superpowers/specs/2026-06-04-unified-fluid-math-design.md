@@ -1,7 +1,7 @@
 # Unified Fluid Math — Design
 
 Date 2026-06-04 · Branch `rebuild` · Engine submodule `main`.
-**Status: DESIGN (math locked through §3; packaging §7 and two sub-forks still open — see "Open decisions").**
+**Status: APPROVED 2026-06-04 — all decisions locked (see "Resolved decisions"). Ready for implementation plan.**
 This is the math model for the *entire* fluid simulation — gravity, lateral leveling, communicating-vessels
 rise, and cross-species displacement — driven by a single head-pressure field. No code yet; an implementation
 plan follows separately once this is approved.
@@ -242,13 +242,14 @@ Then the loaders/integration: `:core:test` and `:core:integrationTest` on the re
 
 ---
 
-## 10. Open decisions (need user sign-off)
+## 10. Resolved decisions (user-approved 2026-06-04)
 
-1. **Pressure-tally freshness** (pressure field, subsection 2.5): re-tally each sweep (recommended) vs incremental
-   1-cell/sweep.
-2. **Flood guard** (flood-guard section, subsection 3.3): confirm local predicate (recommended, red-teamed) vs exact
-   connected-height fallback.
-3. **Packaging** (packaging section): A+ (edit passes, recommended) vs B (unified rewrite).
+1. **Pressure-tally freshness** (subsection 2.5): **re-tally `O` every sweep** (exact; pressure snaps down a column
+   in one sweep). Incremental crawl rejected.
+2. **Flood guard** (subsection 3.3): **local "more-than-calm" predicate** `(Π_i − Π_j) > m_i`, validated by the §8
+   red-team suite. Exact connected-height retained only as the documented fallback if a red-team leak can't be closed.
+3. **Packaging** (§7): **A+ — edit the three existing passes** (add `O` to `pass_b_relax`'s `Π`, add the upward gate,
+   make `pass_bprime_displace` head-driven). Lowest risk; reuses proven conservation machinery. Full rewrite (B) rejected.
 
 ---
 
