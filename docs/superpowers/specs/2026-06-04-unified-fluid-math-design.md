@@ -1,6 +1,6 @@
 # Unified Fluid Math — Design
 
-Date 2026-06-04 · Branch `rebuild` · Engine submodule `main`.
+Date 2026-06-04 · Branch `rebuild` · Engine submodule `rebuild`.
 **Status: APPROVED 2026-06-04 — all decisions locked (see "Resolved decisions"). Ready for implementation plan.**
 This is the math model for the *entire* fluid simulation — gravity, lateral leveling, communicating-vessels
 rise, and cross-species displacement — driven by a single head-pressure field. No code yet; an implementation
