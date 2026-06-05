@@ -39,6 +39,9 @@ public final class SectionData {
     private float[] temperature; // null while UNIFORM
     private float[] mass;        // null while UNIFORM
     private MaterialPalette materials; // null until the first per-cell material write
+    private float[] velX; // null until first velocity write or array request
+    private float[] velY;
+    private float[] velZ;
 
     private SectionData(Form form, float uniformTemperature, float uniformMass,
                         float[] temperature, float[] mass) {
@@ -185,6 +188,78 @@ public final class SectionData {
     }
 
     // -------------------------------------------------------------------------
+    // Velocity channels (independent lazy allocation, default 0)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Allocates all three velocity arrays (zero-filled by JVM default) if not yet present.
+     * Does NOT promote temp/mass — call {@link #promote()} first when that is required.
+     */
+    private void ensureVelocity() {
+        if (velX == null) {
+            velX = new float[CELLS];
+            velY = new float[CELLS];
+            velZ = new float[CELLS];
+        }
+    }
+
+    /** X-component of cell {@code i}'s velocity (m/s). Returns {@code 0} until first write. */
+    public float velXAt(int i) { return velX == null ? 0f : velX[i]; }
+
+    /** Y-component of cell {@code i}'s velocity (m/s). Returns {@code 0} until first write. */
+    public float velYAt(int i) { return velY == null ? 0f : velY[i]; }
+
+    /** Z-component of cell {@code i}'s velocity (m/s). Returns {@code 0} until first write. */
+    public float velZAt(int i) { return velZ == null ? 0f : velZ[i]; }
+
+    /**
+     * Sets the velocity of cell {@code i}, promoting this section to {@code FULL} (so that
+     * temp/mass arrays are materialized alongside the velocity channels).
+     *
+     * @param i  cell index (0..{@value CELLS}-1)
+     * @param vx X velocity (m/s)
+     * @param vy Y velocity (m/s)
+     * @param vz Z velocity (m/s)
+     */
+    public void setVelocity(int i, float vx, float vy, float vz) {
+        promote();
+        ensureVelocity();
+        velX[i] = vx;
+        velY[i] = vy;
+        velZ[i] = vz;
+    }
+
+    /**
+     * Returns the <em>live</em> velX array (length {@value CELLS}), allocating it (and velY/velZ)
+     * if needed. Also promotes temp/mass to {@code FULL}.
+     */
+    public float[] velXArray() {
+        promote();
+        ensureVelocity();
+        return velX;
+    }
+
+    /**
+     * Returns the <em>live</em> velY array (length {@value CELLS}), allocating it (and velX/velZ)
+     * if needed. Also promotes temp/mass to {@code FULL}.
+     */
+    public float[] velYArray() {
+        promote();
+        ensureVelocity();
+        return velY;
+    }
+
+    /**
+     * Returns the <em>live</em> velZ array (length {@value CELLS}), allocating it (and velX/velY)
+     * if needed. Also promotes temp/mass to {@code FULL}.
+     */
+    public float[] velZArray() {
+        promote();
+        ensureVelocity();
+        return velZ;
+    }
+
+    // -------------------------------------------------------------------------
     // Demotion: FULL -> UNIFORM when all cells are equal
     // -------------------------------------------------------------------------
 
@@ -209,10 +284,21 @@ public final class SectionData {
                 return false;
             }
         }
+        // Only demote if velocity is absent or all-zero (X, Y and Z).
+        if (velX != null) {
+            for (int i = 0; i < CELLS; i++) {
+                if (velX[i] != 0f || velY[i] != 0f || velZ[i] != 0f) {
+                    return false;
+                }
+            }
+        }
         uniformTemperature = t0;
         uniformMass = m0;
         temperature = null;
         mass = null;
+        velX = null;
+        velY = null;
+        velZ = null;
         form = Form.UNIFORM;
         return true;
     }
