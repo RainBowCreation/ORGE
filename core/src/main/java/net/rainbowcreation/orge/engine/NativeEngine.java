@@ -112,13 +112,13 @@ public final class NativeEngine implements OrgeEngine {
             ledgerOut = new float[2 * matCount];
         }
 
-        // Velocity in/out scratch — all-zero for now (Task 12 sources from marshaller).
-        float[] vxIn  = new float[total];
-        float[] vyIn  = new float[total];
-        float[] vzIn  = new float[total];
-        float[] vxOut = new float[total];
-        float[] vyOut = new float[total];
-        float[] vzOut = new float[total];
+        // Velocity in from flatten; velocity out from pool.
+        float[] vxIn  = f.vxIn();
+        float[] vyIn  = f.vyIn();
+        float[] vzIn  = f.vzIn();
+        float[] vxOut = scratch.velXOut(total);
+        float[] vyOut = scratch.velYOut(total);
+        float[] vzOut = scratch.velZOut(total);
 
         lastStepMillis = orgeStepWorld(
                 lutEpoch, f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
@@ -134,7 +134,8 @@ public final class NativeEngine implements OrgeEngine {
             System.arraycopy(ledgerOut, matCount, sealedLoss, 0, matCount);
         }
         return new RegionStepResult(
-                RegionMarshaller.slice(matOut, massOut, tOut, f.nCols()), injected, sealedLoss);
+                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, f.nCols()),
+                injected, sealedLoss);
     }
 
     @Override
@@ -142,31 +143,4 @@ public final class NativeEngine implements OrgeEngine {
         return lastStepMillis;
     }
 
-    /**
-     * TEST SUPPORT (Task 11): run one step and return the raw vxOut scratch array.
-     * Task 12 surfaces velocity through ColumnResult and this goes away.
-     * Package-private; not part of the OrgeEngine interface.
-     */
-    float[] stepWorldReturningVelX(List<ColumnTask> columns, int lutEpoch,
-                                   double dtSeconds, int passes) {
-        if (columns.isEmpty()) return new float[0];
-        RegionMarshaller.Flat f = RegionMarshaller.flatten(columns);
-        int total = f.nCols() * RegionMarshaller.CHUNK_N;
-        float[] tOut    = new float[total];
-        float[] massOut = new float[total];
-        char[]  matOut  = new char[total];
-        float[] vxIn    = new float[total];
-        float[] vyIn    = new float[total];
-        float[] vzIn    = new float[total];
-        float[] vxOut   = new float[total];
-        float[] vyOut   = new float[total];
-        float[] vzOut   = new float[total];
-        orgeStepWorld(
-                lutEpoch, f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
-                vxIn, vyIn, vzIn,
-                passes, dtSeconds, tOut, massOut, matOut,
-                vxOut, vyOut, vzOut,
-                0, EMPTY_INT, EMPTY_INT, EMPTY_CHAR, EMPTY_FLOAT, EMPTY_FLOAT, EMPTY_FLOAT);
-        return vxOut;
-    }
 }

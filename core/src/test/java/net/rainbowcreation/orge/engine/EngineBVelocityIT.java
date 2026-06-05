@@ -51,7 +51,7 @@ class EngineBVelocityIT {
         mat[floor]=(char)0; // (kept void/empty floor is fine; we only need the engine to run + write velocity)
         mat[cell]=(char)1; mass[cell]=1000f; t[cell]=290f;
         ColumnTask col = new ColumnTask(0,0, mat, mass, t);
-        float[] vxOut = engine.stepWorldReturningVelX(java.util.List.of(col), 102, 0.25, OrgeEngine.PASS_ADVECTION);
-        assertTrue(Float.isFinite(vxOut[cell]), "velocity-out finite after step");
+        ColumnResult r = engine.stepWorld(java.util.List.of(col), 102, 0.25, OrgeEngine.PASS_ADVECTION).get(0);
+        assertTrue(Float.isFinite(r.velX()[cell]), "velocity-out finite after step");
     }
 }
