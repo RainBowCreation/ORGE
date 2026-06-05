@@ -4,7 +4,7 @@ import net.rainbowcreation.orge.material.Material;
 import java.util.List;
 
 /**
- * Flat per-material LUT carrying EXACTLY the six physics floats the unified fluid engine needs,
+ * Flat per-material LUT carrying EXACTLY the seven physics floats the unified fluid engine needs,
  * packed by {@link RegionMarshaller} (the whole-region production path). One array per physics
  * field, indexed by LUT slot.
  *
@@ -19,13 +19,15 @@ import java.util.List;
  * does not special-case it.</p>
  */
 public record LutArrays(float[] cond, float[] heatCap, float[] molar,
-                        float[] minMass, float[] maxMass, float[] visc, int matCount) {
+                        float[] minMass, float[] maxMass, float[] visc,
+                        float[] defaultMass, int matCount) {
 
     public static LutArrays pack(List<Material> lut) {
         int m = lut.size();
         if (m == 0) throw new IllegalArgumentException("material LUT is empty");
         float[] cond = new float[m], heatCap = new float[m], molar = new float[m];
         float[] minMass = new float[m], maxMass = new float[m], visc = new float[m];
+        float[] defaultMass = new float[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
@@ -36,7 +38,8 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
             // Absent viscosity already loads as +∞ ("frozen") on the Material, so this packs +∞
             // directly — immovability is visc == +∞, no separate flag.
             visc[i] = mat.viscosity();
+            defaultMass[i] = mat.defaultMass();
         }
-        return new LutArrays(cond, heatCap, molar, minMass, maxMass, visc, m);
+        return new LutArrays(cond, heatCap, molar, minMass, maxMass, visc, defaultMass, m);
     }
 }

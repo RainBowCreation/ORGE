@@ -47,7 +47,8 @@ public final class NativeEngine implements OrgeEngine {
     private static native void orgeRegisterMaterials(
             int lutEpoch, int matCount,
             float[] cond, float[] heatCap, float[] molar,
-            float[] minMass, float[] maxMass, float[] visc);
+            float[] minMass, float[] maxMass, float[] visc,
+            float[] defaultMass);
 
     private static native double orgeStepWorld(
             int lutEpoch,
@@ -67,7 +68,8 @@ public final class NativeEngine implements OrgeEngine {
         if (table.isEmpty()) return;
         LutArrays L = LutArrays.pack(table);
         orgeRegisterMaterials(lutEpoch, L.matCount(),
-                L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc());
+                L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
+                L.defaultMass());
         epochMatCount.put(lutEpoch, table.size());
     }
 

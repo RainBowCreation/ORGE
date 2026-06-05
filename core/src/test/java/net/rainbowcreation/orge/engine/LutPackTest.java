@@ -13,7 +13,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Task 2.1: LutArrays packs EXACTLY the six physics floats; absent viscosity → +∞; void slot 0 = 0/0/0/finite. */
+/** Task 2.1/10: LutArrays packs EXACTLY the seven physics floats; absent viscosity → +∞; void slot 0 = 0/0/0/finite. */
 class LutPackTest {
 
     /** Live water built via the canonical builder: molar 0.018, minMass 125, maxMass 1000, visc 0.001. */
@@ -34,33 +34,34 @@ class LutPackTest {
     }
 
     @Test
-    void recordHasExactlySixFloatArraysPlusMatCount() {
+    void recordHasExactlySevenFloatArraysPlusMatCount() {
         RecordComponent[] comps = LutArrays.class.getRecordComponents();
         Set<String> names = Arrays.stream(comps).map(RecordComponent::getName).collect(Collectors.toSet());
-        // Exactly the six physics floats + matCount.
-        assertEquals(Set.of("cond", "heatCap", "molar", "minMass", "maxMass", "visc", "matCount"), names);
+        // Exactly the seven physics floats + matCount.
+        assertEquals(Set.of("cond", "heatCap", "molar", "minMass", "maxMass", "visc", "defaultMass", "matCount"), names);
         // The dropped flag/legacy arrays must not exist.
         for (String banned : List.of("fluid", "gas", "air", "fullMass", "minFlow")) {
             assertFalse(names.contains(banned), "LutArrays must not carry '" + banned + "'");
         }
-        // Six float[] components, one int component.
+        // Seven float[] components, one int component.
         long floats = Arrays.stream(comps).filter(c -> c.getType() == float[].class).count();
         long ints = Arrays.stream(comps).filter(c -> c.getType() == int.class).count();
-        assertEquals(6, floats, "exactly six per-material float arrays");
+        assertEquals(7, floats, "exactly seven per-material float arrays");
         assertEquals(1, ints, "matCount");
     }
 
     @Test
-    void packEmitsTheSixArraysForANormalMaterial() {
+    void packEmitsTheSevenArraysForANormalMaterial() {
         LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, water()));
         assertEquals(2, L.matCount());
-        // water at slot 1 — the exact six values.
-        assertEquals(0.6f,   L.cond()[1],    1e-6f);
-        assertEquals(4186f,  L.heatCap()[1], 1e-3f);
-        assertEquals(0.018f, L.molar()[1],   1e-6f);
-        assertEquals(125f,   L.minMass()[1], 1e-4f);
-        assertEquals(1000f,  L.maxMass()[1], 1e-4f);
-        assertEquals(0.001f, L.visc()[1],    1e-6f);
+        // water at slot 1 — the exact seven values.
+        assertEquals(0.6f,   L.cond()[1],        1e-6f);
+        assertEquals(4186f,  L.heatCap()[1],     1e-3f);
+        assertEquals(0.018f, L.molar()[1],        1e-6f);
+        assertEquals(125f,   L.minMass()[1],      1e-4f);
+        assertEquals(1000f,  L.maxMass()[1],      1e-4f);
+        assertEquals(0.001f, L.visc()[1],         1e-6f);
+        assertEquals(1000f,  L.defaultMass()[1],  1e-4f);
     }
 
     @Test
