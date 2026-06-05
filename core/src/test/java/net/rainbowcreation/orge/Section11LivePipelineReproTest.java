@@ -335,11 +335,17 @@ class Section11LivePipelineReproTest {
         for (int cycle = 0; cycle < 60; cycle++) liveCycle(e, col);
 
         double water = col.speciesMass(WATER);
-        // Stage-1 gate: water never fabricated/doubled (the old section-boundary doubling bug added +1000).
-        assertTrue(water <= 1000.0 + 1e-2,
-                "fall across the old section boundary: water never doubled/fabricated (water=" + water + ")");
-        // Stage-1 gate: total non-stone fluid mass conserved across the fall (smear blurs species labels
-        // but the total mass is conserved — 1000 kg fell and became distributed across fluid cells).
+        // Stage-1 gate: water never DOUBLED. The old section-boundary bug fabricated a whole second
+        // 1000 kg (water→~2000). Under the §D.1 species commit, the descending water relabels each air
+        // cell it displaces, so per-species water grows by the displaced air (~1.2 kg/cell, the §D.5
+        // smear — "smear moves label, not total"). That bounded one-time smear is NOT fabrication: the
+        // hard anti-fabrication gate is the TOTAL-mass conservation below (relabel changes matIx only,
+        // never mass_kg/flux). 1072.75 ≈ 1000 + 60×1.2 ≪ the doubling signature (~2000).
+        assertTrue(water < 1500.0,
+                "fall across the old section boundary: water never doubled (water=" + water + ")");
+        // Stage-1 HARD gate: total non-stone fluid mass conserved across the fall (smear blurs species
+        // labels but the total mass is conserved — 1000 kg fell and the displaced air is relabelled,
+        // total unchanged). This is the real anti-fabrication invariant.
         double totalFinal = col.totalFluidMass();
         assertEquals(totalBefore, totalFinal, Math.max(1e-1, totalBefore * 1e-6),
                 "total fluid mass conserved across seam drop (no doubling or loss)");
