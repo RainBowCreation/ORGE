@@ -72,4 +72,26 @@ class PlacementInjectionPolicyTest {
     void sameSpeciesIsNotDisplacement() {               // alias: same id regardless of movable()
         assertFalse(PlacementInjectionPolicy.isDisplacement(water(), water()));
     }
+
+    // --- shouldInject: ANY ORGE material is captured (same species = top-up, different = displace) ---
+
+    @Test
+    void shouldInjectSameSpecies() {                    // water-on-water now enqueues (top-up)
+        assertTrue(PlacementInjectionPolicy.shouldInject(water(), water()));
+    }
+
+    @Test
+    void shouldInjectDifferentSpecies() {
+        assertTrue(PlacementInjectionPolicy.shouldInject(water(), air()));
+    }
+
+    @Test
+    void shouldInjectUntrackedCell() {
+        assertTrue(PlacementInjectionPolicy.shouldInject(water(), null));
+    }
+
+    @Test
+    void shouldNotInjectNullLive() {                    // non-ORGE block → nothing to inject
+        assertFalse(PlacementInjectionPolicy.shouldInject(null, water()));
+    }
 }

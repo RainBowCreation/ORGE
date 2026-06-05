@@ -5,10 +5,15 @@ import net.rainbowcreation.orge.material.Material;
 
 /**
  * Pure capture step for placement injection (spec B2/B5). Given the live placed material and the
- * recorded incumbent material at a cell, enqueue a placement intent iff it is a movable→movable
- * displacement ({@link PlacementInjectionPolicy}). The intent carries the NEW species' id +
- * {@code defaultMass} seed + seed temperature (material default, else biome ambient) — the same
- * values {@code ColumnAssembler} would have used, now owned by the engine.
+ * recorded incumbent material at a cell, enqueue a placement intent iff the cell carries an ORGE
+ * material ({@link PlacementInjectionPolicy#shouldInject}). The intent carries the placed species' id +
+ * {@code defaultMass} seed + seed temperature (material default, else biome ambient) — the same values
+ * {@code ColumnAssembler} would have used, now owned by the engine.
+ *
+ * <p>A DIFFERENT (or untracked) species is a displace-and-inject; a SAME species is an in-place top-up
+ * — both enqueue here. The engine ({@code apply_injections}) short-circuits a same-species injection to
+ * top the cell up to the source mass without relocating the incumbent (idempotent when already full),
+ * which is what makes "place water on water" and repeated placement onto a tracked cell work.</p>
  */
 public final class PlacementCapture {
 
@@ -17,7 +22,7 @@ public final class PlacementCapture {
 
     public static void capture(PendingInjections queue, Identifier dim, int cx, int cz, int cell,
                                Material live, Material incumbent, float biomeAmbientK) {
-        if (!PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
+        if (!PlacementInjectionPolicy.shouldInject(live, incumbent)) {
             return;
         }
         float temp = live.hasDefaultTemperature() ? live.defaultTemperature() : biomeAmbientK;
@@ -37,8 +42,8 @@ public final class PlacementCapture {
      *       every time it re-asserts over a transient removal (the mass-doubling regression).</li>
      * </ul>
      * The cancelled cell keeps its durable identity + stored mass; no injection is emitted. Any OTHER case
-     * (different species = a genuine displacement, or no pending removal) delegates unchanged to
-     * {@link #capture}.
+     * delegates to {@link #capture}: a different species = a genuine displacement, and a same-species place
+     * with NO pending removal = an in-place top-up (the engine no-ops when the cell is already full).
      */
     public static void captureOrCancelStaleRemoval(PendingInjections queue, Identifier dim, int cx, int cz,
                                                    int cell, Material live, Material incumbent,

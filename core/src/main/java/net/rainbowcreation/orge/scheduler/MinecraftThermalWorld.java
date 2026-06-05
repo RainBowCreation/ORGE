@@ -136,8 +136,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      *  {@code defaultMass} and displaces the incumbent), and (b) record the placed block's first-touch
      *  material as the cell's DURABLE identity in the {@link SectionStore} (spec Part 3), so the
      *  placement persists against the next assemble even before the engine writes it back (the vanish
-     *  race, now fixed for every species). The reconciler's own steady-state repaint (live == recorded
-     *  incumbent) is still filtered out by the policy. Fully null/guard-safe (server null, level null,
+     *  race, now fixed for every species). A SAME-SPECIES placement (live == recorded incumbent) is now
+     *  also enqueued — the engine tops the cell up to the placed source mass in place (idempotent when
+     *  already full); this is a real PLACE event here (wakeBlock), not a reconciler repaint, so it is
+     *  safe to enqueue (fixes water-on-water + repeated-place). Fully null/guard-safe (server null, level null,
      *  chunk not loaded, prior null) so it is inert in the headless suites where {@code server == null}.
      *  Shared wake path: PLACE/BREAK/FILL_BUCKET all route here; the event-driven break→vacuum path is
      *  introduced separately (Task G2) — this method records the live (post-event) block as-is. */
@@ -275,9 +277,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                             ServerLevel level, BlockPos pos, Material live, Material incumbent) {
         Identifier liveId = live != null ? live.id() : null;
         Identifier incId = incumbent != null ? incumbent.id() : null;
-        if (liveId != null && liveId.equals(incId)) {
-            return; // steady-state repaint (engine output already recorded) — not a transition
-        }
+        // NOTE: a same-species (liveId == incId) event reaching here is a real PLACE event (this method
+        // is driven only from wakeBlock, not the reconciler write-back), i.e. a same-species top-up — so
+        // it is traced, not filtered. Only the no-material case is uninteresting.
         String priorState = prior == null ? "NULL-array"
                 : (sectionCell < prior.length && prior[sectionCell] != null ? "present" : "NULL-cell");
         String stored = "n/a";
@@ -289,12 +291,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             }
         }
         String decision;
-        if (PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
-            decision = "ENQUEUE inject=" + liveId;
-        } else if (live == null) {
+        if (!PlacementInjectionPolicy.shouldInject(live, incumbent)) {
             decision = "SKIP live-null (non-ORGE block / no material)";
+        } else if (PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
+            decision = "ENQUEUE displace inject=" + liveId;
         } else {
-            decision = "SKIP self-write (live==incumbent repaint)";
+            decision = "ENQUEUE same-species top-up inject=" + liveId;
         }
         InjectDebug.LOG.info(
                 "[capture] pos=({},{},{}) cell={} block={} live={} defMass={} incumbent={} prior={} stored({}) -> {}",

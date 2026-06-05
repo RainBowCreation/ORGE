@@ -36,10 +36,31 @@ class PlacementCaptureTest {
         assertEquals(expectT, got.get(0).temperature());
     }
 
+    /** SAME-SPECIES placement (e.g. a water source on a cell the engine already records as water) is now
+     *  ENQUEUED as a top-up — NOT dropped. capture() is driven only from the block-PLACE wake path, so a
+     *  same-species call here is a genuine placement event; the engine tops the cell up to defaultMass in
+     *  place (idempotent when already full). This is the water-on-water + repeated-place fix. */
     @Test
-    void selfWriteDoesNotEnqueue() {                 // live == incumbent (reconciler repaint)
+    void sameSpeciesPlacementEnqueuesTopUp() {       // live == incumbent: a real PLACE, not a repaint
         PendingInjections q = new PendingInjections();
-        PlacementCapture.capture(q, DIM, 0, 0, 100, water(), water(), 295f);
+        Material live = water();
+        int cell = 3 + 16 * 70 + 6144 * 4;
+        float ambientK = 295f;
+
+        PlacementCapture.capture(q, DIM, 0, 0, cell, live, water(), ambientK);
+
+        List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
+        assertEquals(1, got.size(), "same-species placement is enqueued as a top-up, not dropped");
+        assertEquals(water().id(), got.get(0).species());
+        assertEquals(water().defaultMass(), got.get(0).mass());
+        float expectT = live.hasDefaultTemperature() ? live.defaultTemperature() : ambientK;
+        assertEquals(expectT, got.get(0).temperature());
+    }
+
+    @Test
+    void nullLiveDoesNotEnqueue() {                  // non-ORGE block → nothing to inject
+        PendingInjections q = new PendingInjections();
+        PlacementCapture.capture(q, DIM, 0, 0, 100, null, water(), 295f);
         assertTrue(q.peekColumn(DIM, 0, 0).isEmpty());
     }
 
@@ -102,15 +123,18 @@ class PlacementCaptureTest {
         assertTrue(got.get(0).removal(), "a non-ORGE place leaves the removal intact");
     }
 
-    /** Without a pending removal, a same-species self-write is still a no-op (steady-state repaint), and a
-     *  real displacement still enqueues — captureOrCancelStaleRemoval delegates to capture unchanged. */
+    /** Without a pending removal, captureOrCancelStaleRemoval delegates to capture: a same-species place
+     *  now enqueues a top-up (the engine no-ops when already full), and a real displacement still enqueues.
+     *  (The cancel-and-return branch only fires when a removal IS pending — see the test above.) */
     @Test
     void noPendingRemovalDelegatesToOrdinaryCapture() {
         PendingInjections q = new PendingInjections();
         PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
-        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "self-write with no pending removal enqueues nothing");
+        assertEquals(1, q.peekColumn(DIM, 0, 0).size(),
+                "same-species place with no pending removal enqueues a top-up");
 
         PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 101, water(), air(), 295f);
-        assertEquals(1, q.peekColumn(DIM, 0, 0).size(), "a real displacement still enqueues");
+        assertEquals(2, q.peekColumn(DIM, 0, 0).size(),
+                "the top-up (cell 100) and the displacement (cell 101) are both enqueued");
     }
 }
