@@ -315,4 +315,62 @@ class MinecraftThermalWorldTest {
         assertEquals(ORGE_VACUUM, in.species(), "removal species is the vacuum sentinel");
         assertEquals(0f, in.mass(), 0f, "removal carries zero mass");
     }
+
+    /**
+     * T15-E (Task 15): writeBackColumn must persist the engine's output velocity into the SectionStore
+     * so the next cycle's columnSource can read it back. Finite velocity survives; non-finite is
+     * sanitised to 0.
+     *
+     * <p>Also verifies T15-F: a NaN in the result velocity is sanitized to 0 (not persisted).</p>
+     */
+    @Test
+    void writeBackColumnPersistsVelocityIntoSectionData(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastColumnLutForTest(recordLut()); // vacuum=0, air=1, water=2
+
+        int sectionY = 4;
+        // Pick two cells within section 4 (section-local sy∈[0,15]).
+        int velCell = ColumnSectionCodec.colIdx(2, sectionY, 3, 4);   // finite velocity
+        int nanCell = ColumnSectionCodec.colIdx(5, sectionY, 6, 7);   // NaN velocity
+
+        // Build a minimal column task (all air, so write-back can proceed without a real engine).
+        char[] inMat = new char[RegionMarshaller.CHUNK_N];
+        Arrays.fill(inMat, AIR_IX);
+        float[] mass = new float[RegionMarshaller.CHUNK_N];
+        float[] temp = new float[RegionMarshaller.CHUNK_N];
+        Arrays.fill(temp, 300f);
+        ColumnTask task = new ColumnTask(0, 0, inMat, mass, temp);
+        ThermalWorld.ColumnEntry entry = new ThermalWorld.ColumnEntry(DIM, 0, 0, task);
+
+        // Build result: same species/mass/temp but with velocity set.
+        char[] outMat = Arrays.copyOf(inMat, inMat.length);
+        float[] outVx = new float[RegionMarshaller.CHUNK_N];
+        float[] outVy = new float[RegionMarshaller.CHUNK_N];
+        float[] outVz = new float[RegionMarshaller.CHUNK_N];
+        outVx[velCell] = 2.5f;
+        outVy[velCell] = -1.2f;
+        outVz[velCell] = 0.8f;
+        outVx[nanCell] = Float.NaN;        // must be sanitized → 0
+        outVy[nanCell] = Float.POSITIVE_INFINITY;
+        outVz[nanCell] = Float.NEGATIVE_INFINITY;
+        ColumnResult result = new ColumnResult(outMat, mass.clone(), temp.clone(), outVx, outVy, outVz);
+
+        world.writeBackColumn(entry, result);
+
+        // Verify section-local coordinates for velCell and nanCell.
+        int velSectionCell = 2 + 16 * 3 + 256 * 4;
+        int nanSectionCell = 5 + 16 * 6 + 256 * 7;
+        SubchunkKey key = new SubchunkKey(0, sectionY, 0);
+        SectionData data = mgr.store(DIM).get(key);
+        assertNotNull(data, "section must exist after write-back");
+
+        assertEquals(2.5f,  data.velXAt(velSectionCell), 1e-5f, "velX persisted for finite cell");
+        assertEquals(-1.2f, data.velYAt(velSectionCell), 1e-5f, "velY persisted for finite cell");
+        assertEquals(0.8f,  data.velZAt(velSectionCell), 1e-5f, "velZ persisted for finite cell");
+
+        assertEquals(0f, data.velXAt(nanSectionCell), "NaN velX sanitized to 0");
+        assertEquals(0f, data.velYAt(nanSectionCell), "+Inf velY sanitized to 0");
+        assertEquals(0f, data.velZAt(nanSectionCell), "-Inf velZ sanitized to 0");
+    }
 }

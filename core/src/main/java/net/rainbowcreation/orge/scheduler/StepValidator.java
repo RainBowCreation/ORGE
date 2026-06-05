@@ -328,6 +328,24 @@ public final class StepValidator {
         }
     }
 
+    /**
+     * Sanitizes a velocity channel: non-finite values (NaN / ±Inf) are replaced by {@code fallback[i]}
+     * when {@code fallback} is non-null, or by 0 when {@code fallback} is null. Finite values pass
+     * through unchanged (velocity has no domain clamp — it is signed and unbounded). Inputs are not
+     * mutated.
+     *
+     * @param v        raw engine output velocity channel
+     * @param fallback values to keep where {@code v} is non-finite, or {@code null} to default to 0
+     * @return a new sanitized array of the same length
+     */
+    public static float[] cleanVelocity(float[] v, float[] fallback) {
+        float[] out = new float[v.length];
+        for (int i = 0; i < v.length; i++) {
+            out[i] = Float.isFinite(v[i]) ? v[i] : (fallback == null ? 0f : fallback[i]);
+        }
+        return out;
+    }
+
     /** Non-finite mass → 0; finite mass clamped to [0, fullMassBound]. Mirrors {@link #clean}. */
     public static float[] cleanMass(float[] mass, float fullMassBound) {
         float[] out = new float[mass.length];

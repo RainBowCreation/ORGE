@@ -2,14 +2,21 @@ package net.rainbowcreation.orge.engine;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialRegistry;
+import net.rainbowcreation.orge.scheduler.ColumnAssembler;
+import net.rainbowcreation.orge.scheduler.MaterialLut;
+import net.rainbowcreation.orge.scheduler.StepValidator;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static net.rainbowcreation.orge.engine.TestMaterials.lutOf;
+import static net.rainbowcreation.orge.engine.TestMaterials.registryOf;
 
 @Tag("integration")
 class EngineBVelocityIT {
@@ -53,5 +60,124 @@ class EngineBVelocityIT {
         ColumnTask col = new ColumnTask(0,0, mat, mass, t);
         ColumnResult r = engine.stepWorld(java.util.List.of(col), 102, 0.25, OrgeEngine.PASS_ADVECTION).get(0);
         assertTrue(Float.isFinite(r.velX()[cell]), "velocity-out finite after step");
+    }
+
+    // =====================================================================
+    // Task 15: assembler reads velocity from SectionCells into ColumnTask
+    // =====================================================================
+
+    /** Helper: build a minimal LUT (vacuum + water) using TestMaterials.lutOf. */
+    private static MaterialLut makeLut() {
+        return lutOf(lutWithWater());
+    }
+
+    /** Helper: build a matching registry using TestMaterials.registryOf. */
+    private static MaterialRegistry makeRegistry() {
+        return registryOf(lutWithWater());
+    }
+
+    /**
+     * T15-A: velocity stored in a SectionCells is scattered by assemble() into
+     * ColumnTask.velX/Y/Z at the correct engine index (x + 16*y + 6144*z).
+     */
+    @Test
+    void assembleScattersVelocityFromSectionCellsIntoColumnTask() {
+        MaterialLut lut = makeLut();
+        MaterialRegistry reg = makeRegistry();
+
+        int testSectionY = 4;
+        int testX = 3, testSy = 5, testZ = 7;
+        int sectionIdx = testX + 16 * testSy + 256 * testZ;
+        int engineY = testSectionY * 16 + testSy + 64;
+        int expectedEngineIdx = testX + 16 * engineY + 6144 * testZ;
+
+        float expectedVx = 1.5f, expectedVy = -0.7f, expectedVz = 0.3f;
+
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            float[] vx = new float[4096];
+            float[] vy = new float[4096];
+            float[] vz = new float[4096];
+            Arrays.fill(temp, 300f);
+            if (sectionY == testSectionY) {
+                vx[sectionIdx] = expectedVx;
+                vy[sectionIdx] = expectedVy;
+                vz[sectionIdx] = expectedVz;
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, new char[4096], new net.minecraft.resources.Identifier[4096], vx, vy, vz);
+        };
+
+        ColumnTask task = ColumnAssembler.assemble(0, 0, lut, reg, src);
+
+        assertEquals(expectedVx, task.velX()[expectedEngineIdx], 1e-6f,
+                "velX scattered to correct engine index");
+        assertEquals(expectedVy, task.velY()[expectedEngineIdx], 1e-6f,
+                "velY scattered to correct engine index");
+        assertEquals(expectedVz, task.velZ()[expectedEngineIdx], 1e-6f,
+                "velZ scattered to correct engine index");
+        // Cells not set must be zero.
+        assertEquals(0f, task.velX()[0], "unset velX must be zero");
+    }
+
+    /**
+     * T15-B: SectionCells back-compat constructors (3-arg, 4-arg, 5-arg) produce zero velocity
+     * so existing callers that don't supply velocity still assemble a ColumnTask with zero velX/Y/Z.
+     */
+    @Test
+    void assembleBackCompatConstructorsProduceZeroVelocity() {
+        MaterialLut lut = makeLut();
+        MaterialRegistry reg = makeRegistry();
+
+        // 3-arg back-compat: mat/mass/temp only (no priorSpecies, no storedMaterial, no velocity).
+        ColumnAssembler.SectionSource src3arg = (cx, cz, sectionY) ->
+                new ColumnAssembler.SectionCells(new char[4096], new float[4096], new float[4096]);
+
+        ColumnTask t3 = ColumnAssembler.assemble(0, 0, lut, reg, src3arg);
+        for (int i = 0; i < RegionMarshaller.CHUNK_N; i++) {
+            if (t3.velX()[i] != 0f || t3.velY()[i] != 0f || t3.velZ()[i] != 0f) {
+                fail("Back-compat 3-arg: velocity must be all zeros but cell " + i + " is non-zero");
+            }
+        }
+
+        // 4-arg back-compat: mat/mass/temp/priorSpecies.
+        ColumnAssembler.SectionSource src4arg = (cx, cz, sectionY) ->
+                new ColumnAssembler.SectionCells(new char[4096], new float[4096], new float[4096], new char[4096]);
+
+        ColumnTask t4 = ColumnAssembler.assemble(0, 0, lut, reg, src4arg);
+        for (int i = 0; i < RegionMarshaller.CHUNK_N; i++) {
+            if (t4.velX()[i] != 0f || t4.velY()[i] != 0f || t4.velZ()[i] != 0f) {
+                fail("Back-compat 4-arg: velocity must be all zeros but cell " + i + " is non-zero");
+            }
+        }
+    }
+
+    /**
+     * T15-C: StepValidator.cleanVelocity maps NaN/±Inf to 0 (null fallback path),
+     * and passes finite values through unchanged.
+     */
+    @Test
+    void cleanVelocityMapsNonFiniteToZero() {
+        float[] raw = {1.5f, Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, -2.5f};
+        float[] out = StepValidator.cleanVelocity(raw, null);
+        assertEquals(5, out.length);
+        assertEquals(1.5f,  out[0], 1e-6f, "finite positive passes through");
+        assertEquals(0f,    out[1], "NaN → 0");
+        assertEquals(0f,    out[2], "+Inf → 0");
+        assertEquals(0f,    out[3], "-Inf → 0");
+        assertEquals(-2.5f, out[4], 1e-6f, "finite negative passes through");
+    }
+
+    /**
+     * T15-D: StepValidator.cleanVelocity with a non-null fallback uses fallback[i] for non-finite.
+     */
+    @Test
+    void cleanVelocityUsesFallbackForNonFinite() {
+        float[] raw      = {Float.NaN, 3.0f};
+        float[] fallback = {99f, 0f};
+        float[] out = StepValidator.cleanVelocity(raw, fallback);
+        assertEquals(99f, out[0], 1e-6f, "NaN → fallback[0]");
+        assertEquals(3.0f, out[1], 1e-6f, "finite passes through");
     }
 }

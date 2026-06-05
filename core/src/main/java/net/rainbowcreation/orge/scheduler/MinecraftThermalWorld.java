@@ -691,7 +691,21 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     storedMaterial[i] = store.materialAt(cx, cz, sectionY, i);
                 }
             }
-            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial);
+            // Velocity: read per-cell stored velocity from the SectionStore when available;
+            // otherwise zero-fill (never-simulated / back-compat default).
+            float[] velX = new float[SectionData.CELLS];
+            float[] velY = new float[SectionData.CELLS];
+            float[] velZ = new float[SectionData.CELLS];
+            if (store != null && store.hasSection(key)) {
+                SectionData sd = store.get(key);
+                for (int i = 0; i < SectionData.CELLS; i++) {
+                    velX[i] = sd.velXAt(i);
+                    velY[i] = sd.velYAt(i);
+                    velZ[i] = sd.velZAt(i);
+                }
+            }
+            return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
+                    velX, velY, velZ);
         };
     }
 
@@ -721,6 +735,19 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             System.arraycopy(cleanT, 0, dstT, 0, SectionData.CELLS);
             float[] dstM = data.massArray();
             System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
+            // Velocity write-back (Task 15): slice each channel, sanitize non-finite → 0 (no clamping
+            // — velocity is signed/unbounded), and persist into the SectionData velocity arrays.
+            // The section is already FULL from the temp/mass array writes above, so velXArray() etc.
+            // allocate safely. Velocity does NOT gate mass conservation.
+            float[] secVx = ColumnSectionCodec.sliceSectionChannel(result.velX(), sectionY);
+            float[] secVy = ColumnSectionCodec.sliceSectionChannel(result.velY(), sectionY);
+            float[] secVz = ColumnSectionCodec.sliceSectionChannel(result.velZ(), sectionY);
+            float[] cleanVx = StepValidator.cleanVelocity(secVx, null);
+            float[] cleanVy = StepValidator.cleanVelocity(secVy, null);
+            float[] cleanVz = StepValidator.cleanVelocity(secVz, null);
+            System.arraycopy(cleanVx, 0, data.velXArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanVy, 0, data.velYArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanVz, 0, data.velZArray(), 0, SectionData.CELLS);
             // Durable identity (durable-material §, keystone-closing half): persist each cell's
             // engine-output material id into the store so next cycle E1's columnSource reads it as
             // authoritative (hasMaterials()==true). Effective-species rule mirrors recordCellMaterials:

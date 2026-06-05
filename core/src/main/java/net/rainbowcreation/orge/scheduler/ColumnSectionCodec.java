@@ -48,6 +48,28 @@ public final class ColumnSectionCodec {
     }
 
     /**
+     * Scatter a single float channel ({@code col}) for one section into a freshly-allocated
+     * section-sized ({@value SectionData#CELLS}) array indexed by {@code si = x + 16*sy + 256*z}.
+     * Uses identical index math to {@link #sliceSection} — this is the single-channel variant
+     * used for velocity channels (velX / velY / velZ) whose scatter is the same but whose
+     * semantics differ from temperature/mass.
+     */
+    public static float[] sliceSectionChannel(float[] col, int sectionY) {
+        float[] out = new float[SectionData.CELLS];
+        for (int z = 0; z < 16; z++) {
+            for (int sy = 0; sy < 16; sy++) {
+                int ey = engineY(sectionY, sy);
+                int colRow = 16 * ey + 6144 * z;   // + x
+                int secRow = 16 * sy + 256 * z;    // + x
+                for (int x = 0; x < 16; x++) {
+                    out[secRow + x] = col[colRow + x];
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
      * Scatter the species slice of {@code colMat} belonging to one section into a section-sized
      * ({@value SectionData#CELLS}) {@code char[]} indexed by {@code si = x + 16*sy + 256*z}.
      */

@@ -48,15 +48,23 @@ public final class ColumnAssembler {
      *    <li>{@code storedMaterial} — the DURABLE per-cell stored material id (authoritative), or
      *        {@code null} = the cell's section has no stored layer ⇒ use first-touch {@code matIx}.
      *        Length 4096.</li>
+     *    <li>{@code velX}/{@code velY}/{@code velZ} — per-cell velocity (m/s) from the SectionStore,
+     *        or all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
-                               Identifier[] storedMaterial) {
-        /** Convenience: prior signature, no stored material layer (all-null ⇒ first-touch identity). */
+                               Identifier[] storedMaterial,
+                               float[] velX, float[] velY, float[] velZ) {
+        /** Convenience: prior signature + stored material layer, zero velocity. */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                            Identifier[] storedMaterial) {
+            this(matIx, mass, temperature, priorSpecies, storedMaterial,
+                 new float[matIx.length], new float[matIx.length], new float[matIx.length]);
+        }
+        /** Back-compat: prior signature, no stored material layer, zero velocity. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies) {
             this(matIx, mass, temperature, priorSpecies, new Identifier[matIx.length]);
         }
-        /** Back-compat / never-simulated convenience: no prior signature (all-void → every fresh
-         *  cell is treated as a genuine new placement, the pre-gate behaviour) and no stored layer. */
+        /** Back-compat / never-simulated: no prior signature, no stored layer, zero velocity. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature) {
             this(matIx, mass, temperature, new char[matIx.length], new Identifier[matIx.length]);
         }
@@ -73,6 +81,9 @@ public final class ColumnAssembler {
         char[] matIx = new char[N];
         float[] mass = new float[N];
         float[] temp = new float[N];
+        float[] velX = new float[N];
+        float[] velY = new float[N];
+        float[] velZ = new float[N];
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
             for (int z = 0; z < 16; z++) {
@@ -109,11 +120,14 @@ public final class ColumnAssembler {
                         matIx[ci] = mat;
                         mass[ci] = seeded;
                         temp[ci] = cells.temperature()[si];
+                        velX[ci] = cells.velX()[si];
+                        velY[ci] = cells.velY()[si];
+                        velZ[ci] = cells.velZ()[si];
                     }
                 }
             }
         }
-        return new ColumnTask(cx, cz, matIx, mass, temp);
+        return new ColumnTask(cx, cz, matIx, mass, temp, velX, velY, velZ);
     }
 
     private ColumnAssembler() {}
