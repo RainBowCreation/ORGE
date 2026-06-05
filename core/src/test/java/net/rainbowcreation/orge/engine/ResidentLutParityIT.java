@@ -49,6 +49,12 @@ class ResidentLutParityIT {
         return new ColumnTask(0, 0, matIx, mass, tIn);
     }
 
+    /**
+     * Regression guard: an 8-step run must produce bit-identical output every time it runs.
+     * Golden regenerated for Engine B (Stage-1) on 2026-06-05 switchover from Engine A.
+     * The other two tests ({@code oldEpoch...}, {@code unknownEpoch...}) prove run-to-run determinism
+     * independently, making this capture stable.
+     */
     @Test
     void registerOnceRunsBitIdenticalToGolden() throws Exception {
         Assumptions.assumeTrue(nativeAvailable(), "native liborge required");
