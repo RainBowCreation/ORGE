@@ -37,7 +37,7 @@ class ResidentLutParityIT {
         lut.add(mat("orge:void",  0f,   0f,    0f,    0f,   0f,   Float.POSITIVE_INFINITY));
         lut.add(mat("orge:water", 4186f,0.6f,  0.018f,125f, 1000f,0f));
         lut.add(mat("orge:lava",  1000f,1.0f,  0.100f,200f, 2000f,5000f));
-        lut.add(mat("orge:air",   1005f,0.025f,0.029f,1.0f, 50f,  0f));
+        lut.add(mat("orge:air",   1005f,0.025f,0.002f,1.0f, 50f,  0f));
         return lut;
     }
     private static ColumnTask seedColumn() {
