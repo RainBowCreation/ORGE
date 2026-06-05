@@ -312,6 +312,11 @@ public final class SectionData {
         return materials != null;
     }
 
+    /** Whether this section has non-default (non-null) velocity arrays. Used by the codec. */
+    public boolean hasVelocity() {
+        return velX != null;
+    }
+
     /**
      * The material id of cell {@code i} (0..{@value CELLS}-1). Reads the {@code orge:vacuum}
      * sentinel ({@link MaterialPalette#VACUUM_ID}) for any cell never written — including every

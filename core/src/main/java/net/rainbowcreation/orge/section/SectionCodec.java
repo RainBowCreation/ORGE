@@ -21,7 +21,7 @@ import java.util.zip.Inflater;
 public final class SectionCodec {
 
     /** Wire format version for column blobs. */
-    public static final byte FORMAT_VERSION = 2;
+    public static final byte FORMAT_VERSION = 3;
 
     private static final byte FORM_UNIFORM = 0;
     private static final byte FORM_FULL    = 1;
@@ -136,7 +136,7 @@ public final class SectionCodec {
     /**
      * Writes one {@link SectionData} to {@code out}.
      *
-     * <p>Wire format (v2):
+     * <p>Wire format (v3):
      * <pre>
      * byte  form       ; 0 = UNIFORM, 1 = FULL
      * -- UNIFORM:
@@ -147,13 +147,22 @@ public final class SectionCodec {
      * byte[tLen]
      * int   mLen ; compressed mass array length
      * byte[mLen]
-     * -- material block (v2; absent in legacy v1 blobs):
+     * -- material block (v2+; absent in legacy v1 blobs):
      * byte  hasMaterials ; 0 = none, 1 = present
      * -- if hasMaterials == 1:
      * short paletteCount
      * UTF[paletteCount]  ; palette ids (slot 0 = orge:vacuum)
      * int   iLen         ; compressed char[4096] index array length
      * byte[iLen]
+     * -- velocity block (v3+; absent in v1/v2 blobs):
+     * byte  hasVelocity  ; 0 = none (all cells 0), 1 = present
+     * -- if hasVelocity == 1:
+     * int   vxLen ; compressed float[4096] velX array length
+     * byte[vxLen]
+     * int   vyLen ; compressed float[4096] velY array length
+     * byte[vyLen]
+     * int   vzLen ; compressed float[4096] velZ array length
+     * byte[vzLen]
      * </pre></p>
      */
     public static void writeSection(DataOutputStream out, SectionData s) throws IOException {
@@ -170,7 +179,7 @@ public final class SectionCodec {
             out.writeInt(mComp.length);
             out.write(mComp);
         }
-        // v2 material block (uniform for format uniformity; UNIFORM sections never carry materials).
+        // v2+ material block (uniform for format uniformity; UNIFORM sections never carry materials).
         if (s.hasMaterials()) {
             out.writeByte(1);
             MaterialPalette mp = s.materials();
@@ -184,24 +193,53 @@ public final class SectionCodec {
         } else {
             out.writeByte(0);
         }
+        // v3 velocity block.
+        if (s.hasVelocity()) {
+            out.writeByte(1);
+            byte[] vxComp = deflate(floatsToBytes(s.velXArray()));
+            out.writeInt(vxComp.length);
+            out.write(vxComp);
+            byte[] vyComp = deflate(floatsToBytes(s.velYArray()));
+            out.writeInt(vyComp.length);
+            out.write(vyComp);
+            byte[] vzComp = deflate(floatsToBytes(s.velZArray()));
+            out.writeInt(vzComp.length);
+            out.write(vzComp);
+        } else {
+            out.writeByte(0);
+        }
     }
 
     /**
-     * Reads one {@link SectionData} from {@code in}.
+     * Reads one {@link SectionData} from {@code in} (full v3 format: materials + velocity).
      *
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     public static SectionData readSection(DataInputStream in) throws IOException {
-        return readSection(in, true);
+        return readSection(in, true, true);
     }
 
     /**
      * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
      * block. v1 blobs carry no material block ({@code withMaterials == false}); v2 blobs do.
+     * Velocity is NOT read (withVelocity=false) — used by legacy callers.
      *
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     static SectionData readSection(DataInputStream in, boolean withMaterials) throws IOException {
+        return readSection(in, withMaterials, false);
+    }
+
+    /**
+     * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
+     * block and v3 velocity block.
+     *
+     * @param withMaterials whether to read the v2+ material block
+     * @param withVelocity  whether to read the v3+ velocity block
+     * @throws IOException  if the form byte is unrecognised or data is corrupt
+     */
+    static SectionData readSection(DataInputStream in, boolean withMaterials, boolean withVelocity)
+            throws IOException {
         byte form = in.readByte();
         SectionData section;
         if (form == FORM_UNIFORM) {
@@ -238,6 +276,26 @@ public final class SectionCodec {
                 section.adoptMaterials(new MaterialPalette(paletteList, indices));
             }
         }
+        if (withVelocity) {
+            byte hasVelocity = in.readByte();
+            if (hasVelocity == 1) {
+                int vxLen = in.readInt();
+                if (vxLen < 0) throw new IOException("corrupt section: negative compressed length " + vxLen);
+                float[] vx = bytesToFloats(inflate(in.readNBytes(vxLen), SectionData.CELLS * 4));
+
+                int vyLen = in.readInt();
+                if (vyLen < 0) throw new IOException("corrupt section: negative compressed length " + vyLen);
+                float[] vy = bytesToFloats(inflate(in.readNBytes(vyLen), SectionData.CELLS * 4));
+
+                int vzLen = in.readInt();
+                if (vzLen < 0) throw new IOException("corrupt section: negative compressed length " + vzLen);
+                float[] vz = bytesToFloats(inflate(in.readNBytes(vzLen), SectionData.CELLS * 4));
+
+                System.arraycopy(vx, 0, section.velXArray(), 0, SectionData.CELLS);
+                System.arraycopy(vy, 0, section.velYArray(), 0, SectionData.CELLS);
+                System.arraycopy(vz, 0, section.velZArray(), 0, SectionData.CELLS);
+            }
+        }
         return section;
     }
 
@@ -250,7 +308,8 @@ public final class SectionCodec {
      *
      * <p>Wire format:
      * <pre>
-     * byte  version       ; FORMAT_VERSION (2); legacy v1 blobs (no material block) also accepted on read
+     * byte  version       ; FORMAT_VERSION (3); legacy v1 (no material/velocity) and v2 (no velocity)
+     *                     ; blobs are also accepted on read
      * short sectionCount
      * repeat sectionCount (sorted by sectionY ascending):
      *   int   sectionY
@@ -284,15 +343,16 @@ public final class SectionCodec {
     public static NavigableMap<Integer, SectionData> readColumn(byte[] blob) throws IOException {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(blob));
         int version = in.readByte() & 0xFF;
-        if (version != 1 && version != FORMAT_VERSION) {
+        if (version < 1 || version > FORMAT_VERSION) {
             throw new IOException("unsupported column format version: " + version);
         }
         boolean withMaterials = version >= 2;
+        boolean withVelocity  = version >= 3;
         int count = in.readShort() & 0xFFFF;
         TreeMap<Integer, SectionData> result = new TreeMap<>();
         for (int i = 0; i < count; i++) {
             int sectionY = in.readInt();
-            SectionData section = readSection(in, withMaterials);
+            SectionData section = readSection(in, withMaterials, withVelocity);
             result.put(sectionY, section);
         }
         return result;
