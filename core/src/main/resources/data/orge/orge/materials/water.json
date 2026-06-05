@@ -6,7 +6,7 @@
   "default_temperature": 290,
   "viscosity": 0.001,
   "min_mass": 125,
-  "max_mass": 1100,
+  "max_mass": 1000,
   "min_temp": 273.15,
   "min_target": "orge:ice",
   "max_temp": 373.15,

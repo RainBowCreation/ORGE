@@ -6,7 +6,7 @@
   "default_temperature": 1400,
   "viscosity": 100,
   "min_mass": 400,
-  "max_mass": 3400,
+  "max_mass": 3100,
   "min_temp": 1000,
   "min_target": "orge:stone",
   "pinned": true
