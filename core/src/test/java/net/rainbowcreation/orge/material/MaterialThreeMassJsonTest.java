@@ -28,20 +28,25 @@ class MaterialThreeMassJsonTest {
     }
 
     @Test
-    void waterHasFloorAndCapEqualToDefaultMass() throws Exception {
+    void waterHasFloorAndCompressionHeadroom() throws Exception {
         Material w = load("water");
         assertTrue(w.movable(), "water JSON has viscosity -> movable");
         assertEquals(125f, w.minMass(), 1e-4f);
-        assertEquals(1000f, w.maxMass(), 1e-4f, "max_mass == default_mass this slice");
+        // §G.2 calibration: liquids carry compression headroom (max_mass > default_mass) so a
+        // hydrostatic column can exceed m_rest and build the pressure that drives leveling/spread.
+        // (max==default gave p≡0 and no flow — confirmed in-game.)
+        assertEquals(1100f, w.maxMass(), 1e-4f, "max_mass > default_mass: compression headroom");
         assertEquals(1000f, w.defaultMass(), 1e-4f);
+        assertTrue(w.maxMass() > w.defaultMass(), "headroom present");
     }
 
     @Test
-    void lavaHasFloorAndCapEqualToDefaultMass() throws Exception {
+    void lavaHasFloorAndCompressionHeadroom() throws Exception {
         Material l = load("lava");
         assertTrue(l.movable(), "lava JSON has viscosity -> movable");
         assertEquals(400f, l.minMass(), 1e-4f);
-        assertEquals(3100f, l.maxMass(), 1e-4f);
+        assertEquals(3400f, l.maxMass(), 1e-4f, "max_mass > default_mass: compression headroom");
+        assertTrue(l.maxMass() > l.defaultMass(), "headroom present");
     }
 
     @Test
