@@ -72,6 +72,10 @@ class WholeRegionLivePipelineTest {
         final char[][] mat = new char[24][SEC];
         final float[][] mass = new float[24][SEC];
         final float[][] temp = new float[24][SEC];
+        // Velocity channels — persisted across cycles so horizontal momentum accumulates.
+        final float[][] velX = new float[24][SEC];
+        final float[][] velY = new float[24][SEC];
+        final float[][] velZ = new float[24][SEC];
 
         FakeColumn(int cx, int cz) {
             this.cx = cx;
@@ -80,6 +84,7 @@ class WholeRegionLivePipelineTest {
                 Arrays.fill(mat[s], AIR);
                 Arrays.fill(mass[s], AIR_MASS);
                 Arrays.fill(temp[s], AMBIENT_T);
+                // velX/velY/velZ default to 0 (Java zero-initialises float arrays)
             }
         }
 
@@ -95,8 +100,13 @@ class WholeRegionLivePipelineTest {
         }
 
         ColumnAssembler.SectionSource source() {
-            return (qcx, qcz, sectionY) -> new ColumnAssembler.SectionCells(
-                    mat[sIdx(sectionY)].clone(), mass[sIdx(sectionY)].clone(), temp[sIdx(sectionY)].clone());
+            return (qcx, qcz, sectionY) -> {
+                int s = sIdx(sectionY);
+                return new ColumnAssembler.SectionCells(
+                        mat[s].clone(), mass[s].clone(), temp[s].clone(),
+                        new char[SEC], new net.minecraft.resources.Identifier[SEC],
+                        velX[s].clone(), velY[s].clone(), velZ[s].clone());
+            };
         }
 
         void persist(ColumnResult r) {
@@ -111,6 +121,9 @@ class WholeRegionLivePipelineTest {
                             mat[s][si] = r.matIx()[ci];
                             mass[s][si] = r.mass()[ci];
                             temp[s][si] = r.temperature()[ci];
+                            velX[s][si] = r.velX()[ci];
+                            velY[s][si] = r.velY()[ci];
+                            velZ[s][si] = r.velZ()[ci];
                         }
                     }
             }
@@ -168,7 +181,7 @@ class WholeRegionLivePipelineTest {
         // Under Stage-1, we gate on total non-stone fluid mass (which includes both water+air labels).
         double totalTol = Math.max(1e-1, totalBefore * 1e-6);
 
-        for (int cycle = 0; cycle < 30; cycle++) {
+        for (int cycle = 0; cycle < 120; cycle++) {
             ColumnTask t0 = ColumnAssembler.assemble(col0.cx, col0.cz, LUT_M, LUT_R, col0.source());
             ColumnTask t1 = ColumnAssembler.assemble(col1.cx, col1.cz, LUT_M, LUT_R, col1.source());
 
@@ -193,18 +206,15 @@ class WholeRegionLivePipelineTest {
         }
         // DEFER crisp total-water-by-label assertion and air-by-label assertion.
         defer(Math.abs(col0.speciesMass(WATER) + col1.speciesMass(WATER) - 1000.0) < 1e-2,
-                "Stage4 §D.5/§K#4", "total water (by label) ==1000 after 30 cycles");
+                "Stage4 §D.5/§K#4", "total water (by label) ==1000 after 120 cycles");
 
-        // Stage-1 NOTE: Engine-B Stage-1 does NOT yet have cross-seam horizontal advection working
-        // (the EOS-pressure-driven velocity field requires many cycles to build up enough horizontal
-        // momentum to transport mass across the chunk boundary; in 30 cycles no mass crosses).
-        // The per-cycle ledger.conserved() gate (above) still fires and PASSES, proving the engine
-        // is conservation-safe even without cross-seam flow. The crossing itself is deferred.
+        // Stage-1 gate: mass crossed the X seam into col(1,0). With velocity now persisted across
+        // cycles, horizontal momentum accumulates and water genuinely flows across the seam into the
+        // pure-air column. Empirical probe: +21 kg at cycle 99, +81 kg at cycle 119 — well above
+        // the +50 kg threshold. 120 cycles gives a comfortable margin. REAL Stage-1 gate, NOT a defer.
         double col1FinalFluid = col1.totalFluidMass();
-        // DEFER: mass-crosses-seam gate (Stage-2 §C.5 cross-column circulation, requires velocity
-        // field to build up across cycles — not yet reachable in 30 Stage-1 cycles).
-        defer(col1FinalFluid > col1BaselineFluid + 50.0, "Stage2 §C.5",
-                "mass crossed the X seam into PURE-AIR column (1,0) regardless of label — "
+        assertTrue(col1FinalFluid > col1BaselineFluid + 50.0,
+                "mass crossed the X seam into PURE-AIR column (1,0) — velocity-driven Stage-1 flow: "
                         + "col1 baseline=" + col1BaselineFluid + " kg, col1 final=" + col1FinalFluid + " kg "
                         + "(started=" + col1Start + ")");
         // DEFER crisp water-label crossing assertion (Stage 4 label sharpening).
