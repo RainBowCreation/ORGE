@@ -8,6 +8,13 @@
 
 **Tech Stack:** Header-only C++20, dependency-free test harness (`tests/test_harness.hpp`), `g++ -std=c++20`, `tests/run_tests.sh`, `native/build_liborge.sh` for the JNI `.so`. Spec: `docs/superpowers/specs/2026-06-06-engine-b-force-advect-conduct-design.md` (D1–D9).
 
+> **⚠ ERRATA (2026-06-06, post-restructure — read before executing).** The repo was restructured into `core/` (engine headers), `jni/orge_jni.cpp`, `viz/` (visualizer) **after** this plan was drafted, and the dead-demo cleanup is already done + pushed (engine `06c62e6` / parent `4672f26`). Therefore, throughout this plan:
+> - **Engine headers live in `core/`.** Read every bare `sim_engine.hpp` / `engine_b.hpp` / `orge_kernel.hpp` / `lut_store.hpp` path as `core/…` (e.g. "Modify `sim_engine.hpp:48`" → `core/sim_engine.hpp:48`; "Modify `engine_b.hpp:673`" → `core/engine_b.hpp:673`). The line numbers are unchanged by the move.
+> - **Create `force_advect.hpp` in `core/`** (so it's part of the game-required core).
+> - **Every `g++ … -I. tests/…` build command must add `-Icore`** (i.e. `-std=c++20 -O2 -g -I. -Icore tests/…`). `run_tests.sh` already has `-Icore`; just register the new tests in `CHEAP_TESTS`.
+> - **`#include` lines inside source/tests stay unprefixed** (e.g. `#include "force_advect.hpp"`, `#include "engine_b.hpp"`) — they resolve via `-Icore`. Do NOT write `core/…` inside includes.
+> - There is **no separate cleanup task** — that work is done. Task 0 below (yieldStress) is the first thing to execute.
+
 **Reuse map (do NOT re-derive — call these):**
 - `orgeb::chi(const Material&)` — `engine_b.hpp:38`
 - `orgeb::eos_pressure(mat, mass, T, G)` — `engine_b.hpp:46` (already lowers rest density by heat)
