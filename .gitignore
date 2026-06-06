@@ -30,3 +30,6 @@ Thumbs.db
 
 # JVM crash dumps
 hs_err_pid*.log
+
+# Claude harness runtime lock
+.claude/scheduled_tasks.lock
