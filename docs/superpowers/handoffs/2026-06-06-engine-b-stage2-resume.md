@@ -2,6 +2,38 @@
 
 **Written 2026-06-06 before a PC shutdown.** A fresh session was told the user will say only "resume". This file + the memory `engine-b-velocity-field.md` are how you continue.
 
+---
+## UPDATE 2026-06-06 (later same day) — FIRST IN-GAME AUDIT DONE. #3 ghost FIXED+pushed.
+The user ran the NeoForge audit. Results: **PASS** #1 keystone (1 bucket falls, bounded, const mass),
+#4 fall-through-air (water+lava), #5 hydrostatic stability, #6 lava-pins-on-water. **FAIL #3 (critical
+ship-blocker)** + **FAIL #7 leveling** + **MIXED #2** (see below).
+
+**#3 TEMPERATURE GHOST — FIXED + PUSHED (parent 86f8fe2 / engine f8c8321).** Placing one 290 K water
+bucket in a sealed-ish air pocket exploded a whole 16^3 section to `T 0.00/2609/6000 K`, non-uniform
+298→3848/4096 in one dispatch, monotone spread — with NO 6000 K source in the world (lava placed later),
+so T was fabricated. ROOT CAUSE was NOT engine-B math but **conduction**: explicit forward-Euler
+(`orge_kernel.hpp finalize_temp: Tn=Tc+(dt/Cth)*dT`, `Cth=max(1e-8,mass*hc)`) is UNSTABLE on the thin
+(~1e-6 kg) cells engine-B advection leaves (vacuum-guard floor + EOS gas-thinning): stability number
+r=dt*keff/Cth ≫ 1/2 ⇒ any seed grows ~(2r-1)x/step, slams to the [0,6000] clamp rails, conducts outward.
+FIX = discrete **maximum principle**: clamp `T_next` into the conductive stencil's `[Tlo,Thi]`
+(self + keff>0 neighbours). Unconditionally stable; PROVEN no-op for stable normal-mass cells
+(golden parity bit-identical). New `engine_b_conduction_stability_test` (THIN repro RED 0/6000→GREEN
+[290,290.5]; INTEGRATION sealed-box+water via step_frame stays 290). cheap 13/13 + correctness 12/12 +
+:core 395/0 + integ 24/0 (skipped=0) + both loaders. Adversarial review (6 probes) → SHIP.
+
+**STILL OPEN (next gates, headless-repro-first, conserve grand+per-species):**
+- **#7 leveling FAIL**: same-species water did NOT equalise — 500 kg beside 1000 kg adjacent cells
+  stayed split; 2-cell well water didn't spread horizontally. (Hydrostatic head-pressure / Law-C
+  leveling exists on engine-A `main` but NOT yet ported to engine-B `rebuild`.)
+- **#2 air over-accumulation (MIXED)**: in sealed wells, displaced air compressed into neighbour air
+  cells up to ~835–1000 kg (`stored mass=835/979/744`), grand mass ~held but unphysical density;
+  also `/orge set 500` on a water cell reverted to 1000 (writeback re-fill) and `sealedLoss=[1=1000]`
+  on placing water onto existing water. Investigate whether air maxMass cap + EOS compaction is right.
+- break→vacuum still the banked Java-seam item (glass→0kg air→refills to 118kg air; "orge:vacuum"
+  not registered). NOT a Stage-2 bug.
+NEXT IN-GAME GATE: user re-audits #3 (must be NO 0/6000 ghost), then we tackle #7 leveling.
+---
+
 ## TL;DR of where things stand
 
 **Stage-2 conservative buoyant displacement is COMPLETE, verified, and PUSHED.** Fluid now moves through the live `orge:air` medium, conserving grand AND per-species mass exactly. Nothing is half-finished in code. The ONLY remaining gate is the **in-game audit**, which only the user can run.
