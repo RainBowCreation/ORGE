@@ -28,6 +28,7 @@ law regardless of "phase". No code ever asks "is this a solid / liquid / gas".
 | D6 | Buoyancy / thermal expansion | **Emergent** from gravity + pressure-gradient — NOT separate force terms |
 | D7 | Solids vs fluids | **No tiers, no phase branch.** `yield_stress` is a universal material axis; one Bingham/Herschel-Bulkley law for every cell |
 | D8 | Yield criterion | **Net-force magnitude** now, behind a **pluggable criterion seam** for Mohr-Coulomb later |
+| D9 | Pair heat-transfer multiplier | Continuous `thermal_mobility a∈[0,1]` **derived from `viscosity` + `yield_stress`** (no new field, no phase enum); pair factor `(1+C·a_i)(1+C·a_j)` reproduces ONI's 1/25/625 as a smooth special case; convection additionally emergent via Pass B |
 
 ## 2. Per-cell state & storage
 
@@ -120,13 +121,29 @@ v = momentum / mass ;   T = E / (mass·cp)
 ### Pass C — Conduct  *(per cell; neighbour scalar exchange; no vectors)*
 
 ```
-ΔE_i = dt · Σfaces k · (T_j − T_i) · A / dx                    // Fourier, antisymmetric → energy-exact
-T_i  = clamp(E_i/(mass_i·cp), stencil_min, stencil_max)        // KEEP audit-#3 discrete-maximum-principle clamp
+# --- pair heat-transfer multiplier (D9): continuous, branchless, NO phase enum ---
+a_i    = 1 / (1 + μ_i/μ_ref + yield_i/yield_ref)               // thermal mobility ∈ [0,1] from the two
+                                                              //   mechanical numbers that define "how solid"
+k_face = k_base · (1 + C·a_i) · (1 + C·a_j)                    // C ≈ 24 ; SYMMETRIC in (i,j) ⇒ flux antisymmetric
+ΔE_i   = dt · Σfaces k_face · (T_j − T_i) · A / dx             // Fourier, antisymmetric → energy-exact
+T_i    = clamp(E_i/(mass_i·cp), stencil_min, stencil_max)      // KEEP audit-#3 discrete-maximum-principle clamp
 ```
 
 Solids conduct too. Conduction moves **energy** antisymmetrically (conserves grand energy); `T` is
 re-derived after. The max-principle clamp is retained verbatim (forward-Euler is unstable on
 advection-thinned ~1e-6 kg cells without it).
+
+- **`thermal_mobility a` reproduces ONI's `solid×solid=1 / fluid×solid=25 / fluid×fluid=625`** as the
+  smooth special case (`a≈0` solid, `a≈1` fluid, `C≈24`), but is a *continuous function of viscosity +
+  yield_stress* — so mud/slush/lava-crust interpolate and **dry sand** (low μ, high yield → `a≈0`)
+  correctly conducts like a solid. **No new field, no phase branch.**
+- **Multiplier is symmetric in `(i,j)`** ⇒ the face flux stays antisymmetric ⇒ grand energy still
+  exactly conserved. (A non-symmetric multiplier would silently fabricate/destroy energy.)
+- **The "fast fluid heat-sharing" ONI fakes with 625× is *also* real convection in our engine** —
+  Pass B advects `ΔE` with moving/mixing fluid, so water+lava equalise via both boosted conduction
+  AND bulk convective transport (more realistic than ONI, which has no convection).
+- **Seams (calibration-stage, not built now):** scale `a` by actual cell speed `|v|` for
+  convection-enhanced mixing; Mohr-Coulomb yield criterion via the §3-Pass-A `yields()` seam.
 
 **Write-back:** `mass`, `T = E/(mass·cp)`, `v` (int16-quantized).
 
@@ -150,7 +167,8 @@ velocity". Velocity becomes **primary state**, not something recovered from a bu
 is the "un-mixing".
 
 **Added:** material-LUT `yield_stress` + the pluggable `yields()` criterion; the Bingham constitutive
-line in Pass A; explicit `ΔE`/`Δp` carry in Pass B.
+line in Pass A; explicit `ΔE`/`Δp` carry in Pass B; the continuous viscosity+yield-derived
+`thermal_mobility` pair-multiplier in Pass C (D9).
 
 ## 6. How this addresses the open bugs
 
