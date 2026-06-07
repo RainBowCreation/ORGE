@@ -99,6 +99,17 @@ public final class Orge {
         }
         initialized = true;
 
+        boolean nativeOk;
+        try {
+            net.rainbowcreation.orge.engine.NativeLoader.load();
+            nativeOk = true;
+        } catch (Throwable t) {
+            nativeOk = false;
+        }
+        LOGGER.info("============================================================");
+        LOGGER.info("[ORGE] {}", BuildInfo.banner());
+        LOGGER.info("[ORGE] native liborge loaded = {}", nativeOk);
+        LOGGER.info("============================================================");
         LOGGER.info("ORGE v2 thermal core initializing (Phase 1 skeleton).");
 
         // ORGE registers NO blocks: every substance is a material, and a material renders via its

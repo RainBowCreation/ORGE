@@ -20,6 +20,50 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:${rootProject.junit_platform_version}"
 }
 
+// --- Build stamp (startup version banner; lets us tell a stale jar from a fresh one) ---------------
+// Generates orge-build.properties into core resources at build time: mod version, MC version, the
+// parent + ORGE-ENGINE git short SHAs (engine SHA == the gitlink the bundled liborge.so was built
+// from), and a UTC build timestamp. Orge.init() logs these so a running server proves which build it
+// is. Always re-runs (never UP-TO-DATE) so the stamp is fresh every build.
+import java.util.concurrent.TimeUnit
+static String orgeGitSha(File dir) {
+    try {
+        if (!new File(dir, ".git").exists() && !new File(dir.parentFile ?: dir, ".git").exists()) {
+            // submodule .git is a file, parent has .git dir; still try git below
+        }
+        Process proc = new ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+                .directory(dir).redirectErrorStream(true).start()
+        String out = proc.inputStream.text.trim()
+        proc.waitFor(5, TimeUnit.SECONDS)
+        return (proc.exitValue() == 0 && !out.isEmpty()) ? out : "unknown"
+    } catch (Exception ignored) {
+        return "unknown"
+    }
+}
+
+def buildInfoDir = layout.buildDirectory.dir("generated/orge-buildinfo")
+def generateBuildInfo = tasks.register("generateBuildInfo") {
+    description = "Stamps orge-build.properties (version + git SHAs + build time) for the startup banner."
+    def outDir = buildInfoDir
+    def modVersion = rootProject.mod_version
+    def mcVersion = rootProject.minecraft_version
+    def repoRoot = rootProject.projectDir
+    outputs.dir(outDir)
+    outputs.upToDateWhen { false }   // always restamp so the SHA/timestamp are never stale
+    doLast {
+        def parentSha = orgeGitSha(repoRoot)
+        def engineSha = orgeGitSha(new File(repoRoot, "ORGE-ENGINE"))
+        def stamp = new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone("UTC"))
+        def f = outDir.get().file("orge-build.properties").asFile
+        f.parentFile.mkdirs()
+        f.text = "version=${modVersion}\nmc=${mcVersion}\nparentSha=${parentSha}\nengineSha=${engineSha}\nbuildTime=${stamp}\n"
+        logger.lifecycle("[ORGE] stamped build: v${modVersion} (mc ${mcVersion}) parent ${parentSha} engine ${engineSha} @ ${stamp}")
+    }
+}
+// Pass the TASK PROVIDER (not a bare dir) so Gradle auto-wires the dependency for every resource
+// consumer (processResources AND sourcesJar) — avoids the "uses output without declaring dependency" error.
+sourceSets.main.resources.srcDir(generateBuildInfo)
+
 // Tests are split into two tiers (mirrors ORGE-ENGINE/tests/run_tests.sh):
 //   * the default `test` task runs the fast unit tests only — the iterate loop;
 //   * `integrationTest` runs the heavy live-pipeline tests (tagged "integration"),
