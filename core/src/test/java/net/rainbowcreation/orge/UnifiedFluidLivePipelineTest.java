@@ -86,6 +86,10 @@ class UnifiedFluidLivePipelineTest {
         final char[][] mat = new char[24][SEC];
         final float[][] mass = new float[24][SEC];
         final float[][] temp = new float[24][SEC];
+        // priorSpecies signature: the engine OUTPUT species recorded at last write-back (the live
+        // CellMaterialTracker analogue). Drives the ColumnAssembler seed gate — a drained-but-still-
+        // fluid cell whose label matches its prior species is NOT re-seeded. Starts all-void (0).
+        final char[][] prior = new char[24][SEC];
         // Velocity channels — persisted across cycles so horizontal momentum accumulates.
         final float[][] velX = new float[24][SEC];
         final float[][] velY = new float[24][SEC];
@@ -129,8 +133,8 @@ class UnifiedFluidLivePipelineTest {
             return (qcx, qcz, sectionY) -> {
                 int s = sIdx(sectionY);
                 return new ColumnAssembler.SectionCells(
-                        mat[s].clone(), mass[s].clone(), temp[s].clone(),
-                        new char[SEC], new net.minecraft.resources.Identifier[SEC],
+                        mat[s].clone(), mass[s].clone(), temp[s].clone(), prior[s].clone(),
+                        new net.minecraft.resources.Identifier[SEC],
                         velX[s].clone(), velY[s].clone(), velZ[s].clone());
             };
         }
@@ -147,6 +151,7 @@ class UnifiedFluidLivePipelineTest {
                             mat[s][si] = r.matIx()[ci];
                             mass[s][si] = r.mass()[ci];
                             temp[s][si] = r.temperature()[ci];
+                            prior[s][si] = r.matIx()[ci]; // signature = engine output species
                             velX[s][si] = r.velX()[ci];
                             velY[s][si] = r.velY()[ci];
                             velZ[s][si] = r.velZ()[ci];

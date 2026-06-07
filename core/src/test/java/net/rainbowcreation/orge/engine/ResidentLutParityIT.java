@@ -111,4 +111,5 @@ class ResidentLutParityIT {
             assertEquals(seed.temperature()[i], r.temperature()[i], 0f, "no-op temp pass-through @" + i);
         }
     }
+
 }
