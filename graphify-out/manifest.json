@@ -1,0 +1,2027 @@
+{
+  "/home/claude/ORGE-B/ORGE-ENGINE/core/engine_b.hpp": {
+    "mtime": 1780791563.6916203,
+    "ast_hash": "b0b861c089e9cafe837c6b2906cebc5f",
+    "semantic_hash": "b0b861c089e9cafe837c6b2906cebc5f"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/core/force_advect.hpp": {
+    "mtime": 1780794222.9008386,
+    "ast_hash": "a4b1f440b4f5d693d799bc0a80893059",
+    "semantic_hash": "a4b1f440b4f5d693d799bc0a80893059"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/core/lut_store.hpp": {
+    "mtime": 1780589295.834209,
+    "ast_hash": "7d344e65df54b350c014ec7a8a371489",
+    "semantic_hash": "7d344e65df54b350c014ec7a8a371489"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/core/orge_kernel.hpp": {
+    "mtime": 1780589295.8572097,
+    "ast_hash": "c02da68d30034a2096f4480db79b2e16",
+    "semantic_hash": "c02da68d30034a2096f4480db79b2e16"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/core/sim_engine.hpp": {
+    "mtime": 1780787233.1323037,
+    "ast_hash": "2281aeda42feeb663def605076ebbaa8",
+    "semantic_hash": "2281aeda42feeb663def605076ebbaa8"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/jni/orge_jni.cpp": {
+    "mtime": 1780791590.6849778,
+    "ast_hash": "d9477ddfbb07d3e9c131c3c5edc6197a",
+    "semantic_hash": "d9477ddfbb07d3e9c131c3c5edc6197a"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/native/build_liborge.sh": {
+    "mtime": 1780785495.5643642,
+    "ast_hash": "0e895896c8e7b266099ad0031f035a44",
+    "semantic_hash": "0e895896c8e7b266099ad0031f035a44"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/advect_pass_test.cpp": {
+    "mtime": 1780795451.6031199,
+    "ast_hash": "b029503e40129618ed01a99f9f706039",
+    "semantic_hash": "b029503e40129618ed01a99f9f706039"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/correctness_test.cpp": {
+    "mtime": 1780785481.874958,
+    "ast_hash": "0a8dbe3eb38d0468ae13933a81dacd8a",
+    "semantic_hash": "0a8dbe3eb38d0468ae13933a81dacd8a"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_accept_test.cpp": {
+    "mtime": 1780703510.5640955,
+    "ast_hash": "5cbe85deb05d4546360122efcaedcb5b",
+    "semantic_hash": "5cbe85deb05d4546360122efcaedcb5b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_conduction_stability_test.cpp": {
+    "mtime": 1780791572.9387426,
+    "ast_hash": "b23f1495dffebf736b37a99c0e009745",
+    "semantic_hash": "b23f1495dffebf736b37a99c0e009745"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_conservation_levels_test.cpp": {
+    "mtime": 1780698067.987595,
+    "ast_hash": "dac6d49b9f6edba03c10720199b3bb2e",
+    "semantic_hash": "dac6d49b9f6edba03c10720199b3bb2e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_decrypt_test.cpp": {
+    "mtime": 1780619808.103675,
+    "ast_hash": "639bb671982dfd1f57ceaa0d985626e9",
+    "semantic_hash": "639bb671982dfd1f57ceaa0d985626e9"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_displacement_test.cpp": {
+    "mtime": 1780711120.870966,
+    "ast_hash": "5f27c3821a80005cd78f2f4eb5756511",
+    "semantic_hash": "5f27c3821a80005cd78f2f4eb5756511"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_encrypt_test.cpp": {
+    "mtime": 1780619338.6253014,
+    "ast_hash": "de7bdfb7b4556c75385e8c8251e732e1",
+    "semantic_hash": "de7bdfb7b4556c75385e8c8251e732e1"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_eos_test.cpp": {
+    "mtime": 1780619112.7083845,
+    "ast_hash": "fac42a4234ec7dc0813bc97cc7802600",
+    "semantic_hash": "fac42a4234ec7dc0813bc97cc7802600"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_resolve_test.cpp": {
+    "mtime": 1780619524.9520059,
+    "ast_hash": "77126a826e4e5515e2acdd48278dce9c",
+    "semantic_hash": "77126a826e4e5515e2acdd48278dce9c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_safe_state_test.cpp": {
+    "mtime": 1780703536.7828972,
+    "ast_hash": "21a70b4d7d34c62bccc58a152fceed7d",
+    "semantic_hash": "21a70b4d7d34c62bccc58a152fceed7d"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/engine_b_step_test.cpp": {
+    "mtime": 1780620162.605528,
+    "ast_hash": "64e933fbeb9c50a5badc3c755bad8828",
+    "semantic_hash": "64e933fbeb9c50a5badc3c755bad8828"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/force_advect_soak_test.cpp": {
+    "mtime": 1780795591.8349786,
+    "ast_hash": "ff3b79eb50a9ae3d9d88b1e5ff17b6ac",
+    "semantic_hash": "ff3b79eb50a9ae3d9d88b1e5ff17b6ac"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/force_pass_test.cpp": {
+    "mtime": 1780787742.5650463,
+    "ast_hash": "23437b4aa903f80563c3736a7bd13eea",
+    "semantic_hash": "23437b4aa903f80563c3736a7bd13eea"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/injection_test.cpp": {
+    "mtime": 1780589296.0082145,
+    "ast_hash": "171f3d5c128d6243e81794cb108fff1b",
+    "semantic_hash": "171f3d5c128d6243e81794cb108fff1b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/resident_lut_test.cpp": {
+    "mtime": 1780791581.8388605,
+    "ast_hash": "077d12f1ee7b01a99424081e98d78614",
+    "semantic_hash": "077d12f1ee7b01a99424081e98d78614"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/run_tests.sh": {
+    "mtime": 1780791859.2555346,
+    "ast_hash": "515706aa72f836d7c8e16a88353dc15e",
+    "semantic_hash": "515706aa72f836d7c8e16a88353dc15e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/stress_test.cpp": {
+    "mtime": 1780785481.870487,
+    "ast_hash": "36d7e1885b9d418de2e7e4a773902bc8",
+    "semantic_hash": "36d7e1885b9d418de2e7e4a773902bc8"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/test_harness.hpp": {
+    "mtime": 1780791567.3956692,
+    "ast_hash": "3502fa2ee2e0908868080fb7022be8b1",
+    "semantic_hash": "3502fa2ee2e0908868080fb7022be8b1"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/test_phase2b_lut.cpp": {
+    "mtime": 1780785481.8611832,
+    "ast_hash": "75df250d698243987933c20508d110f3",
+    "semantic_hash": "75df250d698243987933c20508d110f3"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/main.cpp": {
+    "mtime": 1780589295.8402092,
+    "ast_hash": "c9c8c6fc681d06f9890ca27387acdd6d",
+    "semantic_hash": "c9c8c6fc681d06f9890ca27387acdd6d"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/sim_render.hpp": {
+    "mtime": 1780589295.86821,
+    "ast_hash": "1ab34f419b40483b4a36752388417f90",
+    "semantic_hash": "1ab34f419b40483b4a36752388417f90"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/sim_server.hpp": {
+    "mtime": 1780589295.8922107,
+    "ast_hash": "f84674052d098f09f0e94ba1fac47271",
+    "semantic_hash": "f84674052d098f09f0e94ba1fac47271"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL.h": {
+    "mtime": 1780589295.893449,
+    "ast_hash": "02982b8d8594e21ab27876d2d7fc00b4",
+    "semantic_hash": "02982b8d8594e21ab27876d2d7fc00b4"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_assert.h": {
+    "mtime": 1780589295.8941112,
+    "ast_hash": "58a9693bc266676c72ac0cfeaf8bccd7",
+    "semantic_hash": "58a9693bc266676c72ac0cfeaf8bccd7"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_asyncio.h": {
+    "mtime": 1780589295.8942108,
+    "ast_hash": "5bbb0525e2fb9a476610913b35b6c981",
+    "semantic_hash": "5bbb0525e2fb9a476610913b35b6c981"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_atomic.h": {
+    "mtime": 1780589295.8942108,
+    "ast_hash": "cfed0ab87655ad74e849a3f71f3c625a",
+    "semantic_hash": "cfed0ab87655ad74e849a3f71f3c625a"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_audio.h": {
+    "mtime": 1780589295.895211,
+    "ast_hash": "f1118d7c0366808a66fcb074b3899141",
+    "semantic_hash": "f1118d7c0366808a66fcb074b3899141"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_begin_code.h": {
+    "mtime": 1780589295.895211,
+    "ast_hash": "005a58c425e33c9fac3d218b6f2f24ac",
+    "semantic_hash": "005a58c425e33c9fac3d218b6f2f24ac"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_bits.h": {
+    "mtime": 1780589295.895211,
+    "ast_hash": "7d824044ced368e8a34b77c8d88a1d40",
+    "semantic_hash": "7d824044ced368e8a34b77c8d88a1d40"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_blendmode.h": {
+    "mtime": 1780589295.895211,
+    "ast_hash": "6f203a039c9c7fbc9d795874a1450213",
+    "semantic_hash": "6f203a039c9c7fbc9d795874a1450213"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_camera.h": {
+    "mtime": 1780589295.896211,
+    "ast_hash": "9829dab15f91b7f9e76b424aa7bf2e33",
+    "semantic_hash": "9829dab15f91b7f9e76b424aa7bf2e33"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_clipboard.h": {
+    "mtime": 1780589295.896211,
+    "ast_hash": "2fcddc09121925f0f7f860399bce4618",
+    "semantic_hash": "2fcddc09121925f0f7f860399bce4618"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_close_code.h": {
+    "mtime": 1780589295.896211,
+    "ast_hash": "132de48479d7b73d3452a94c454d2911",
+    "semantic_hash": "132de48479d7b73d3452a94c454d2911"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_copying.h": {
+    "mtime": 1780589295.896211,
+    "ast_hash": "e98e2b5d7dd7ffd7d1aacea873b9e7e9",
+    "semantic_hash": "e98e2b5d7dd7ffd7d1aacea873b9e7e9"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_cpuinfo.h": {
+    "mtime": 1780589295.897211,
+    "ast_hash": "7025dc0f7f6e1a4e0bb19be116de395e",
+    "semantic_hash": "7025dc0f7f6e1a4e0bb19be116de395e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_dialog.h": {
+    "mtime": 1780589295.897211,
+    "ast_hash": "88cca63ff882f6ec09e9f9a91ec6b94b",
+    "semantic_hash": "88cca63ff882f6ec09e9f9a91ec6b94b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_egl.h": {
+    "mtime": 1780589295.898211,
+    "ast_hash": "e1c7cd4681dbb648a8e67c1b5b60fb01",
+    "semantic_hash": "e1c7cd4681dbb648a8e67c1b5b60fb01"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_endian.h": {
+    "mtime": 1780589295.898211,
+    "ast_hash": "a0ccfe89e082bd988e846c27e0213e46",
+    "semantic_hash": "a0ccfe89e082bd988e846c27e0213e46"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_error.h": {
+    "mtime": 1780589295.898211,
+    "ast_hash": "ea264eb7092f2283abcd9d59aa02bb2b",
+    "semantic_hash": "ea264eb7092f2283abcd9d59aa02bb2b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_events.h": {
+    "mtime": 1780589295.899211,
+    "ast_hash": "7c845fcd194fb64e9d9767e3c823c67f",
+    "semantic_hash": "7c845fcd194fb64e9d9767e3c823c67f"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_filesystem.h": {
+    "mtime": 1780589295.899211,
+    "ast_hash": "5b4d38c8bf0ee7445abdbc3ba3e373b4",
+    "semantic_hash": "5b4d38c8bf0ee7445abdbc3ba3e373b4"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_gamepad.h": {
+    "mtime": 1780589295.899211,
+    "ast_hash": "38baf509f29aa24d436d07eeb0f138b7",
+    "semantic_hash": "38baf509f29aa24d436d07eeb0f138b7"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_gpu.h": {
+    "mtime": 1780589295.901211,
+    "ast_hash": "4d354056136affb056fe0b0d3c4721a9",
+    "semantic_hash": "4d354056136affb056fe0b0d3c4721a9"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_guid.h": {
+    "mtime": 1780589295.901211,
+    "ast_hash": "96d79c3c8bd5f73c75382888e03ade2b",
+    "semantic_hash": "96d79c3c8bd5f73c75382888e03ade2b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_haptic.h": {
+    "mtime": 1780589295.901211,
+    "ast_hash": "4455bcbcda54cc94112bf5d404d4859d",
+    "semantic_hash": "4455bcbcda54cc94112bf5d404d4859d"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_hidapi.h": {
+    "mtime": 1780589295.901211,
+    "ast_hash": "971322bf1854c200b8589939152722d8",
+    "semantic_hash": "971322bf1854c200b8589939152722d8"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_hints.h": {
+    "mtime": 1780589295.903211,
+    "ast_hash": "dd02bd68c3ccec01b4a848d887a4b04b",
+    "semantic_hash": "dd02bd68c3ccec01b4a848d887a4b04b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_init.h": {
+    "mtime": 1780589295.9132113,
+    "ast_hash": "3217f3ab997e5ddb4653207f269b4884",
+    "semantic_hash": "3217f3ab997e5ddb4653207f269b4884"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_intrin.h": {
+    "mtime": 1780589295.9142115,
+    "ast_hash": "85063c31cfc0f7669378d7e75f5bbf32",
+    "semantic_hash": "85063c31cfc0f7669378d7e75f5bbf32"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_iostream.h": {
+    "mtime": 1780589295.9142115,
+    "ast_hash": "5c0ce703c8ce7a7c0df7fc9703b788dc",
+    "semantic_hash": "5c0ce703c8ce7a7c0df7fc9703b788dc"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_joystick.h": {
+    "mtime": 1780589295.9142115,
+    "ast_hash": "c0bf44267a11d575cfc88323c8c7d510",
+    "semantic_hash": "c0bf44267a11d575cfc88323c8c7d510"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_keyboard.h": {
+    "mtime": 1780589295.9152114,
+    "ast_hash": "274258c70c7a2961ec589d972ff1babb",
+    "semantic_hash": "274258c70c7a2961ec589d972ff1babb"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_keycode.h": {
+    "mtime": 1780589295.9152114,
+    "ast_hash": "0dd878173fdea1e0675a02a9e606cda9",
+    "semantic_hash": "0dd878173fdea1e0675a02a9e606cda9"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_loadso.h": {
+    "mtime": 1780589295.9152114,
+    "ast_hash": "c16a20334a1f684a6cf40cad1cbd7dd4",
+    "semantic_hash": "c16a20334a1f684a6cf40cad1cbd7dd4"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_locale.h": {
+    "mtime": 1780589295.9152114,
+    "ast_hash": "b75337255b2eae818fa663a7390a5600",
+    "semantic_hash": "b75337255b2eae818fa663a7390a5600"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_log.h": {
+    "mtime": 1780589295.9162116,
+    "ast_hash": "b2cc7e6f7ae6fd43fca1e4b1915ece71",
+    "semantic_hash": "b2cc7e6f7ae6fd43fca1e4b1915ece71"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_main.h": {
+    "mtime": 1780589295.9162116,
+    "ast_hash": "bbf66e6534a6528755761d43b97865c3",
+    "semantic_hash": "bbf66e6534a6528755761d43b97865c3"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_main_impl.h": {
+    "mtime": 1780589295.9162116,
+    "ast_hash": "a332e084668078cd833a3604a87394ac",
+    "semantic_hash": "a332e084668078cd833a3604a87394ac"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_messagebox.h": {
+    "mtime": 1780589295.9162116,
+    "ast_hash": "0c230d729218b6a708141c79826efbfe",
+    "semantic_hash": "0c230d729218b6a708141c79826efbfe"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_metal.h": {
+    "mtime": 1780589295.9172115,
+    "ast_hash": "688331004d792ef0d193d42f0bbada70",
+    "semantic_hash": "688331004d792ef0d193d42f0bbada70"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_misc.h": {
+    "mtime": 1780589295.9172115,
+    "ast_hash": "30ca5003ca679d812cd3822a93d805d1",
+    "semantic_hash": "30ca5003ca679d812cd3822a93d805d1"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_mouse.h": {
+    "mtime": 1780589295.9172115,
+    "ast_hash": "98fb6d89cf73fa27023d2f0d0ff147e4",
+    "semantic_hash": "98fb6d89cf73fa27023d2f0d0ff147e4"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_mutex.h": {
+    "mtime": 1780589295.9172115,
+    "ast_hash": "63915731288206ed25e3df53b74698df",
+    "semantic_hash": "63915731288206ed25e3df53b74698df"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_oldnames.h": {
+    "mtime": 1780589295.9182117,
+    "ast_hash": "6bff7f39e354f0808d904f685f22a800",
+    "semantic_hash": "6bff7f39e354f0808d904f685f22a800"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengl.h": {
+    "mtime": 1780589295.9192116,
+    "ast_hash": "068898022ff77656ce6795007ee37816",
+    "semantic_hash": "068898022ff77656ce6795007ee37816"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengl_glext.h": {
+    "mtime": 1780589295.925212,
+    "ast_hash": "1befd2fee3e97028d6c44fef81ced577",
+    "semantic_hash": "1befd2fee3e97028d6c44fef81ced577"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengles.h": {
+    "mtime": 1780589295.925212,
+    "ast_hash": "dcc398d654a9aef2d16b9d7de11b6146",
+    "semantic_hash": "dcc398d654a9aef2d16b9d7de11b6146"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengles2.h": {
+    "mtime": 1780589295.9262118,
+    "ast_hash": "d61abbca374b8178e9e0090f4295ae0c",
+    "semantic_hash": "d61abbca374b8178e9e0090f4295ae0c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengles2_gl2.h": {
+    "mtime": 1780589295.9262118,
+    "ast_hash": "386f0238bb0e90c9431073483386a84c",
+    "semantic_hash": "386f0238bb0e90c9431073483386a84c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengles2_gl2ext.h": {
+    "mtime": 1780589295.936212,
+    "ast_hash": "c66a343e73f52b371e4e1b51a2a3c910",
+    "semantic_hash": "c66a343e73f52b371e4e1b51a2a3c910"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengles2_gl2platform.h": {
+    "mtime": 1780589295.9372122,
+    "ast_hash": "8801acaf9d02aa2b4efbe7e5b5cce3d4",
+    "semantic_hash": "8801acaf9d02aa2b4efbe7e5b5cce3d4"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_opengles2_khrplatform.h": {
+    "mtime": 1780589295.9372122,
+    "ast_hash": "5825532bbe1f36a4bb04da1e823a847b",
+    "semantic_hash": "5825532bbe1f36a4bb04da1e823a847b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_pen.h": {
+    "mtime": 1780589295.9372122,
+    "ast_hash": "1d972a97ebaddf516513d8bd9071917c",
+    "semantic_hash": "1d972a97ebaddf516513d8bd9071917c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_pixels.h": {
+    "mtime": 1780589295.9382122,
+    "ast_hash": "7fb3c5cf1ee7df4903e57d22768f959d",
+    "semantic_hash": "7fb3c5cf1ee7df4903e57d22768f959d"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_platform.h": {
+    "mtime": 1780589295.9382122,
+    "ast_hash": "f331a1ca6c1eb6acde14edaff3917c85",
+    "semantic_hash": "f331a1ca6c1eb6acde14edaff3917c85"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_platform_defines.h": {
+    "mtime": 1780589295.9382122,
+    "ast_hash": "206404790e9b1a14b293289ba6c94588",
+    "semantic_hash": "206404790e9b1a14b293289ba6c94588"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_power.h": {
+    "mtime": 1780589295.9382122,
+    "ast_hash": "b0479787c60c4e1a3a45ab0ffae0cb19",
+    "semantic_hash": "b0479787c60c4e1a3a45ab0ffae0cb19"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_process.h": {
+    "mtime": 1780589295.9382122,
+    "ast_hash": "1dfc277cf57129991074c78b75c4b3d0",
+    "semantic_hash": "1dfc277cf57129991074c78b75c4b3d0"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_properties.h": {
+    "mtime": 1780589295.9382122,
+    "ast_hash": "82a86554a38e2e20f536333c25c07fe2",
+    "semantic_hash": "82a86554a38e2e20f536333c25c07fe2"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_rect.h": {
+    "mtime": 1780589295.9392123,
+    "ast_hash": "c7887116368ebe427c450cb61ab155c1",
+    "semantic_hash": "c7887116368ebe427c450cb61ab155c1"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_render.h": {
+    "mtime": 1780589295.9402122,
+    "ast_hash": "d6462d4c5339e265f5fcf4de22e59949",
+    "semantic_hash": "d6462d4c5339e265f5fcf4de22e59949"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_revision.h": {
+    "mtime": 1780589295.9402122,
+    "ast_hash": "8a4a1a2f88d54b3f20c4005b12bc2a1a",
+    "semantic_hash": "8a4a1a2f88d54b3f20c4005b12bc2a1a"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_scancode.h": {
+    "mtime": 1780589295.9402122,
+    "ast_hash": "d8372ef50987f7eb5055f440403ddd66",
+    "semantic_hash": "d8372ef50987f7eb5055f440403ddd66"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_sensor.h": {
+    "mtime": 1780589295.9402122,
+    "ast_hash": "c87ffbbcfde0dd4cf65e47e02c1180bd",
+    "semantic_hash": "c87ffbbcfde0dd4cf65e47e02c1180bd"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_stdinc.h": {
+    "mtime": 1780589295.9422123,
+    "ast_hash": "a2c4a83ac92f6920c1195d744f531988",
+    "semantic_hash": "a2c4a83ac92f6920c1195d744f531988"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_storage.h": {
+    "mtime": 1780589295.9422123,
+    "ast_hash": "0151a085fbe3b0560ca3a48c78d66f7b",
+    "semantic_hash": "0151a085fbe3b0560ca3a48c78d66f7b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_surface.h": {
+    "mtime": 1780589295.9432123,
+    "ast_hash": "f248c2333a4d535eab4c66430327c06e",
+    "semantic_hash": "f248c2333a4d535eab4c66430327c06e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_system.h": {
+    "mtime": 1780589295.9432123,
+    "ast_hash": "04551adc51990cdaa70fbbc2648e044e",
+    "semantic_hash": "04551adc51990cdaa70fbbc2648e044e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test.h": {
+    "mtime": 1780589295.9432123,
+    "ast_hash": "6ffed7c4fae5abe9f7ba000658a11aa8",
+    "semantic_hash": "6ffed7c4fae5abe9f7ba000658a11aa8"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_assert.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "d50890d76b8da15144e3ee8348878cda",
+    "semantic_hash": "d50890d76b8da15144e3ee8348878cda"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_common.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "f0d2adbdf1828f63225a2e0f8d685270",
+    "semantic_hash": "f0d2adbdf1828f63225a2e0f8d685270"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_compare.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "669d34e457a22a8c88e2f50a9d4d17ae",
+    "semantic_hash": "669d34e457a22a8c88e2f50a9d4d17ae"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_crc32.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "da89ec54087c6963e5fed024229dae75",
+    "semantic_hash": "da89ec54087c6963e5fed024229dae75"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_font.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "fc21fbfa0c4bf88ad33464765c1b3413",
+    "semantic_hash": "fc21fbfa0c4bf88ad33464765c1b3413"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_fuzzer.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "6aae904fda34ddf7780f6a8c00e6f081",
+    "semantic_hash": "6aae904fda34ddf7780f6a8c00e6f081"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_harness.h": {
+    "mtime": 1780589295.9442124,
+    "ast_hash": "d5e8d196d637976db55720d16982c23e",
+    "semantic_hash": "d5e8d196d637976db55720d16982c23e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_log.h": {
+    "mtime": 1780589295.9452124,
+    "ast_hash": "9fc6c4d05394bb5e3bf1ee2d296a16cb",
+    "semantic_hash": "9fc6c4d05394bb5e3bf1ee2d296a16cb"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_md5.h": {
+    "mtime": 1780589295.9452124,
+    "ast_hash": "ed9b64a9f765492166a94182dd517844",
+    "semantic_hash": "ed9b64a9f765492166a94182dd517844"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_test_memory.h": {
+    "mtime": 1780589295.9452124,
+    "ast_hash": "a051837791384a2c7b9361915da4438f",
+    "semantic_hash": "a051837791384a2c7b9361915da4438f"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_textengine.h": {
+    "mtime": 1780589295.9452124,
+    "ast_hash": "5b261c71ce2567e2a703ee7244f4f962",
+    "semantic_hash": "5b261c71ce2567e2a703ee7244f4f962"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_thread.h": {
+    "mtime": 1780589295.9462125,
+    "ast_hash": "5127fce3e739aff26389a902204b21bd",
+    "semantic_hash": "5127fce3e739aff26389a902204b21bd"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_time.h": {
+    "mtime": 1780589295.9462125,
+    "ast_hash": "15e4b34493e0b9b9b2913b9ad1f9f3be",
+    "semantic_hash": "15e4b34493e0b9b9b2913b9ad1f9f3be"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_timer.h": {
+    "mtime": 1780589295.9462125,
+    "ast_hash": "e81e586b8699bfbfa4a8de62615173fe",
+    "semantic_hash": "e81e586b8699bfbfa4a8de62615173fe"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_touch.h": {
+    "mtime": 1780589295.9462125,
+    "ast_hash": "a2cf12bee3321cd0c82c792143fcea0c",
+    "semantic_hash": "a2cf12bee3321cd0c82c792143fcea0c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_tray.h": {
+    "mtime": 1780589295.9462125,
+    "ast_hash": "7a99e2483a2a3048cab68a0a88eafd69",
+    "semantic_hash": "7a99e2483a2a3048cab68a0a88eafd69"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_ttf.h": {
+    "mtime": 1780589295.9472125,
+    "ast_hash": "008083aecaaa62d7f944e7a62bd11eef",
+    "semantic_hash": "008083aecaaa62d7f944e7a62bd11eef"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_version.h": {
+    "mtime": 1780589295.9472125,
+    "ast_hash": "e4c1e4c4c39fd07d23bd6432679d4777",
+    "semantic_hash": "e4c1e4c4c39fd07d23bd6432679d4777"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_video.h": {
+    "mtime": 1780589295.9482126,
+    "ast_hash": "5a60f9b30295ab9eb8d91aea0562dd34",
+    "semantic_hash": "5a60f9b30295ab9eb8d91aea0562dd34"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3/SDL_vulkan.h": {
+    "mtime": 1780589295.9482126,
+    "ast_hash": "093825ce841c639aca2a20c96f6346be",
+    "semantic_hash": "093825ce841c639aca2a20c96f6346be"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3_ttf/SDL_textengine.h": {
+    "mtime": 1780589295.9492126,
+    "ast_hash": "5b261c71ce2567e2a703ee7244f4f962",
+    "semantic_hash": "5b261c71ce2567e2a703ee7244f4f962"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/SDL3_ttf/SDL_ttf.h": {
+    "mtime": 1780589295.9499252,
+    "ast_hash": "008083aecaaa62d7f944e7a62bd11eef",
+    "semantic_hash": "008083aecaaa62d7f944e7a62bd11eef"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/adl_serializer.hpp": {
+    "mtime": 1780589295.9502125,
+    "ast_hash": "3dc18e5724298393a0476a52a21f0200",
+    "semantic_hash": "3dc18e5724298393a0476a52a21f0200"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/byte_container_with_subtype.hpp": {
+    "mtime": 1780589295.9508488,
+    "ast_hash": "81fc531cb5e2bd3d94a7de238b59cb89",
+    "semantic_hash": "81fc531cb5e2bd3d94a7de238b59cb89"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/abi_macros.hpp": {
+    "mtime": 1780589295.9508488,
+    "ast_hash": "e7846c07905c95dc3c13cb7d095cbf4f",
+    "semantic_hash": "e7846c07905c95dc3c13cb7d095cbf4f"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/conversions/from_json.hpp": {
+    "mtime": 1780589295.9511447,
+    "ast_hash": "3d58c994f58ba504d2d20789e19ae923",
+    "semantic_hash": "3d58c994f58ba504d2d20789e19ae923"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/conversions/to_chars.hpp": {
+    "mtime": 1780589295.9514313,
+    "ast_hash": "24cf7ad3a4aeddc8f131680d15235265",
+    "semantic_hash": "24cf7ad3a4aeddc8f131680d15235265"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/conversions/to_json.hpp": {
+    "mtime": 1780589295.9514313,
+    "ast_hash": "49bfe11f14c43c14bcbd379d4137209f",
+    "semantic_hash": "49bfe11f14c43c14bcbd379d4137209f"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/exceptions.hpp": {
+    "mtime": 1780589295.9514313,
+    "ast_hash": "4090599425013a2dc4bcc74ca040ad5d",
+    "semantic_hash": "4090599425013a2dc4bcc74ca040ad5d"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/hash.hpp": {
+    "mtime": 1780589295.9514313,
+    "ast_hash": "2de1b045a51e52e23609c943a1947e26",
+    "semantic_hash": "2de1b045a51e52e23609c943a1947e26"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/input/binary_reader.hpp": {
+    "mtime": 1780589295.9522126,
+    "ast_hash": "f72e3b57aabc65bc55571031ce1eacd5",
+    "semantic_hash": "f72e3b57aabc65bc55571031ce1eacd5"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/input/input_adapters.hpp": {
+    "mtime": 1780589295.9522126,
+    "ast_hash": "c36400e7752e7d2514a61c944c2ac251",
+    "semantic_hash": "c36400e7752e7d2514a61c944c2ac251"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/input/json_sax.hpp": {
+    "mtime": 1780589295.9532127,
+    "ast_hash": "7bc57249616ab7ae0cb8361ecda5fb78",
+    "semantic_hash": "7bc57249616ab7ae0cb8361ecda5fb78"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/input/lexer.hpp": {
+    "mtime": 1780589295.9532127,
+    "ast_hash": "289889b2c7a4a31b8066c6f64164cc06",
+    "semantic_hash": "289889b2c7a4a31b8066c6f64164cc06"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/input/parser.hpp": {
+    "mtime": 1780589295.9532127,
+    "ast_hash": "92d4d9fdb80539664cdd6fcb51a3fc4c",
+    "semantic_hash": "92d4d9fdb80539664cdd6fcb51a3fc4c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/input/position_t.hpp": {
+    "mtime": 1780589295.9532127,
+    "ast_hash": "938257690b6a9f6eab8b25bca2ab891b",
+    "semantic_hash": "938257690b6a9f6eab8b25bca2ab891b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/iterators/internal_iterator.hpp": {
+    "mtime": 1780589295.9542127,
+    "ast_hash": "5a6dd573c56ffede4bd14cb8f531f469",
+    "semantic_hash": "5a6dd573c56ffede4bd14cb8f531f469"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/iterators/iter_impl.hpp": {
+    "mtime": 1780589295.9548373,
+    "ast_hash": "9d7c7cf0998f526b83df5f38e6c01d65",
+    "semantic_hash": "9d7c7cf0998f526b83df5f38e6c01d65"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/iterators/iteration_proxy.hpp": {
+    "mtime": 1780589295.9548373,
+    "ast_hash": "52acc80f60719ee3216678099918ed4c",
+    "semantic_hash": "52acc80f60719ee3216678099918ed4c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/iterators/iterator_traits.hpp": {
+    "mtime": 1780589295.9548373,
+    "ast_hash": "7f037d551b6b62c5b371a8cea1f908e2",
+    "semantic_hash": "7f037d551b6b62c5b371a8cea1f908e2"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/iterators/json_reverse_iterator.hpp": {
+    "mtime": 1780589295.9548373,
+    "ast_hash": "809e4a736046c78a46c781443a8a7efd",
+    "semantic_hash": "809e4a736046c78a46c781443a8a7efd"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/iterators/primitive_iterator.hpp": {
+    "mtime": 1780589295.9548373,
+    "ast_hash": "310d8b12c6a247ac07b608aa76b17884",
+    "semantic_hash": "310d8b12c6a247ac07b608aa76b17884"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/json_custom_base_class.hpp": {
+    "mtime": 1780589295.9548373,
+    "ast_hash": "7057ba9acc314c8c5a78917ffb916dec",
+    "semantic_hash": "7057ba9acc314c8c5a78917ffb916dec"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/json_pointer.hpp": {
+    "mtime": 1780589295.9552128,
+    "ast_hash": "43180ce0cce114cf92fe48d1fb714acf",
+    "semantic_hash": "43180ce0cce114cf92fe48d1fb714acf"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/json_ref.hpp": {
+    "mtime": 1780589295.9552128,
+    "ast_hash": "1bcbdfd51127886119d4e78f35274e8a",
+    "semantic_hash": "1bcbdfd51127886119d4e78f35274e8a"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/macro_scope.hpp": {
+    "mtime": 1780589295.9552128,
+    "ast_hash": "dc1eb2bcceeff4294dc1f800d1491c95",
+    "semantic_hash": "dc1eb2bcceeff4294dc1f800d1491c95"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/macro_unscope.hpp": {
+    "mtime": 1780589295.9552128,
+    "ast_hash": "2aaeadb1f2b83412b629bf732331a85c",
+    "semantic_hash": "2aaeadb1f2b83412b629bf732331a85c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/call_std/begin.hpp": {
+    "mtime": 1780589295.9565976,
+    "ast_hash": "b9e3a5a3b51fbb67e5be1b15184aaf0c",
+    "semantic_hash": "b9e3a5a3b51fbb67e5be1b15184aaf0c"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/call_std/end.hpp": {
+    "mtime": 1780589295.9568279,
+    "ast_hash": "9bccbcf894adbe68fbe8eeb648b8a918",
+    "semantic_hash": "9bccbcf894adbe68fbe8eeb648b8a918"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/cpp_future.hpp": {
+    "mtime": 1780589295.9568279,
+    "ast_hash": "f5ef3e4f90b7bf55255fd813a7b39eef",
+    "semantic_hash": "f5ef3e4f90b7bf55255fd813a7b39eef"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/detected.hpp": {
+    "mtime": 1780589295.9568279,
+    "ast_hash": "d62e96f1c2243b9be7aa64a02c78a8f1",
+    "semantic_hash": "d62e96f1c2243b9be7aa64a02c78a8f1"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/identity_tag.hpp": {
+    "mtime": 1780589295.9568279,
+    "ast_hash": "090a1685083f58191b427a7ab17de476",
+    "semantic_hash": "090a1685083f58191b427a7ab17de476"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/is_sax.hpp": {
+    "mtime": 1780589295.9568279,
+    "ast_hash": "fc2107884788801b7c1cfaa68d45c8dd",
+    "semantic_hash": "fc2107884788801b7c1cfaa68d45c8dd"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/std_fs.hpp": {
+    "mtime": 1780589295.9568279,
+    "ast_hash": "c8f28835a3e526e16a1ffed13cde0410",
+    "semantic_hash": "c8f28835a3e526e16a1ffed13cde0410"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/type_traits.hpp": {
+    "mtime": 1780589295.965213,
+    "ast_hash": "e6faab8f9d67d3f3bf5d5e4007840a0e",
+    "semantic_hash": "e6faab8f9d67d3f3bf5d5e4007840a0e"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/meta/void_t.hpp": {
+    "mtime": 1780589295.965213,
+    "ast_hash": "131d2a2cac06019cc21f3897f65bf266",
+    "semantic_hash": "131d2a2cac06019cc21f3897f65bf266"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/output/binary_writer.hpp": {
+    "mtime": 1780589295.966213,
+    "ast_hash": "35218b3890b70b0d51ea789d2aac3ad7",
+    "semantic_hash": "35218b3890b70b0d51ea789d2aac3ad7"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/output/output_adapters.hpp": {
+    "mtime": 1780589295.966213,
+    "ast_hash": "6455f6d3912fe86a1de20777cc290640",
+    "semantic_hash": "6455f6d3912fe86a1de20777cc290640"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/output/serializer.hpp": {
+    "mtime": 1780589295.9672132,
+    "ast_hash": "c86e4e0751b3874d2b81e4cde2a7b1c3",
+    "semantic_hash": "c86e4e0751b3874d2b81e4cde2a7b1c3"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/string_concat.hpp": {
+    "mtime": 1780589295.9672132,
+    "ast_hash": "260aefdfb0e5c0ec50968e8fb13b13a2",
+    "semantic_hash": "260aefdfb0e5c0ec50968e8fb13b13a2"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/string_escape.hpp": {
+    "mtime": 1780589295.9672132,
+    "ast_hash": "1602c9379a764ccccfc0349565ef2fb0",
+    "semantic_hash": "1602c9379a764ccccfc0349565ef2fb0"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/string_utils.hpp": {
+    "mtime": 1780589295.9672132,
+    "ast_hash": "5ad8f553cb3a8c86c7dbb54674e36a30",
+    "semantic_hash": "5ad8f553cb3a8c86c7dbb54674e36a30"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/detail/value_t.hpp": {
+    "mtime": 1780589295.9672132,
+    "ast_hash": "46034ca64216f28a8dda81b6e074bc03",
+    "semantic_hash": "46034ca64216f28a8dda81b6e074bc03"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/json.hpp": {
+    "mtime": 1780589295.9692132,
+    "ast_hash": "812c5549e8c779c5dc4dc090d81f48a4",
+    "semantic_hash": "812c5549e8c779c5dc4dc090d81f48a4"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/json_fwd.hpp": {
+    "mtime": 1780589295.9692132,
+    "ast_hash": "64453da0580f8074ffd13f1f8b1088ef",
+    "semantic_hash": "64453da0580f8074ffd13f1f8b1088ef"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/ordered_map.hpp": {
+    "mtime": 1780589295.9692132,
+    "ast_hash": "7096cc8031678688f594839d8c889a6b",
+    "semantic_hash": "7096cc8031678688f594839d8c889a6b"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/thirdparty/hedley/hedley.hpp": {
+    "mtime": 1780589295.9700062,
+    "ast_hash": "f6fd2c93e37fd2531d4061fb3cdbda95",
+    "semantic_hash": "f6fd2c93e37fd2531d4061fb3cdbda95"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/third_party/SDL3/include/nlohmann/thirdparty/hedley/hedley_undef.hpp": {
+    "mtime": 1780589295.9702132,
+    "ast_hash": "97a7f31fb9917af80a86c77b4312b967",
+    "semantic_hash": "97a7f31fb9917af80a86c77b4312b967"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/viz/tiny_ttf.hpp": {
+    "mtime": 1780589296.0852168,
+    "ast_hash": "388562e8833547ba005d29a42d47c901",
+    "semantic_hash": "388562e8833547ba005d29a42d47c901"
+  },
+  "/home/claude/ORGE-B/build.gradle": {
+    "mtime": 1780589262.4421864,
+    "ast_hash": "15ce2bbd92cfd6661e166c34a8ff2b82",
+    "semantic_hash": "15ce2bbd92cfd6661e166c34a8ff2b82"
+  },
+  "/home/claude/ORGE-B/core/build.gradle": {
+    "mtime": 1780589262.4421864,
+    "ast_hash": "99c8555ad20383176a4e9767b24ecea8",
+    "semantic_hash": "99c8555ad20383176a4e9767b24ecea8"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/Orge.java": {
+    "mtime": 1780589262.4526052,
+    "ast_hash": "7c9f681b420f45960f78cf4b4dae41f9",
+    "semantic_hash": "7c9f681b420f45960f78cf4b4dae41f9"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/CellAddress.java": {
+    "mtime": 1780589262.468187,
+    "ast_hash": "601948f4fa029e9d3a269b641b64f209",
+    "semantic_hash": "601948f4fa029e9d3a269b641b64f209"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/LiveStatus.java": {
+    "mtime": 1780589262.4781876,
+    "ast_hash": "b0570e218221402f77812d218fc388bc",
+    "semantic_hash": "b0570e218221402f77812d218fc388bc"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/OrgeCommandLogic.java": {
+    "mtime": 1780589262.4831877,
+    "ast_hash": "492f795b123417593a9fffa4ffc2efb8",
+    "semantic_hash": "492f795b123417593a9fffa4ffc2efb8"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/OrgeCommands.java": {
+    "mtime": 1780589262.4831877,
+    "ast_hash": "f1cd9f6add9c9e32d720c5df651952fb",
+    "semantic_hash": "f1cd9f6add9c9e32d720c5df651952fb"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/ReadRangeProvider.java": {
+    "mtime": 1780589262.4984024,
+    "ast_hash": "6fe15a7026165be5d5de3490b8f85d5e",
+    "semantic_hash": "6fe15a7026165be5d5de3490b8f85d5e"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/SectionStatusSource.java": {
+    "mtime": 1780589262.5071883,
+    "ast_hash": "7448ab0ce03ef01cef194f708756a750",
+    "semantic_hash": "7448ab0ce03ef01cef194f708756a750"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/SectionView.java": {
+    "mtime": 1780589262.5071883,
+    "ast_hash": "9b5d8bc885f3cbd67d7a64c5194db714",
+    "semantic_hash": "9b5d8bc885f3cbd67d7a64c5194db714"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/ServerStoreReadSource.java": {
+    "mtime": 1780589262.5131886,
+    "ast_hash": "6a9bf1b313b58f4e4d9d821a49b17a49",
+    "semantic_hash": "6a9bf1b313b58f4e4d9d821a49b17a49"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/ServerStoreWriteSink.java": {
+    "mtime": 1780589262.527189,
+    "ast_hash": "ceeb1c6634745c150b566b5459b9b619",
+    "semantic_hash": "ceeb1c6634745c150b566b5459b9b619"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/ThermalReadSource.java": {
+    "mtime": 1780589262.527189,
+    "ast_hash": "aa8808fd60d555605be5496b1cd399be",
+    "semantic_hash": "aa8808fd60d555605be5496b1cd399be"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/command/ThermalWriteSink.java": {
+    "mtime": 1780589262.528189,
+    "ast_hash": "294fc24120da6a9bb3b3eb22509205d7",
+    "semantic_hash": "294fc24120da6a9bb3b3eb22509205d7"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/ColumnResult.java": {
+    "mtime": 1780635476.7869952,
+    "ast_hash": "c84a220ddf9259900ad95d7927923eec",
+    "semantic_hash": "c84a220ddf9259900ad95d7927923eec"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/ColumnTask.java": {
+    "mtime": 1780635472.0968523,
+    "ast_hash": "a3f2d2d83e244201c030dcd81ab74702",
+    "semantic_hash": "a3f2d2d83e244201c030dcd81ab74702"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/EngineFactory.java": {
+    "mtime": 1780589262.5401895,
+    "ast_hash": "976cd61b3218978ee4470073fcc6e261",
+    "semantic_hash": "976cd61b3218978ee4470073fcc6e261"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/EngineInjection.java": {
+    "mtime": 1780589262.5401895,
+    "ast_hash": "d74675fb61df90d1f2ffa000503b886a",
+    "semantic_hash": "d74675fb61df90d1f2ffa000503b886a"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/LutArrays.java": {
+    "mtime": 1780634415.4536443,
+    "ast_hash": "664a470e124c880077622f0ee985c955",
+    "semantic_hash": "664a470e124c880077622f0ee985c955"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/NativeEngine.java": {
+    "mtime": 1780635536.9998286,
+    "ast_hash": "4ceade810126b4750a26bed4e3f25a3d",
+    "semantic_hash": "4ceade810126b4750a26bed4e3f25a3d"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/NativeLoader.java": {
+    "mtime": 1780589262.5461895,
+    "ast_hash": "d9d222f2f5446f7a1ce6f3f651a92761",
+    "semantic_hash": "d9d222f2f5446f7a1ce6f3f651a92761"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/NeighborHalo.java": {
+    "mtime": 1780589262.5551898,
+    "ast_hash": "39563cfcee101ed80e69b3d203ebb727",
+    "semantic_hash": "39563cfcee101ed80e69b3d203ebb727"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/OrgeEngine.java": {
+    "mtime": 1780589262.5551898,
+    "ast_hash": "65cadd9ab1d087c6231a747ae9a7d1c7",
+    "semantic_hash": "65cadd9ab1d087c6231a747ae9a7d1c7"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/RegionMarshaller.java": {
+    "mtime": 1780635503.2187998,
+    "ast_hash": "9219370efcfcdefcd7df67139de2cc3f",
+    "semantic_hash": "9219370efcfcdefcd7df67139de2cc3f"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/RegionStepResult.java": {
+    "mtime": 1780589262.5551898,
+    "ast_hash": "2b7522cfa3f4972f16a2c8d3c98f73bf",
+    "semantic_hash": "2b7522cfa3f4972f16a2c8d3c98f73bf"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/ScratchPool.java": {
+    "mtime": 1780635513.5311139,
+    "ast_hash": "f09cb6014f0bd37d7673b4d4bd9c1f75",
+    "semantic_hash": "f09cb6014f0bd37d7673b4d4bd9c1f75"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/StepResult.java": {
+    "mtime": 1780589262.5661902,
+    "ast_hash": "b86f47a6c1ea565e26afb41fa9871ce0",
+    "semantic_hash": "b86f47a6c1ea565e26afb41fa9871ce0"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/StepTask.java": {
+    "mtime": 1780589262.5731905,
+    "ast_hash": "38f5876c827774044ff60ab8c8b74d41",
+    "semantic_hash": "38f5876c827774044ff60ab8c8b74d41"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/engine/StubEngine.java": {
+    "mtime": 1780589262.5731905,
+    "ast_hash": "75b74ba2bfda9e8a33c19ecec1d40cc3",
+    "semantic_hash": "75b74ba2bfda9e8a33c19ecec1d40cc3"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/fluid/OrgeFluidPolicy.java": {
+    "mtime": 1780589262.5771906,
+    "ast_hash": "c87cfa5b8564e8ccbdef7b8e4430cebc",
+    "semantic_hash": "c87cfa5b8564e8ccbdef7b8e4430cebc"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/fluid/OrgeFluidSuppressionBridge.java": {
+    "mtime": 1780589262.5791905,
+    "ast_hash": "94be9ce9d6eb5c3223740ea6de79be76",
+    "semantic_hash": "94be9ce9d6eb5c3223740ea6de79be76"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/fluid/VanillaFluidSuppressor.java": {
+    "mtime": 1780589262.5801907,
+    "ast_hash": "5a796770c761796abfe3a7b67839e617",
+    "semantic_hash": "5a796770c761796abfe3a7b67839e617"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/ActiveMaterials.java": {
+    "mtime": 1780589262.5801907,
+    "ast_hash": "33a58a32ca8db555f85e940e94c9f1e4",
+    "semantic_hash": "33a58a32ca8db555f85e940e94c9f1e4"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/BlockMaterialRule.java": {
+    "mtime": 1780589262.5814307,
+    "ast_hash": "9e92825461376fe940132fcf9cd39a41",
+    "semantic_hash": "9e92825461376fe940132fcf9cd39a41"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/Material.java": {
+    "mtime": 1780589262.5814307,
+    "ast_hash": "4b47f07b75848fc273002647fd05dfd2",
+    "semantic_hash": "4b47f07b75848fc273002647fd05dfd2"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/MaterialCodec.java": {
+    "mtime": 1780589262.5814307,
+    "ast_hash": "58c2fffc47dd6d919ce1553eebf21224",
+    "semantic_hash": "58c2fffc47dd6d919ce1553eebf21224"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/MaterialData.java": {
+    "mtime": 1780589262.5814307,
+    "ast_hash": "cef2823121d4f58046ed23309537aa27",
+    "semantic_hash": "cef2823121d4f58046ed23309537aa27"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/MaterialJsonLoader.java": {
+    "mtime": 1780589262.5821908,
+    "ast_hash": "ec8258d478c2202e7a526c08233b4cee",
+    "semantic_hash": "ec8258d478c2202e7a526c08233b4cee"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/MaterialRegistry.java": {
+    "mtime": 1780589262.5851908,
+    "ast_hash": "76b199e5fe1c51812e5e9fa931e9f8c8",
+    "semantic_hash": "76b199e5fe1c51812e5e9fa931e9f8c8"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/material/MaterialTable.java": {
+    "mtime": 1780589262.5861907,
+    "ast_hash": "2d0d932f04336500769020cf46394805",
+    "semantic_hash": "2d0d932f04336500769020cf46394805"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/EngineOutSpecies.java": {
+    "mtime": 1780589262.5861907,
+    "ast_hash": "11a764cd9a597765fae2e4c3124b2179",
+    "semantic_hash": "11a764cd9a597765fae2e4c3124b2179"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/FluidReconcileLogic.java": {
+    "mtime": 1780589262.5881908,
+    "ast_hash": "216a8d4a4f52f2305fa18fc13037bc10",
+    "semantic_hash": "216a8d4a4f52f2305fa18fc13037bc10"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/FluidReconciler.java": {
+    "mtime": 1780589262.594191,
+    "ast_hash": "23b0715318941d735a85679616607407",
+    "semantic_hash": "23b0715318941d735a85679616607407"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/MinecraftFluidReconciler.java": {
+    "mtime": 1780589262.595191,
+    "ast_hash": "b2ebe0dc01ae7f951857a9c3979faf32",
+    "semantic_hash": "b2ebe0dc01ae7f951857a9c3979faf32"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/MinecraftPhaseChanger.java": {
+    "mtime": 1780589262.595191,
+    "ast_hash": "4a8e30264fd8ff5dbe2a64a36a131bdd",
+    "semantic_hash": "4a8e30264fd8ff5dbe2a64a36a131bdd"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/PhaseChanger.java": {
+    "mtime": 1780589262.5991912,
+    "ast_hash": "25d78295c814d7325b6841dab346d252",
+    "semantic_hash": "25d78295c814d7325b6841dab346d252"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/PhasePlanner.java": {
+    "mtime": 1780589262.6061914,
+    "ast_hash": "dcfbe6e9f9ffa542d1737b4464559b4f",
+    "semantic_hash": "dcfbe6e9f9ffa542d1737b4464559b4f"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/PhaseRenderResolver.java": {
+    "mtime": 1780589262.6131916,
+    "ast_hash": "87792d048c725eda33f836f901c7bd31",
+    "semantic_hash": "87792d048c725eda33f836f901c7bd31"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/PhaseRule.java": {
+    "mtime": 1780589262.6131916,
+    "ast_hash": "f760cc5654932c5b9abdb801e81a524e",
+    "semantic_hash": "f760cc5654932c5b9abdb801e81a524e"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/phase/SourcePinPlanner.java": {
+    "mtime": 1780589262.6131916,
+    "ast_hash": "e2f76d03ef1be4d6540fa447133115c6",
+    "semantic_hash": "e2f76d03ef1be4d6540fa447133115c6"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/platform/OrgePlatform.java": {
+    "mtime": 1780589262.619192,
+    "ast_hash": "48c3d8c977d2ff8b926db7541af97fba",
+    "semantic_hash": "48c3d8c977d2ff8b926db7541af97fba"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/platform/WakePlatform.java": {
+    "mtime": 1780589262.624192,
+    "ast_hash": "779ee9bc13cdd6cc8ba59dc8d9c7531f",
+    "semantic_hash": "779ee9bc13cdd6cc8ba59dc8d9c7531f"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/protocol/OrgePackets.java": {
+    "mtime": 1780589262.624192,
+    "ast_hash": "d31ea769b74e86fe4c372b62b3639900",
+    "semantic_hash": "d31ea769b74e86fe4c372b62b3639900"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/ActiveSet.java": {
+    "mtime": 1780589262.629192,
+    "ast_hash": "312d81b41b9e4e4e5ba6c7fd04f2d286",
+    "semantic_hash": "312d81b41b9e4e4e5ba6c7fd04f2d286"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/AmbientSeeder.java": {
+    "mtime": 1780589262.6341922,
+    "ast_hash": "637252833a8a120beb3e3d16abb296ca",
+    "semantic_hash": "637252833a8a120beb3e3d16abb296ca"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/BiomeTemperature.java": {
+    "mtime": 1780589262.6361923,
+    "ast_hash": "2decab03524f68ea717a98da833ca394",
+    "semantic_hash": "2decab03524f68ea717a98da833ca394"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/CellMaterialTracker.java": {
+    "mtime": 1780589262.6361923,
+    "ast_hash": "e93b41f185d68fadb1e4376006f77911",
+    "semantic_hash": "e93b41f185d68fadb1e4376006f77911"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/ColumnAssembler.java": {
+    "mtime": 1780636494.6720896,
+    "ast_hash": "254f01e84fc291b0b4cdc3187ce7ee12",
+    "semantic_hash": "254f01e84fc291b0b4cdc3187ce7ee12"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/ColumnSectionCodec.java": {
+    "mtime": 1780636444.1805453,
+    "ast_hash": "6962f178d0e0ec7d9ebd696ab9431106",
+    "semantic_hash": "6962f178d0e0ec7d9ebd696ab9431106"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/ExecutorStepRunner.java": {
+    "mtime": 1780589262.6391923,
+    "ast_hash": "1e283cb52795a1f7606554131235d9a3",
+    "semantic_hash": "1e283cb52795a1f7606554131235d9a3"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/GeometryAssembler.java": {
+    "mtime": 1780589262.6431925,
+    "ast_hash": "bae1ec7bcece5351e0c8d5696d73937a",
+    "semantic_hash": "bae1ec7bcece5351e0c8d5696d73937a"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/InjectDebug.java": {
+    "mtime": 1780589262.6501927,
+    "ast_hash": "b1ada720d9d16221d747861e484dfdcf",
+    "semantic_hash": "b1ada720d9d16221d747861e484dfdcf"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/InjectionDrain.java": {
+    "mtime": 1780589262.651193,
+    "ast_hash": "30100c4b9329e58cd1769c099944b23c",
+    "semantic_hash": "30100c4b9329e58cd1769c099944b23c"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/LiveMaterials.java": {
+    "mtime": 1780589262.651193,
+    "ast_hash": "761100f65214d27d48e1177595c02397",
+    "semantic_hash": "761100f65214d27d48e1177595c02397"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/MaterialLut.java": {
+    "mtime": 1780589262.651193,
+    "ast_hash": "13b487f6d83aa5e56e5c97e39d96b974",
+    "semantic_hash": "13b487f6d83aa5e56e5c97e39d96b974"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/MinecraftThermalWorld.java": {
+    "mtime": 1780636466.6592329,
+    "ast_hash": "7262cc21b3482a1da27b18cef6502c3c",
+    "semantic_hash": "7262cc21b3482a1da27b18cef6502c3c"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/PendingInjections.java": {
+    "mtime": 1780589262.657193,
+    "ast_hash": "0d13fa6c0954684a5d52f81d065db86d",
+    "semantic_hash": "0d13fa6c0954684a5d52f81d065db86d"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/PlacementCapture.java": {
+    "mtime": 1780589262.657193,
+    "ast_hash": "18fd91d35fd60a9c5e88d3339eadc7bc",
+    "semantic_hash": "18fd91d35fd60a9c5e88d3339eadc7bc"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/PlacementInjectionPolicy.java": {
+    "mtime": 1780589262.658193,
+    "ast_hash": "5409960478f70d35bbd1be3b6ac23d2e",
+    "semantic_hash": "5409960478f70d35bbd1be3b6ac23d2e"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/Scheduler.java": {
+    "mtime": 1780589262.658193,
+    "ast_hash": "394086c3601f192dfb1d2f5e8262c5ad",
+    "semantic_hash": "394086c3601f192dfb1d2f5e8262c5ad"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/SettleCountdown.java": {
+    "mtime": 1780589262.662193,
+    "ast_hash": "baf734cf3b2c4ff3de1bd8f6d9b1fd7f",
+    "semantic_hash": "baf734cf3b2c4ff3de1bd8f6d9b1fd7f"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/SphereUnion.java": {
+    "mtime": 1780589262.6661932,
+    "ast_hash": "db47ff0c5fa7ab164b6904d49b35791f",
+    "semantic_hash": "db47ff0c5fa7ab164b6904d49b35791f"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/StepRunner.java": {
+    "mtime": 1780589262.6671932,
+    "ast_hash": "d1f6c05679a7715647a8754dc617fc42",
+    "semantic_hash": "d1f6c05679a7715647a8754dc617fc42"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/StepValidator.java": {
+    "mtime": 1780636432.8922002,
+    "ast_hash": "fdb8e68a86ed9299ea513ca213341453",
+    "semantic_hash": "fdb8e68a86ed9299ea513ca213341453"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/ThermalWorld.java": {
+    "mtime": 1780589262.6701934,
+    "ast_hash": "d8688afa300588c9a4eeaaec1192f641",
+    "semantic_hash": "d8688afa300588c9a4eeaaec1192f641"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/WakeSink.java": {
+    "mtime": 1780589262.6701934,
+    "ast_hash": "3686233621550f44d0d077de2f0a80f8",
+    "semantic_hash": "3686233621550f44d0d077de2f0a80f8"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/scheduler/Worker.java": {
+    "mtime": 1780589262.6741934,
+    "ast_hash": "263fb240ce70766cfa6c40eacc09d5ab",
+    "semantic_hash": "263fb240ce70766cfa6c40eacc09d5ab"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/AmbientProvider.java": {
+    "mtime": 1780589262.6751935,
+    "ast_hash": "2166856c9756879b80e7fa6264de4197",
+    "semantic_hash": "2166856c9756879b80e7fa6264de4197"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/MaterialPalette.java": {
+    "mtime": 1780589262.688194,
+    "ast_hash": "b3f04411342d644a41d50cfec5d786c9",
+    "semantic_hash": "b3f04411342d644a41d50cfec5d786c9"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/RegionFile.java": {
+    "mtime": 1780589262.690194,
+    "ast_hash": "891754b7c446d4eee6ecb86daa8b5b39",
+    "semantic_hash": "891754b7c446d4eee6ecb86daa8b5b39"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/RegionStore.java": {
+    "mtime": 1780589262.697194,
+    "ast_hash": "aaa767ec284f4d966d398c2ae69520f8",
+    "semantic_hash": "aaa767ec284f4d966d398c2ae69520f8"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/SectionCodec.java": {
+    "mtime": 1780635987.765586,
+    "ast_hash": "bb51fde8db38cf1173ab3e5ca57e0baa",
+    "semantic_hash": "bb51fde8db38cf1173ab3e5ca57e0baa"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/SectionData.java": {
+    "mtime": 1780635923.2746134,
+    "ast_hash": "b1d20f1f29aa9b29411bf6576eed95c2",
+    "semantic_hash": "b1d20f1f29aa9b29411bf6576eed95c2"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/SectionStore.java": {
+    "mtime": 1780589262.6981943,
+    "ast_hash": "675b3815df87a3847f6ee72554fe2bb5",
+    "semantic_hash": "675b3815df87a3847f6ee72554fe2bb5"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/SectionStoreManager.java": {
+    "mtime": 1780589262.7021945,
+    "ast_hash": "b24e8491dcea79a3b87035e386488627",
+    "semantic_hash": "b24e8491dcea79a3b87035e386488627"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/SectionStorePlatform.java": {
+    "mtime": 1780589262.7081945,
+    "ast_hash": "9b7d3af8223168fd32da1ab762f4d059",
+    "semantic_hash": "9b7d3af8223168fd32da1ab762f4d059"
+  },
+  "/home/claude/ORGE-B/core/src/main/java/net/rainbowcreation/orge/section/SubchunkKey.java": {
+    "mtime": 1780589262.7081945,
+    "ast_hash": "986f55446fc38410a22d82878d3a9c98",
+    "semantic_hash": "986f55446fc38410a22d82878d3a9c98"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/assets/orge/lang/en_us.json": {
+    "mtime": 1780589262.7096214,
+    "ast_hash": "fc04e55f8b4a067f1ad66be2ae2d26e1",
+    "semantic_hash": "fc04e55f8b4a067f1ad66be2ae2d26e1"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/air.json": {
+    "mtime": 1780589262.7100186,
+    "ast_hash": "f11c614bfef624eca376b8e539b04928",
+    "semantic_hash": "f11c614bfef624eca376b8e539b04928"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/blue_ice.json": {
+    "mtime": 1780589262.7131946,
+    "ast_hash": "93a8bcaf91bd7ef0c35c64c3fe9d2d28",
+    "semantic_hash": "93a8bcaf91bd7ef0c35c64c3fe9d2d28"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/end_rod.json": {
+    "mtime": 1780589262.7131946,
+    "ast_hash": "93a8bcaf91bd7ef0c35c64c3fe9d2d28",
+    "semantic_hash": "93a8bcaf91bd7ef0c35c64c3fe9d2d28"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/fire.json": {
+    "mtime": 1780589262.7141948,
+    "ast_hash": "3ab5ca59b693994457a8d809358a910c",
+    "semantic_hash": "3ab5ca59b693994457a8d809358a910c"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/generic_solid.json": {
+    "mtime": 1780589262.719195,
+    "ast_hash": "6a7a27e6e4622da0275bb8398a42ada9",
+    "semantic_hash": "6a7a27e6e4622da0275bb8398a42ada9"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/glowstone.json": {
+    "mtime": 1780589262.7201948,
+    "ast_hash": "f7a733e8a6026857a48ca92bc723923c",
+    "semantic_hash": "f7a733e8a6026857a48ca92bc723923c"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/ice.json": {
+    "mtime": 1780589262.7201948,
+    "ast_hash": "702b35ed6dee7bb8506aafa7cf49fd7f",
+    "semantic_hash": "702b35ed6dee7bb8506aafa7cf49fd7f"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/lantern.json": {
+    "mtime": 1780589262.7201948,
+    "ast_hash": "ce4eff0be5a09fe9f5a59c1bcf58da11",
+    "semantic_hash": "ce4eff0be5a09fe9f5a59c1bcf58da11"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/lava.json": {
+    "mtime": 1780703331.7656271,
+    "ast_hash": "48a508be49c2fc134c20930e95c004cc",
+    "semantic_hash": "48a508be49c2fc134c20930e95c004cc"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/magma_block.json": {
+    "mtime": 1780589262.721195,
+    "ast_hash": "3e376d2f10c952957e67ac1927b62dc9",
+    "semantic_hash": "3e376d2f10c952957e67ac1927b62dc9"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/nether_portal.json": {
+    "mtime": 1780589262.721195,
+    "ast_hash": "5a39cb0d786687c3f19807612f0d89b1",
+    "semantic_hash": "5a39cb0d786687c3f19807612f0d89b1"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/redstone_block.json": {
+    "mtime": 1780589262.721195,
+    "ast_hash": "6a3368ed371f3a39d554dd95b81c3c9c",
+    "semantic_hash": "6a3368ed371f3a39d554dd95b81c3c9c"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/soul_fire.json": {
+    "mtime": 1780589262.721195,
+    "ast_hash": "93a8bcaf91bd7ef0c35c64c3fe9d2d28",
+    "semantic_hash": "93a8bcaf91bd7ef0c35c64c3fe9d2d28"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/soul_lantern.json": {
+    "mtime": 1780589262.722195,
+    "ast_hash": "587b04c78a7e2c47f406d4a7501e3176",
+    "semantic_hash": "587b04c78a7e2c47f406d4a7501e3176"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/steam.json": {
+    "mtime": 1780589262.722195,
+    "ast_hash": "49655c572ded84589a9e80ce1d34e4d4",
+    "semantic_hash": "49655c572ded84589a9e80ce1d34e4d4"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/stone.json": {
+    "mtime": 1780589262.722195,
+    "ast_hash": "c1c879843ad7cf965ea98db72352a58c",
+    "semantic_hash": "c1c879843ad7cf965ea98db72352a58c"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/torch.json": {
+    "mtime": 1780589262.722195,
+    "ast_hash": "5a39cb0d786687c3f19807612f0d89b1",
+    "semantic_hash": "5a39cb0d786687c3f19807612f0d89b1"
+  },
+  "/home/claude/ORGE-B/core/src/main/resources/data/orge/orge/materials/water.json": {
+    "mtime": 1780703330.4015856,
+    "ast_hash": "cc7fe6c62957dcf85ca34cf9152eb904",
+    "semantic_hash": "cc7fe6c62957dcf85ca34cf9152eb904"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/AuditScenarioTest.java": {
+    "mtime": 1780589262.9115272,
+    "ast_hash": "efd0c906fe5f8cc5a1a87e76d846d8b0",
+    "semantic_hash": "efd0c906fe5f8cc5a1a87e76d846d8b0"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/BreakRemovalPipelineIT.java": {
+    "mtime": 1780589262.9121232,
+    "ast_hash": "7e0b60d60d70f25e24e71cbee9b85e7d",
+    "semantic_hash": "7e0b60d60d70f25e24e71cbee9b85e7d"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/NativeEngineInjectionIT.java": {
+    "mtime": 1780589262.9121232,
+    "ast_hash": "995a2a547b6a6e2f903680bb61444d72",
+    "semantic_hash": "995a2a547b6a6e2f903680bb61444d72"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/PlacementInjectionPipelineIT.java": {
+    "mtime": 1780589262.9122007,
+    "ast_hash": "a15eb5e56fe20158e59b81df21e11349",
+    "semantic_hash": "a15eb5e56fe20158e59b81df21e11349"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/Section11LivePipelineReproTest.java": {
+    "mtime": 1780693534.2065134,
+    "ast_hash": "cf0808d575c1d623b7e3617f85244d96",
+    "semantic_hash": "cf0808d575c1d623b7e3617f85244d96"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/SmokeTest.java": {
+    "mtime": 1780589262.9162009,
+    "ast_hash": "b39a6b3d32f46ce2b1877a3b07a25c95",
+    "semantic_hash": "b39a6b3d32f46ce2b1877a3b07a25c95"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/UnifiedFluidLivePipelineTest.java": {
+    "mtime": 1780798009.3942182,
+    "ast_hash": "eee426aceeb9df5fa7a49dbae5018d3f",
+    "semantic_hash": "eee426aceeb9df5fa7a49dbae5018d3f"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/WholeRegionLivePipelineTest.java": {
+    "mtime": 1780798009.3942182,
+    "ast_hash": "55ea9cd9eeae7d8571a03f2e17d54a31",
+    "semantic_hash": "55ea9cd9eeae7d8571a03f2e17d54a31"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/command/CellAddressTest.java": {
+    "mtime": 1780589262.919201,
+    "ast_hash": "fb05e453aa338f35e876765609bd5d3e",
+    "semantic_hash": "fb05e453aa338f35e876765609bd5d3e"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/command/OrgeCommandLocaleTest.java": {
+    "mtime": 1780589262.921201,
+    "ast_hash": "19aab8fdb4e19a10a18aea0039409e1d",
+    "semantic_hash": "19aab8fdb4e19a10a18aea0039409e1d"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/command/OrgeCommandLogicTest.java": {
+    "mtime": 1780589262.9272013,
+    "ast_hash": "ef73d5780093b1e1d54e203c62ee2f57",
+    "semantic_hash": "ef73d5780093b1e1d54e203c62ee2f57"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/command/ServerStoreSeamTest.java": {
+    "mtime": 1780589262.9302013,
+    "ast_hash": "2bd97300ae71c97b216eae454074016e",
+    "semantic_hash": "2bd97300ae71c97b216eae454074016e"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/EngineBVelocityIT.java": {
+    "mtime": 1780636487.064857,
+    "ast_hash": "5cfe23f1c2718556f907f25702595233",
+    "semantic_hash": "5cfe23f1c2718556f907f25702595233"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/EngineFactoryTest.java": {
+    "mtime": 1780589262.9362016,
+    "ast_hash": "b698b58fa8d09c63ba93c4bf1c3d31fa",
+    "semantic_hash": "b698b58fa8d09c63ba93c4bf1c3d31fa"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/LutPackTest.java": {
+    "mtime": 1780634415.6516502,
+    "ast_hash": "bb5b4defdca6b976453bef1097f09db7",
+    "semantic_hash": "bb5b4defdca6b976453bef1097f09db7"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/NativeLoaderTest.java": {
+    "mtime": 1780589262.9432018,
+    "ast_hash": "03df547c01ac08a0b0103f0c2e7d9049",
+    "semantic_hash": "03df547c01ac08a0b0103f0c2e7d9049"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/NeighborHaloTest.java": {
+    "mtime": 1780589262.9492018,
+    "ast_hash": "886e8101e0f0990ab6ff119da09fe5f6",
+    "semantic_hash": "886e8101e0f0990ab6ff119da09fe5f6"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/OrgeEngineInjectionOverloadTest.java": {
+    "mtime": 1780589262.9492018,
+    "ast_hash": "6b686cb792b2c215ad2398a17869d789",
+    "semantic_hash": "6b686cb792b2c215ad2398a17869d789"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/RegionMarshallerTest.java": {
+    "mtime": 1780589262.9492018,
+    "ast_hash": "d9bec105115c7b596a87efe5b83f28da",
+    "semantic_hash": "d9bec105115c7b596a87efe5b83f28da"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/ResidentLutParityIT.java": {
+    "mtime": 1780798009.386218,
+    "ast_hash": "95b2092cf03c1c6375cefc18297dfb17",
+    "semantic_hash": "95b2092cf03c1c6375cefc18297dfb17"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/ScratchPoolTest.java": {
+    "mtime": 1780589262.9602022,
+    "ast_hash": "0ffce0c6391e71f1eae4865222ed2a71",
+    "semantic_hash": "0ffce0c6391e71f1eae4865222ed2a71"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/StepResultTest.java": {
+    "mtime": 1780589262.9602022,
+    "ast_hash": "fd6f62f83de7d1518501113b52be6787",
+    "semantic_hash": "fd6f62f83de7d1518501113b52be6787"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/TestMaterials.java": {
+    "mtime": 1780589262.9602022,
+    "ast_hash": "5f0a96d340f7472a6381d501bb12bd55",
+    "semantic_hash": "5f0a96d340f7472a6381d501bb12bd55"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/engine/VelocityMarshallingTest.java": {
+    "mtime": 1780635456.460376,
+    "ast_hash": "80b8ad5be6ac47febcc7e2298548f5c1",
+    "semantic_hash": "80b8ad5be6ac47febcc7e2298548f5c1"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/fluid/OrgeFluidPolicyTest.java": {
+    "mtime": 1780589262.9612024,
+    "ast_hash": "a0ebb5e98b7ca51573dcd559c34a8bd7",
+    "semantic_hash": "a0ebb5e98b7ca51573dcd559c34a8bd7"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/ActiveMaterialsTableTest.java": {
+    "mtime": 1780589262.9612024,
+    "ast_hash": "36e4f38f20f28124826705979ca054fa",
+    "semantic_hash": "36e4f38f20f28124826705979ca054fa"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/ActiveMaterialsTest.java": {
+    "mtime": 1780589262.9620674,
+    "ast_hash": "8788a73a07d2612e118be07907f43362",
+    "semantic_hash": "8788a73a07d2612e118be07907f43362"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/AllMaterialsLoadTest.java": {
+    "mtime": 1780589262.9672024,
+    "ast_hash": "30b77d66eb7afa44b968461733499248",
+    "semantic_hash": "30b77d66eb7afa44b968461733499248"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/BlockMaterialRuleTest.java": {
+    "mtime": 1780589262.9672024,
+    "ast_hash": "44b3600af78a445bdac4dc9ba11bc2d5",
+    "semantic_hash": "44b3600af78a445bdac4dc9ba11bc2d5"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialAirGasM1Test.java": {
+    "mtime": 1780589262.9672024,
+    "ast_hash": "35a4fa59e5d1f7dc358322ec653e84a3",
+    "semantic_hash": "35a4fa59e5d1f7dc358322ec653e84a3"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialAirStateTest.java": {
+    "mtime": 1780589262.9672024,
+    "ast_hash": "88f631516473d8f9b149cc313fc2c731",
+    "semantic_hash": "88f631516473d8f9b149cc313fc2c731"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialCodecSourceTest.java": {
+    "mtime": 1780589262.9682026,
+    "ast_hash": "6abef888d7f3b118409ca1d57c35df78",
+    "semantic_hash": "6abef888d7f3b118409ca1d57c35df78"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialCodecTest.java": {
+    "mtime": 1780589262.9682026,
+    "ast_hash": "2c21979648ee2895123e72d59618ed13",
+    "semantic_hash": "2c21979648ee2895123e72d59618ed13"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialDataTest.java": {
+    "mtime": 1780589262.9682026,
+    "ast_hash": "fe8900adfd3f82a4ef17995bb49b349b",
+    "semantic_hash": "fe8900adfd3f82a4ef17995bb49b349b"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialFieldsTest.java": {
+    "mtime": 1780589262.9732027,
+    "ast_hash": "327c568669d5ca69cf53a66dd47b9502",
+    "semantic_hash": "327c568669d5ca69cf53a66dd47b9502"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialFluidTest.java": {
+    "mtime": 1780589262.9742026,
+    "ast_hash": "51520e5603c0d03bebd5ccd2de95afa2",
+    "semantic_hash": "51520e5603c0d03bebd5ccd2de95afa2"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialLoaderTest.java": {
+    "mtime": 1780589262.9742026,
+    "ast_hash": "09e24a2881a697acbcaa9f9dae7a0d5d",
+    "semantic_hash": "09e24a2881a697acbcaa9f9dae7a0d5d"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialRegistryTest.java": {
+    "mtime": 1780589262.9752028,
+    "ast_hash": "7aa67efdd0f16a88eca68d2a6d813819",
+    "semantic_hash": "7aa67efdd0f16a88eca68d2a6d813819"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialSchemaTest.java": {
+    "mtime": 1780589262.9752028,
+    "ast_hash": "22351e4a8df4b1931779fd0a71184d6c",
+    "semantic_hash": "22351e4a8df4b1931779fd0a71184d6c"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialTableTest.java": {
+    "mtime": 1780589262.9762027,
+    "ast_hash": "6060152ed040cdf3379fcce7d05f13ec",
+    "semantic_hash": "6060152ed040cdf3379fcce7d05f13ec"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialThreeMassJsonTest.java": {
+    "mtime": 1780703645.561224,
+    "ast_hash": "c5d63baedda4d924c9ed2142c9ea807e",
+    "semantic_hash": "c5d63baedda4d924c9ed2142c9ea807e"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/material/MaterialThreeMassTest.java": {
+    "mtime": 1780589262.9762027,
+    "ast_hash": "b579199ea4e9e391cabd2da9d9b43e7c",
+    "semantic_hash": "b579199ea4e9e391cabd2da9d9b43e7c"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/DefaultPhaseDataTest.java": {
+    "mtime": 1780589262.9762027,
+    "ast_hash": "619058209118c36f0a29561886e20ce5",
+    "semantic_hash": "619058209118c36f0a29561886e20ce5"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/EngineOutSpeciesTest.java": {
+    "mtime": 1780589262.9774513,
+    "ast_hash": "b390dc01c5700483ca868418886b02e3",
+    "semantic_hash": "b390dc01c5700483ca868418886b02e3"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/FluidReconcileLogicTest.java": {
+    "mtime": 1780589262.9774513,
+    "ast_hash": "83bb244886f163c52d68bb0b50e82108",
+    "semantic_hash": "83bb244886f163c52d68bb0b50e82108"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/FluidReconcilerNoopTest.java": {
+    "mtime": 1780589262.9774513,
+    "ast_hash": "fdb58e114dddada0e82dc2191135ca9e",
+    "semantic_hash": "fdb58e114dddada0e82dc2191135ca9e"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/PhaseChangeTargetTest.java": {
+    "mtime": 1780589262.9774513,
+    "ast_hash": "1b1e12551fa0b847b885b33b35be6994",
+    "semantic_hash": "1b1e12551fa0b847b885b33b35be6994"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/PhasePlannerTest.java": {
+    "mtime": 1780589262.9774513,
+    "ast_hash": "62df7a5e38d834f53d0e8236ce2deeca",
+    "semantic_hash": "62df7a5e38d834f53d0e8236ce2deeca"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/PhaseRuleTest.java": {
+    "mtime": 1780589262.9774513,
+    "ast_hash": "6d85b3123fb626029f4a0cac72b46e12",
+    "semantic_hash": "6d85b3123fb626029f4a0cac72b46e12"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/phase/SourcePinPlannerTest.java": {
+    "mtime": 1780589262.9782028,
+    "ast_hash": "887b910f3ffe45001b1f480311527a1a",
+    "semantic_hash": "887b910f3ffe45001b1f480311527a1a"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/ActiveSetTest.java": {
+    "mtime": 1780589262.9782028,
+    "ast_hash": "b2dbd65f3732aec671348017483c5ed5",
+    "semantic_hash": "b2dbd65f3732aec671348017483c5ed5"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/AmbientSeederTest.java": {
+    "mtime": 1780589262.9790437,
+    "ast_hash": "9bbbb8f7c4e3eca4c5a590abb8ec6bf1",
+    "semantic_hash": "9bbbb8f7c4e3eca4c5a590abb8ec6bf1"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/BiomeTemperatureTest.java": {
+    "mtime": 1780589262.9790437,
+    "ast_hash": "9d96b90244719a60e677c5a840dbe466",
+    "semantic_hash": "9d96b90244719a60e677c5a840dbe466"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/CellMaterialTrackerTest.java": {
+    "mtime": 1780589262.9790437,
+    "ast_hash": "6bad358bc552406aacf00651c9306fec",
+    "semantic_hash": "6bad358bc552406aacf00651c9306fec"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/ColumnAssemblerTest.java": {
+    "mtime": 1780589262.9792027,
+    "ast_hash": "3b2260e3b6d10361d51ca7f7daa87398",
+    "semantic_hash": "3b2260e3b6d10361d51ca7f7daa87398"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/ExecutorStepRunnerTest.java": {
+    "mtime": 1780589262.9792027,
+    "ast_hash": "9c17c5132d7041643665f8b1796f1b50",
+    "semantic_hash": "9c17c5132d7041643665f8b1796f1b50"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/GeometryAssemblerTest.java": {
+    "mtime": 1780589262.9792027,
+    "ast_hash": "76c35a3b6d5cf7b94996426dace62aa6",
+    "semantic_hash": "76c35a3b6d5cf7b94996426dace62aa6"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/InjectionDrainTest.java": {
+    "mtime": 1780589262.9792027,
+    "ast_hash": "1f504f355c5917ebd130bd6b58790a8b",
+    "semantic_hash": "1f504f355c5917ebd130bd6b58790a8b"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/MaterialLutTest.java": {
+    "mtime": 1780589262.9792027,
+    "ast_hash": "59b10d561e67ac28cc404e261b73577c",
+    "semantic_hash": "59b10d561e67ac28cc404e261b73577c"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/MinecraftThermalWorldTest.java": {
+    "mtime": 1780636339.8943558,
+    "ast_hash": "9e47ded8593a93146ab5745a98eea0f4",
+    "semantic_hash": "9e47ded8593a93146ab5745a98eea0f4"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/PendingInjectionsTest.java": {
+    "mtime": 1780589262.980203,
+    "ast_hash": "68fbb5c06d44ddfe9dcb2b2198af2310",
+    "semantic_hash": "68fbb5c06d44ddfe9dcb2b2198af2310"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/PlacementCaptureTest.java": {
+    "mtime": 1780589262.980203,
+    "ast_hash": "55fd230d485170a2c90feec909274ec6",
+    "semantic_hash": "55fd230d485170a2c90feec909274ec6"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/PlacementInjectionPolicyTest.java": {
+    "mtime": 1780589262.980203,
+    "ast_hash": "a67a824fa308a215a79b3e23f3e59868",
+    "semantic_hash": "a67a824fa308a215a79b3e23f3e59868"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/RegionSchedulerTest.java": {
+    "mtime": 1780589262.980203,
+    "ast_hash": "814075bf57612ccc97be79818b1eea2d",
+    "semantic_hash": "814075bf57612ccc97be79818b1eea2d"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/SchedulerInjectionDurabilityTest.java": {
+    "mtime": 1780589262.980203,
+    "ast_hash": "b1845d4cc986d1b6c81348481651e376",
+    "semantic_hash": "b1845d4cc986d1b6c81348481651e376"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/SchedulerTest.java": {
+    "mtime": 1780589262.980203,
+    "ast_hash": "d13b3da2f06f592c1842117ed46b8200",
+    "semantic_hash": "d13b3da2f06f592c1842117ed46b8200"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/SettleCountdownTest.java": {
+    "mtime": 1780589262.9812028,
+    "ast_hash": "4754f11e245bf6c8693ce6bfa258d5cb",
+    "semantic_hash": "4754f11e245bf6c8693ce6bfa258d5cb"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/SpeciesMassLedgerInjectionTest.java": {
+    "mtime": 1780589262.9812028,
+    "ast_hash": "d3eff187213f39f66f1d1e8836aeaea3",
+    "semantic_hash": "d3eff187213f39f66f1d1e8836aeaea3"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/SphereUnionTest.java": {
+    "mtime": 1780589262.9812028,
+    "ast_hash": "4293031ff09d2ccb13918671778f0625",
+    "semantic_hash": "4293031ff09d2ccb13918671778f0625"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/StableIdAssemblyTest.java": {
+    "mtime": 1780589262.9812028,
+    "ast_hash": "7525a1f115c93c92769640bef69e521d",
+    "semantic_hash": "7525a1f115c93c92769640bef69e521d"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/StepValidatorMassTest.java": {
+    "mtime": 1780589262.9812028,
+    "ast_hash": "1b36482d23e303fc19321ccf34bf7729",
+    "semantic_hash": "1b36482d23e303fc19321ccf34bf7729"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/StepValidatorTest.java": {
+    "mtime": 1780589262.9872031,
+    "ast_hash": "aa359e35a47c19189d304aafdccd53b2",
+    "semantic_hash": "aa359e35a47c19189d304aafdccd53b2"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/ThermalWorldWriteBackMassTest.java": {
+    "mtime": 1780589262.9902031,
+    "ast_hash": "46754831c70fb0789dd8f01640eca238",
+    "semantic_hash": "46754831c70fb0789dd8f01640eca238"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/scheduler/WorkerTest.java": {
+    "mtime": 1780589262.9942033,
+    "ast_hash": "86af41ea9108ffc51798c46f488a7264",
+    "semantic_hash": "86af41ea9108ffc51798c46f488a7264"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/LegacyV1.java": {
+    "mtime": 1780589262.9952033,
+    "ast_hash": "26a325af9caff0b66be57ca6c0655c2d",
+    "semantic_hash": "26a325af9caff0b66be57ca6c0655c2d"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/RegionFileTest.java": {
+    "mtime": 1780589262.9992034,
+    "ast_hash": "408f02376008c06b8994f33bf7c05003",
+    "semantic_hash": "408f02376008c06b8994f33bf7c05003"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/RegionStoreTest.java": {
+    "mtime": 1780589263.0012035,
+    "ast_hash": "e1290e5a6b59c003edacc28e536911da",
+    "semantic_hash": "e1290e5a6b59c003edacc28e536911da"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionCodecMaterialTest.java": {
+    "mtime": 1780589263.0012035,
+    "ast_hash": "ebe22eb23b154383905aedb08847426e",
+    "semantic_hash": "ebe22eb23b154383905aedb08847426e"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionCodecTest.java": {
+    "mtime": 1780636030.6468973,
+    "ast_hash": "000848a9ab1a396ba9c4a5353924e471",
+    "semantic_hash": "000848a9ab1a396ba9c4a5353924e471"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionCodecVelocityTest.java": {
+    "mtime": 1780635906.852111,
+    "ast_hash": "92b84a7062368d2135d92bd9f40b1dbc",
+    "semantic_hash": "92b84a7062368d2135d92bd9f40b1dbc"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionDataTest.java": {
+    "mtime": 1780589263.0052037,
+    "ast_hash": "14d658bdfe91c94309ee1a4b37657808",
+    "semantic_hash": "14d658bdfe91c94309ee1a4b37657808"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionMaterialTest.java": {
+    "mtime": 1780589263.0052037,
+    "ast_hash": "d19df0f6622173574bb74e3653505834",
+    "semantic_hash": "d19df0f6622173574bb74e3653505834"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionStoreManagerTest.java": {
+    "mtime": 1780589263.0052037,
+    "ast_hash": "93aed56f03a8f6da33076759feb8bd40",
+    "semantic_hash": "93aed56f03a8f6da33076759feb8bd40"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionStoreTest.java": {
+    "mtime": 1780589263.0052037,
+    "ast_hash": "526f544bbd188bd0d1f40d67b7f7b421",
+    "semantic_hash": "526f544bbd188bd0d1f40d67b7f7b421"
+  },
+  "/home/claude/ORGE-B/core/src/test/java/net/rainbowcreation/orge/section/SectionVelocityTest.java": {
+    "mtime": 1780635691.4745321,
+    "ast_hash": "cb54d2b1e290afc180ed88c081bef4a4",
+    "semantic_hash": "cb54d2b1e290afc180ed88c081bef4a4"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/build.gradle": {
+    "mtime": 1780589263.1992097,
+    "ast_hash": "9331d20393fc190e84e89067b8d75929",
+    "semantic_hash": "9331d20393fc190e84e89067b8d75929"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/OrgeFabric.java": {
+    "mtime": 1780589263.2002642,
+    "ast_hash": "8215e945154830618af51c2205b69939",
+    "semantic_hash": "8215e945154830618af51c2205b69939"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/client/OrgeFabricClient.java": {
+    "mtime": 1780589263.2006252,
+    "ast_hash": "f54b1caf9d8bc3ca44b5dde9cd53caa6",
+    "semantic_hash": "f54b1caf9d8bc3ca44b5dde9cd53caa6"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/mixin/FlowingFluidMixin.java": {
+    "mtime": 1780589263.2006252,
+    "ast_hash": "3ee175ca473edc690a49e5e24b965178",
+    "semantic_hash": "3ee175ca473edc690a49e5e24b965178"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/mixin/LavaFluidMixin.java": {
+    "mtime": 1780589263.2022097,
+    "ast_hash": "38544775788f80809c4f289bba646722",
+    "semantic_hash": "38544775788f80809c4f289bba646722"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/mixin/LiquidBlockMixin.java": {
+    "mtime": 1780589263.2022097,
+    "ast_hash": "283c7a9193c33d0ff2626682bdf03184",
+    "semantic_hash": "283c7a9193c33d0ff2626682bdf03184"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/mixin/WakeSetBlockMixin.java": {
+    "mtime": 1780589263.2052097,
+    "ast_hash": "379dbfea6167cecfa49aff23f0843386",
+    "semantic_hash": "379dbfea6167cecfa49aff23f0843386"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/fabric/mixin/WaterFluidMixin.java": {
+    "mtime": 1780589263.2052097,
+    "ast_hash": "1ccf422239c3c9fc5291066f8f1800c6",
+    "semantic_hash": "1ccf422239c3c9fc5291066f8f1800c6"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/platform/fabric/OrgePlatformImpl.java": {
+    "mtime": 1780589263.2102098,
+    "ast_hash": "e6fd2532880c64345d10c04731409dc0",
+    "semantic_hash": "e6fd2532880c64345d10c04731409dc0"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/platform/fabric/WakePlatformImpl.java": {
+    "mtime": 1780589263.21521,
+    "ast_hash": "0d53b8078fd6dcbcf82924ee580f7cbc",
+    "semantic_hash": "0d53b8078fd6dcbcf82924ee580f7cbc"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/java/net/rainbowcreation/orge/section/fabric/SectionStorePlatformImpl.java": {
+    "mtime": 1780589263.215853,
+    "ast_hash": "f55371e7678e8a29aac6a80c23cbc070",
+    "semantic_hash": "f55371e7678e8a29aac6a80c23cbc070"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/resources/fabric.mod.json": {
+    "mtime": 1780589263.215853,
+    "ast_hash": "f4af641347aa35421f2ae92f57d242de",
+    "semantic_hash": "f4af641347aa35421f2ae92f57d242de"
+  },
+  "/home/claude/ORGE-B/fabric-1.21/src/main/resources/orge.mixins.json": {
+    "mtime": 1780589263.2192101,
+    "ast_hash": "6705c5e1eaf5c13c1ce361d4da2aa907",
+    "semantic_hash": "6705c5e1eaf5c13c1ce361d4da2aa907"
+  },
+  "/home/claude/ORGE-B/gradlew": {
+    "mtime": 1780589263.2262104,
+    "ast_hash": "a9c88f55314c7a98c21fc81f0c5b5b00",
+    "semantic_hash": "a9c88f55314c7a98c21fc81f0c5b5b00"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/build.gradle": {
+    "mtime": 1780589263.2262104,
+    "ast_hash": "d74d9c20e691a30faf451eccf0ef0c8a",
+    "semantic_hash": "d74d9c20e691a30faf451eccf0ef0c8a"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/neoforge/OrgeNeoForge.java": {
+    "mtime": 1780589263.2276227,
+    "ast_hash": "98366601ae536d3c336becfd74711481",
+    "semantic_hash": "98366601ae536d3c336becfd74711481"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/neoforge/client/OrgeNeoForgeClient.java": {
+    "mtime": 1780589263.22797,
+    "ast_hash": "c19669bcaab908c860e014c43e8ccf13",
+    "semantic_hash": "c19669bcaab908c860e014c43e8ccf13"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/neoforge/mixin/FlowingFluidMixin.java": {
+    "mtime": 1780589263.22797,
+    "ast_hash": "cb00e5b651e6568acfbcd4b34b02ce27",
+    "semantic_hash": "cb00e5b651e6568acfbcd4b34b02ce27"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/neoforge/mixin/LavaFluidMixin.java": {
+    "mtime": 1780589263.2285113,
+    "ast_hash": "9b9a60b3517ee6d5e8d634b7e40fb7c4",
+    "semantic_hash": "9b9a60b3517ee6d5e8d634b7e40fb7c4"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/neoforge/mixin/LiquidBlockMixin.java": {
+    "mtime": 1780589263.2285113,
+    "ast_hash": "1e0fbf200ade561db029cc95735f52de",
+    "semantic_hash": "1e0fbf200ade561db029cc95735f52de"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/neoforge/mixin/WaterFluidMixin.java": {
+    "mtime": 1780589263.2285113,
+    "ast_hash": "cfaef987452af19646fdd6c69a875bd5",
+    "semantic_hash": "cfaef987452af19646fdd6c69a875bd5"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/platform/neoforge/OrgePlatformImpl.java": {
+    "mtime": 1780589263.2291954,
+    "ast_hash": "6f8ebd37994da909ad869f88ef9fdb36",
+    "semantic_hash": "6f8ebd37994da909ad869f88ef9fdb36"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/platform/neoforge/WakePlatformImpl.java": {
+    "mtime": 1780589263.229492,
+    "ast_hash": "0953c8af6abb59824b9147a58679504b",
+    "semantic_hash": "0953c8af6abb59824b9147a58679504b"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/java/net/rainbowcreation/orge/section/neoforge/SectionStorePlatformImpl.java": {
+    "mtime": 1780589263.229796,
+    "ast_hash": "f5b9f9b074b258e9b9cef32ae8209329",
+    "semantic_hash": "f5b9f9b074b258e9b9cef32ae8209329"
+  },
+  "/home/claude/ORGE-B/neoforge-1.21/src/main/resources/orge.mixins.json": {
+    "mtime": 1780589263.2301164,
+    "ast_hash": "90b7f51822b71a1f40c0a873dbe90c0f",
+    "semantic_hash": "90b7f51822b71a1f40c0a873dbe90c0f"
+  },
+  "/home/claude/ORGE-B/settings.gradle": {
+    "mtime": 1780589263.246211,
+    "ast_hash": "527ea8a961b2c46d20b243963baf4ce7",
+    "semantic_hash": "527ea8a961b2c46d20b243963baf4ce7"
+  },
+  "/home/claude/ORGE-B/DESIGN.md": {
+    "mtime": 1780589262.433186,
+    "ast_hash": "f13e962f8cb27d20d74e1ed7e8f50777",
+    "semantic_hash": "f13e962f8cb27d20d74e1ed7e8f50777"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/ADVECTION_MODEL.md": {
+    "mtime": 1780589295.6882045,
+    "ast_hash": "bcc0d4b7d3aa5d266beabe72c2df40c1",
+    "semantic_hash": "bcc0d4b7d3aa5d266beabe72c2df40c1"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/README.md": {
+    "mtime": 1780589295.703205,
+    "ast_hash": "993d9a91a0a2479fc97ce5d76357247d",
+    "semantic_hash": "993d9a91a0a2479fc97ce5d76357247d"
+  },
+  "/home/claude/ORGE-B/ORGE-ENGINE/tests/README.md": {
+    "mtime": 1780589295.9842136,
+    "ast_hash": "7f48623bf7086a047e3e59ecf15f9dac",
+    "semantic_hash": "7f48623bf7086a047e3e59ecf15f9dac"
+  },
+  "/home/claude/ORGE-B/README.md": {
+    "mtime": 1780589262.4351861,
+    "ast_hash": "b5a86e6cc8e4e91fac8def6961bae86b",
+    "semantic_hash": "b5a86e6cc8e4e91fac8def6961bae86b"
+  },
+  "/home/claude/ORGE-B/docs/orgestep.md": {
+    "mtime": 1780589263.0162039,
+    "ast_hash": "d6ecd2f4bc1d554a3e964810fa94d0ee",
+    "semantic_hash": "d6ecd2f4bc1d554a3e964810fa94d0ee"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-29-native-packaging.md": {
+    "mtime": 1780589263.0192041,
+    "ast_hash": "157b75d162eb477663c00678cab84345",
+    "semantic_hash": "157b75d162eb477663c00678cab84345"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-30-engine-audit-observability-brief.md": {
+    "mtime": 1780589263.0262043,
+    "ast_hash": "a00ba1b130a77b629beaaf87b6e59d22",
+    "semantic_hash": "a00ba1b130a77b629beaaf87b6e59d22"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-31-entity-homeostasis.md": {
+    "mtime": 1780589263.0332046,
+    "ast_hash": "ded826621e5faef0a99078fc1dea0250",
+    "semantic_hash": "ded826621e5faef0a99078fc1dea0250"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-31-lava-cooling-branches.md": {
+    "mtime": 1780589263.0392046,
+    "ast_hash": "22bdd50b73464571cc9672eed6b4fa38",
+    "semantic_hash": "22bdd50b73464571cc9672eed6b4fa38"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-31-rain-mass-seeding.md": {
+    "mtime": 1780589263.0412047,
+    "ast_hash": "766ed4d8450a0242e4823aa47befecd2",
+    "semantic_hash": "766ed4d8450a0242e4823aa47befecd2"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-31-thermal-seeding-dimensions.md": {
+    "mtime": 1780589263.0412047,
+    "ast_hash": "e6a97fb7cbd67c02f4504375ff852a0b",
+    "semantic_hash": "e6a97fb7cbd67c02f4504375ff852a0b"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-05-31-thirsty-farmland.md": {
+    "mtime": 1780589263.0422049,
+    "ast_hash": "72c8c59e77455695c4d2e92090cb9da7",
+    "semantic_hash": "72c8c59e77455695c4d2e92090cb9da7"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-06-02-dripstone-conduit.md": {
+    "mtime": 1780589263.0422049,
+    "ast_hash": "74496a7e8de7b431ef9863f49ba2ca72",
+    "semantic_hash": "74496a7e8de7b431ef9863f49ba2ca72"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-06-02-fluid-containers.md": {
+    "mtime": 1780589263.0422049,
+    "ast_hash": "b4a5e065fbd8dcf3af6c5069b6720445",
+    "semantic_hash": "b4a5e065fbd8dcf3af6c5069b6720445"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-06-03-material-table-spec-conflicts.md": {
+    "mtime": 1780589263.0462048,
+    "ast_hash": "24b6c3a76563bceba7d5acc51478de6a",
+    "semantic_hash": "24b6c3a76563bceba7d5acc51478de6a"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/notes/2026-06-07-engine-b-stage1-ingame-audit-checklist.md": {
+    "mtime": 1780798072.575074,
+    "ast_hash": "5166e5d254a5d5191c8a9f275ced73c7",
+    "semantic_hash": "5166e5d254a5d5191c8a9f275ced73c7"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/plans/2026-06-03-engine-resident-material-table.md": {
+    "mtime": 1780589263.1342075,
+    "ast_hash": "2501bffd67003a1dcc215e0d50ad264f",
+    "semantic_hash": "2501bffd67003a1dcc215e0d50ad264f"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/plans/2026-06-06-engine-b-force-advect-conduct-stage1.md": {
+    "mtime": 1780786690.4841456,
+    "ast_hash": "f8280bd5f291b962456a08a3dad698fd",
+    "semantic_hash": "f8280bd5f291b962456a08a3dad698fd"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/specs/2026-06-03-block-material-unified-place-break-design.md": {
+    "mtime": 1780589263.1882093,
+    "ast_hash": "b5777ee6363f46612bcfdb92c3c20ec9",
+    "semantic_hash": "b5777ee6363f46612bcfdb92c3c20ec9"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md": {
+    "mtime": 1780589263.1922092,
+    "ast_hash": "5f0803d57c1cd94b3f189b6fa24e5283",
+    "semantic_hash": "5f0803d57c1cd94b3f189b6fa24e5283"
+  },
+  "/home/claude/ORGE-B/docs/superpowers/specs/2026-06-06-engine-b-force-advect-conduct-design.md": {
+    "mtime": 1780784228.578581,
+    "ast_hash": "57e3ef27839952c2ffa0fa85268abfd7",
+    "semantic_hash": "57e3ef27839952c2ffa0fa85268abfd7"
+  }
+}

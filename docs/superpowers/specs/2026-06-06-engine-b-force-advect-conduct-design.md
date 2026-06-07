@@ -1,8 +1,19 @@
 # Engine-B Rebuild — "Force → Advect → Conduct" (unified Bingham constitutive law)
 
-**Status:** RATIFIED (brainstorm 2026-06-06). Supersedes the `E = ρ·h·w` energy-vector
-formulation of `2026-06-04-engine-b-unified-formula.md` / `…-velocity-field-design.md`
-for the *mechanical core*. Reuses the same World/Chunk/snapshot/LUT scaffolding.
+> ⚠ **PIPELINE FRAMING SUPERSEDED 2026-06-07 — read `2026-06-07-engine-b-CANONICAL-pipeline.md` FIRST.**
+> The engine MUST follow **ENCRYPT → RESOLVE → DECRYPT in one `step_world` call** (user-reaffirmed
+> 2026-06-07). This document's **un-mixing of channels (multiple maps, no phase branch, unified
+> Bingham/yield, D7–D9) is KEPT** — but its "*removed the energy vector + Decrypt*", "*3 separate local
+> passes*", and "*buoyancy/hydrostatic head emerge from a **local** EOS ∇p*" framing is **WRONG**: a
+> purely-local EOS has no way to propagate pressure-at-depth, which is exactly why in-game leveling went
+> dead. The un-mixing must live **inside ENCRYPT→RESOLVE→DECRYPT (keep the RESOLVER — the single cross-cell
+> step where pressure-at-depth/leveling/buoyancy emerge)**, NOT as 3 local passes. The only change vs the
+> 2026-06-04 spec is **multiple un-mixed vector maps** instead of one bundled energy vector.
+
+**Status:** Channel-unmixing + D1–D9 material law RATIFIED (2026-06-06); **pipeline framing SUPERSEDED
+2026-06-07** (see banner above). NOT a wholesale supersession of `2026-06-04-engine-b-unified-formula.md`
+/ `…-velocity-field-design.md` — those specs' ENCRYPT→RESOLVE→DECRYPT pipeline + resolver + EOS §B.1 are
+CANONICAL again. Reuses the same World/Chunk/snapshot/LUT scaffolding.
 
 ## 0. Motivation
 
