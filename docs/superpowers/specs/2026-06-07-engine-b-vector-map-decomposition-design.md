@@ -71,10 +71,14 @@ Two incompressible cells (e.g. lava above water, both `χ≈0`) cannot exchange 
 won't sink) with a **force-difference threshold swap**:
 
 - For a vertical pair (upper `i`, lower `j`), compare net downward drive; **swap whole-cell contents when
-  the upper pushes down harder than the lower by more than a hysteresis threshold** (heavy-on-light,
-  `≈ (ρ_i − ρ_j)·g·V > threshold`). The threshold value is **calibration** (later); the *mechanism* is
-  ratified here.
+  the upper's buoyant drive exceeds the PAIR'S RESISTANCE** (heavy-on-light,
+  `(ρ_i − ρ_j)·g·V > resistance`). **The barrier is the pair's material resistance (viscosity / cohesion),
+  NOT a global `swap_threshold` constant** — refined §8 (the global constant is drift). The buoyant drive is
+  the **local** density difference; **overburden cancels** (Archimedes — depth-independent; see §8).
 - A swap is a **pure permutation** ⇒ grand + per-species mass exact by construction.
+- The swap is the **discrete realization of the same vertical force** that fluxes movable media: the force
+  *flows* where mass can move continuously and *swaps* where two full immiscible incompressible cells block
+  the flux. One driver, two outcomes, one resistance gate (§8).
 
 **GPU-safe formulation (no scatter, no atomics)** — the swap is the one piece that *looks* like a scatter,
 so it is written as a **gather**, identical in shape to the flux:
@@ -169,6 +173,87 @@ happened**. The three in-game audit findings are the final gate:
   note in spec + code seam + memory. (§4)
 - **DEC-5 — Q2 = A: stage by pipeline phase** (ENCRYPT → RESOLVE → DECRYPT), each delivering a runnable
   conserving `step_world` with a real-LUT end-to-end acceptance test. (§5)
+- **DEC-6 — Pressure-at-depth EMERGES via gravity + incompressible reflection over ticks**, computed in the
+  ONE snapshot vector resolve — NOT a global "Σ mass above" column sum, NOT an EOS compression band.
+  `max == default` stands. (§8)
+- **DEC-7 — Swap barrier = the pair's material resistance (viscosity/cohesion), not a global constant**;
+  the swap is the discrete branch of the one vertical force; overburden cancels (Archimedes). (§2, §8)
+
+---
+
+## §8 — REFINEMENT (2026-06-07 PM, user-ratified): one force vector, emergent overburden, unified gate
+
+This section pins *how* the RESOLVE force/pressure is actually computed and gated — closing the questions
+that surfaced while red-teaming the leveling/displacement model. It supersedes any earlier "overburden via
+a column pre-pass" sketch. **All of it is one vector field, resolved in one snapshot pass per tick.**
+
+### §8.1 — One force VECTOR, one pass (not a scalar, not 3 axis-steps, not a pre-pass)
+- **Pressure `p` is a scalar** (isotropic — genuinely directionless); a cell legitimately reads each
+  neighbour's one scalar `p`.
+- **The force is the VECTOR** `F⃗ = −∇p + g⃗ + advection`, assembled from the **6-face netting** (§1's
+  `Δp⃗_i = Σ(±p⃗_adv + Δp⃗_pres)`) **in one accumulation** — `Fx, Fy, Fz` fall out together. There is **no
+  x-pass / y-pass / z-pass and no separate "accumulate overburden" sweep.** Each cell reads only its 6
+  neighbours' scalars — never the column/row — so it stays GPU-local.
+
+### §8.2 — Overburden EMERGES over ticks from gravity + reflection (no Σ, no band)
+The bug being fixed: the live code drives the pressure flux from the **local EOS** `p`, which is `0`
+everywhere at rest under `max==default` (every cell at `m_rest`) ⇒ zero gradient ⇒ no leveling. The fix is
+**not** a wider EOS band (that contradicts `max==default`) and **not** a global `g·Σ(mass above)` (non-local
+*and* it would wrongly transmit through load-bearing solids). Instead:
+- gravity adds `m·g·dt` downward momentum to every cell each tick;
+- an incompressible floor/cell cannot accept mass (`max==default` + capacity clamp) ⇒ it **reflects** that
+  momentum into **pressure** (§C.5);
+- that pressure raises `p`, which the *same* vector field carries up and sideways next tick;
+- after ~H ticks the field self-assembles to **hydrostatic** (equal `p` at equal depth, level surfaces).
+
+So the "force from above = X" a cell sees is just its upper neighbour's vector component **from the
+snapshot** — one read, one pass, accumulation is **temporal** (over ticks), never a within-tick global scan.
+
+### §8.3 — Force transmission is YIELD-GATED (per face, one scalar in)
+Each cell takes the single incoming force scalar on a face and decides what it passes on:
+
+| receiver on that face | passes on |
+|---|---|
+| **FLUID** (yield ≈ 0) | down-face: `F_in + g·m_own` (gravity accumulates) · side/up-face: `F_in` unchanged (Pascal transmits, **no weight added** — no sideways gravity) |
+| **SOLID, `F_in ≤ yield_stress`** | **LOCKED — bears the load, blocks**: passes `0` downward ⇒ the cell beyond is **shielded** (silo/arch). Today every solid is terrain `yield=∞` ⇒ always blocks; finite yield later = granular (DEC-4, deferred) |
+| **SOLID, `F_in > yield_stress`** | **YIELDS — pushable**: passes `F_in + g·m_own` (now part of the flow) |
+| **VACUUM / free surface** | resets: `p = 0` |
+
+A cell never counts mass; it only adds its own weight (down) or relays (sideways) the one scalar that
+arrived. Vertical **accumulates** (gravity), horizontal **transmits** (Pascal) — same code, the only
+difference is whether gravity is on that face's axis.
+
+### §8.4 — Horizontal flow = the DIFFERENCE; the gate works sideways
+Horizontally there is no gravity term, so the net sideways force is `p_left − p_right` (flow toward lower
+`p`); uniform pressure ⇒ faces cancel ⇒ no flow. The yield gate applies sideways too: a **wall** between two
+pools bears the lateral load and blocks ⇒ the pools do not level through it. Communicating vessels / U-tubes
+level because the **vertical** accumulation builds high `p` at the tall column's base and the **horizontal**
+transmission carries it (unchanged) to the short base, whose lower `p` is then pushed up — all one field.
+
+### §8.5 — "Lightest = lowest force vector" is what gets consumed
+In a displacement, the cell **destroyed/consumed is the lowest-`p` (lowest force-vector) cell the flow can
+REACH**, in **any** of the 6 directions — not "the gas," not gated by `max_mass`. Air usually has the
+lowest `p` (tiny own-weight, often exposed), but a buried air bubble with high overburden is **not** consumed
+while a lower-`p` cell is reachable. Conservation: only that lowest-`p` compressible/vacuum cell is consumed;
+everything else permutes/shifts.
+
+### §8.6 — The unified gate (flow / swap / stay) — one force, one resistance axis
+```
+fluid FLOWS   when   ∇p force   > 0           (no barrier — continuous flux)
+cells SWAP    when   buoyant F  > pair resistance   (viscosity/cohesion)   ← replaces global swap_threshold
+solid MOVES   when   F_above    > yield_stress       (granular — DEFERRED, DEC-4)
+```
+Same vertical force vector everywhere; the **resistance axis** (viscosity / cohesion / yield_stress) decides
+the outcome. The swap is the discrete branch taken when two full immiscible incompressible cells block the
+continuous flux; its driver is the **local** buoyant force `(ρ_up − ρ_low)·g·V` (overburden cancels —
+Archimedes, depth-independent), and its barrier is the **pair's resistance**, not a constant.
+
+### §8.7 — min_mass flow gate (the cohesion rule, user worked-example confirmed)
+A same-species flow of amount `f` from donor `D` to receiver `R` is allowed **iff**
+`R+f ≤ max` **AND** (`D−f == 0` *or* `D−f ≥ min`). Cross-species requires `f ≥ min`. Flows are **not**
+quantized to `min`; the **only** ban is leaving or creating a cell at `0 < mass < min`. Worked: water
+`min125/max1000`, a 130 drop onto an 875 cell — room 125, sending 125 leaves the donor at 5 (`<min`) ✗,
+sending 130 overfills to 1005 ✗ ⇒ **blocked**; needs ≥ 250 to transfer 125 and keep ≥ 125 → `[1000, 125]`.
 
 ---
 

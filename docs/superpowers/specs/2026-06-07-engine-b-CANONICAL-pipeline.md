@@ -41,9 +41,19 @@ force-threshold swap, antisymmetric conservation) is unchanged from 2026-06-04.
 - **The "pressure modifier" IS the EOS** `p(m,T)` of §B.1 in the unified-formula spec — a function of
   `current` vs `min` vs `default` vs `max` mass. `p = 0` at rest density (free surface). Pressure rises
   with depth **dynamically, in RESOLVE** (the resolver accumulates it), not from a static local term.
-- **Cross-species reorder = force-difference threshold swap** (energy-lowering): if the up-force vs
-  down-force on a vertical pair differ by more than a threshold, swap; else don't. **It is NOT gated on
-  `chi`/compressibility.** (`chi(lower) ≥ 0.5` in the current code is stale drift — delete it.)
+- **Cross-species reorder = force-difference swap** (energy-lowering): on a vertical pair, swap when the
+  upper's **local buoyant force** `(ρ_up − ρ_low)·g·V` exceeds the **pair's resistance** (viscosity /
+  cohesion) — heavy-on-light. **It is NOT gated on `chi`/compressibility** (`chi(lower) ≥ 0.5` is stale
+  drift — delete it), and the barrier is the **pair's material resistance, NOT a global `swap_threshold`
+  constant** (refined 2026-06-07 PM). Overburden cancels in the swap (Archimedes — depth-independent). The
+  swap is the **discrete branch of the one RESOLVE force**: it *flows* where mass can move, *swaps* where
+  two full immiscible cells block the flux.
+- **Pressure-at-depth EMERGES over ticks** in the ONE snapshot vector resolve, from **gravity +
+  incompressible reflection** — NOT a global "Σ mass above" sum, NOT an EOS compression band (refined
+  2026-06-07 PM). The live code's local-EOS `p_face` is `0` at rest under `max==default` ⇒ the leveling
+  bug. One force VECTOR, one pass, every read a single neighbour, yield-gated transmission (fluid passes +
+  own weight down / unchanged sideways; locked solid bears+blocks; vacuum resets). **See the decomposition
+  design §8 for the full refined model** (`…-vector-map-decomposition-design.md`).
 - **No phase/state branch.** One branchless law per cell; `yield_stress` is the universal axis
   (fluid = 0, solid = huge, bedrock = ∞). Immovable = `viscosity = ∞` (data, not a branch).
 
