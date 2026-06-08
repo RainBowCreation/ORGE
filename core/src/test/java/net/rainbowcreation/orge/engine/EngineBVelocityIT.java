@@ -62,6 +62,43 @@ class EngineBVelocityIT {
         assertTrue(Float.isFinite(r.velX()[cell]), "velocity-out finite after step");
     }
 
+    @Test
+    void stepRoundTripsPressureFinite() {
+        Assumptions.assumeTrue(nativeAvailable(), "native liborge required");
+        NativeEngine engine = new NativeEngine();
+        engine.registerMaterials(103, lutWithWater());
+        int N = RegionMarshaller.CHUNK_N;
+        char[] mat = new char[N]; float[] mass = new float[N]; float[] t = new float[N];
+        for (int i=0;i<N;i++){ mat[i]=0; mass[i]=0f; t[i]=300f; }
+        int cell = 8 + 16*40 + 6144*8;
+        mat[cell]=(char)1; mass[cell]=1000f; t[cell]=290f;
+        float[] vx=new float[N], vy=new float[N], vz=new float[N], p=new float[N];
+        p[cell] = 4242.0f;  // seed dynamic pressure
+        ColumnTask col = new ColumnTask(0,0, mat, mass, t, vx, vy, vz, p);  // 9-arg with p
+        ColumnResult r = engine.stepWorld(java.util.List.of(col), 103, 0.25, OrgeEngine.PASS_ADVECTION).get(0);
+        assertTrue(Float.isFinite(r.p()[cell]), "pressure-out finite after step");
+    }
+
+    @Test
+    void stepWithNoPassesPreservesPressureExactly() {
+        // passes==0: no conduction, no advection -> the JNI marshals p in, copies it through the
+        // World, and reads it back. This is the cleanest proof p survives the native call end-to-end.
+        Assumptions.assumeTrue(nativeAvailable(), "native liborge required");
+        NativeEngine engine = new NativeEngine();
+        engine.registerMaterials(104, lutWithWater());
+        int N = RegionMarshaller.CHUNK_N;
+        char[] mat = new char[N]; float[] mass = new float[N]; float[] t = new float[N];
+        for (int i=0;i<N;i++){ mat[i]=0; mass[i]=0f; t[i]=300f; }
+        int cell = 8 + 16*40 + 6144*8;
+        mat[cell]=(char)1; mass[cell]=1000f; t[cell]=290f;
+        float[] vx=new float[N], vy=new float[N], vz=new float[N], p=new float[N];
+        p[cell] = 7777.0f;
+        ColumnTask col = new ColumnTask(0,0, mat, mass, t, vx, vy, vz, p);
+        ColumnResult r = engine.stepWorld(java.util.List.of(col), 104, 0.25, 0).get(0);
+        assertEquals(7777.0f, r.p()[cell], 1e-3f, "p preserved exactly through native call with passes=0");
+        assertEquals(0f, r.p()[cell + 1], "untouched cell p stays 0");
+    }
+
     // =====================================================================
     // Task 15: assembler reads velocity from SectionCells into ColumnTask
     // =====================================================================

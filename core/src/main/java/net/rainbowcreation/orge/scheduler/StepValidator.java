@@ -346,6 +346,25 @@ public final class StepValidator {
         return out;
     }
 
+    /**
+     * Sanitizes a dynamic-pressure channel: non-finite values (NaN / ±Inf) are replaced by
+     * {@code fallback[i]} when {@code fallback} is non-null, or by 0 when {@code fallback} is null.
+     * Finite values are clamped to {@code >= 0} — unlike velocity, pressure is a non-negative gauge
+     * (a free surface is p=0; negative p is unphysical). Inputs are not mutated.
+     *
+     * @param p        raw engine output pressure channel
+     * @param fallback values to keep where {@code p} is non-finite, or {@code null} to default to 0
+     * @return a new sanitized array of the same length, all entries {@code >= 0}
+     */
+    public static float[] cleanPressure(float[] p, float[] fallback) {
+        float[] out = new float[p.length];
+        for (int i = 0; i < p.length; i++) {
+            float v = Float.isFinite(p[i]) ? p[i] : (fallback == null ? 0f : fallback[i]);
+            out[i] = v < 0f ? 0f : v;
+        }
+        return out;
+    }
+
     /** Non-finite mass → 0; finite mass clamped to [0, fullMassBound]. Mirrors {@link #clean}. */
     public static float[] cleanMass(float[] mass, float fullMassBound) {
         float[] out = new float[mass.length];

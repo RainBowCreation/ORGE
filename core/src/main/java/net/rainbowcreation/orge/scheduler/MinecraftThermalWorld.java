@@ -691,21 +691,25 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     storedMaterial[i] = store.materialAt(cx, cz, sectionY, i);
                 }
             }
-            // Velocity: read per-cell stored velocity from the SectionStore when available;
-            // otherwise zero-fill (never-simulated / back-compat default).
+            // Velocity + dynamic pressure: read per-cell stored values from the SectionStore when
+            // available; otherwise zero-fill (never-simulated / back-compat default). Threading p back
+            // in is what lets depth-pressure ACCUMULATE across engine steps (the JNI rebuilds a fresh
+            // World each call, so without persisting p it would reset to 0 every step).
             float[] velX = new float[SectionData.CELLS];
             float[] velY = new float[SectionData.CELLS];
             float[] velZ = new float[SectionData.CELLS];
+            float[] p    = new float[SectionData.CELLS];
             if (store != null && store.hasSection(key)) {
                 SectionData sd = store.get(key);
                 for (int i = 0; i < SectionData.CELLS; i++) {
                     velX[i] = sd.velXAt(i);
                     velY[i] = sd.velYAt(i);
                     velZ[i] = sd.velZAt(i);
+                    p[i]    = sd.pAt(i);
                 }
             }
             return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                    velX, velY, velZ);
+                    velX, velY, velZ, p);
         };
     }
 
@@ -748,6 +752,12 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             System.arraycopy(cleanVx, 0, data.velXArray(), 0, SectionData.CELLS);
             System.arraycopy(cleanVy, 0, data.velYArray(), 0, SectionData.CELLS);
             System.arraycopy(cleanVz, 0, data.velZArray(), 0, SectionData.CELLS);
+            // Dynamic-pressure write-back: slice the single p channel, sanitize non-finite AND clamp
+            // negatives to 0 (p >= 0 — a free surface is p=0), then persist into the SectionData p array.
+            // Persisting p is what makes depth-pressure survive across engine steps and save/load.
+            float[] secP = ColumnSectionCodec.sliceSectionChannel(result.p(), sectionY);
+            float[] cleanP = StepValidator.cleanPressure(secP, null);
+            System.arraycopy(cleanP, 0, data.pArray(), 0, SectionData.CELLS);
             // Durable identity (durable-material §, keystone-closing half): persist each cell's
             // engine-output material id into the store so next cycle E1's columnSource reads it as
             // authoritative (hasMaterials()==true). Effective-species rule mirrors recordCellMaterials:

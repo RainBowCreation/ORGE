@@ -21,7 +21,7 @@ import java.util.zip.Inflater;
 public final class SectionCodec {
 
     /** Wire format version for column blobs. */
-    public static final byte FORMAT_VERSION = 3;
+    public static final byte FORMAT_VERSION = 4;
 
     private static final byte FORM_UNIFORM = 0;
     private static final byte FORM_FULL    = 1;
@@ -163,6 +163,11 @@ public final class SectionCodec {
      * byte[vyLen]
      * int   vzLen ; compressed float[4096] velZ array length
      * byte[vzLen]
+     * -- pressure block (v4+; absent in v1/v2/v3 blobs; INDEPENDENT of the velocity flag):
+     * byte  hasPressure  ; 0 = none (all cells 0), 1 = present
+     * -- if hasPressure == 1:
+     * int   pLen ; compressed float[4096] p array length
+     * byte[pLen]
      * </pre></p>
      */
     public static void writeSection(DataOutputStream out, SectionData s) throws IOException {
@@ -208,31 +213,41 @@ public final class SectionCodec {
         } else {
             out.writeByte(0);
         }
+        // v4 pressure block (independent gate; written AFTER velocity so order is
+        // materials -> velocity -> pressure).
+        if (s.hasPressure()) {
+            out.writeByte(1);
+            byte[] pComp = deflate(floatsToBytes(s.pArray()));
+            out.writeInt(pComp.length);
+            out.write(pComp);
+        } else {
+            out.writeByte(0);
+        }
     }
 
     /**
-     * Reads one {@link SectionData} from {@code in} (full v3 format: materials + velocity).
+     * Reads one {@link SectionData} from {@code in} (full v4 format: materials + velocity + pressure).
      *
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     public static SectionData readSection(DataInputStream in) throws IOException {
-        return readSection(in, true, true);
+        return readSection(in, true, true, true);
     }
 
     /**
      * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
      * block. v1 blobs carry no material block ({@code withMaterials == false}); v2 blobs do.
-     * Velocity is NOT read (withVelocity=false) — used by legacy callers.
+     * Velocity/pressure are NOT read — used by legacy callers.
      *
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     static SectionData readSection(DataInputStream in, boolean withMaterials) throws IOException {
-        return readSection(in, withMaterials, false);
+        return readSection(in, withMaterials, false, false);
     }
 
     /**
      * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
-     * block and v3 velocity block.
+     * block and v3 velocity block. Pressure is NOT read — used by legacy v3 callers.
      *
      * @param withMaterials whether to read the v2+ material block
      * @param withVelocity  whether to read the v3+ velocity block
@@ -240,6 +255,20 @@ public final class SectionCodec {
      */
     static SectionData readSection(DataInputStream in, boolean withMaterials, boolean withVelocity)
             throws IOException {
+        return readSection(in, withMaterials, withVelocity, false);
+    }
+
+    /**
+     * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
+     * block, v3 velocity block, and v4 pressure block.
+     *
+     * @param withMaterials whether to read the v2+ material block
+     * @param withVelocity  whether to read the v3+ velocity block
+     * @param withPressure  whether to read the v4+ pressure block
+     * @throws IOException  if the form byte is unrecognised or data is corrupt
+     */
+    static SectionData readSection(DataInputStream in, boolean withMaterials, boolean withVelocity,
+                                   boolean withPressure) throws IOException {
         byte form = in.readByte();
         SectionData section;
         if (form == FORM_UNIFORM) {
@@ -296,6 +325,15 @@ public final class SectionCodec {
                 System.arraycopy(vz, 0, section.velZArray(), 0, SectionData.CELLS);
             }
         }
+        if (withPressure) {
+            byte hasPressure = in.readByte();
+            if (hasPressure == 1) {
+                int pLen = in.readInt();
+                if (pLen < 0) throw new IOException("corrupt section: negative compressed length " + pLen);
+                float[] p = bytesToFloats(inflate(in.readNBytes(pLen), SectionData.CELLS * 4));
+                System.arraycopy(p, 0, section.pArray(), 0, SectionData.CELLS);
+            }
+        }
         return section;
     }
 
@@ -308,8 +346,8 @@ public final class SectionCodec {
      *
      * <p>Wire format:
      * <pre>
-     * byte  version       ; FORMAT_VERSION (3); legacy v1 (no material/velocity) and v2 (no velocity)
-     *                     ; blobs are also accepted on read
+     * byte  version       ; FORMAT_VERSION (4); legacy v1 (no material/velocity/pressure), v2 (no
+     *                     ; velocity/pressure) and v3 (no pressure) blobs are also accepted on read
      * short sectionCount
      * repeat sectionCount (sorted by sectionY ascending):
      *   int   sectionY
@@ -348,11 +386,12 @@ public final class SectionCodec {
         }
         boolean withMaterials = version >= 2;
         boolean withVelocity  = version >= 3;
+        boolean withPressure  = version >= 4;
         int count = in.readShort() & 0xFFFF;
         TreeMap<Integer, SectionData> result = new TreeMap<>();
         for (int i = 0; i < count; i++) {
             int sectionY = in.readInt();
-            SectionData section = readSection(in, withMaterials, withVelocity);
+            SectionData section = readSection(in, withMaterials, withVelocity, withPressure);
             result.put(sectionY, section);
         }
         return result;

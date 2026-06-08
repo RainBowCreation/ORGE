@@ -42,6 +42,7 @@ public final class SectionData {
     private float[] velX; // null until first velocity write or array request
     private float[] velY;
     private float[] velZ;
+    private float[] p;    // dynamic pressure (Pa-ish gauge, >=0); null until first pressure write/array request
 
     private SectionData(Form form, float uniformTemperature, float uniformMass,
                         float[] temperature, float[] mass) {
@@ -260,6 +261,46 @@ public final class SectionData {
     }
 
     // -------------------------------------------------------------------------
+    // Dynamic-pressure channel (independent lazy allocation, default 0)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Allocates the single pressure array (zero-filled by JVM default) if not yet present.
+     * Independent of velocity (a section may carry p without v, and vice versa).
+     */
+    private void ensurePressure() {
+        if (p == null) {
+            p = new float[CELLS];
+        }
+    }
+
+    /** Dynamic pressure of cell {@code i} (Pa-ish gauge, >=0). Returns {@code 0} until first write. */
+    public float pAt(int i) { return p == null ? 0f : p[i]; }
+
+    /**
+     * Sets the dynamic pressure of cell {@code i}, promoting this section to {@code FULL} (so that
+     * temp/mass arrays are materialized alongside the pressure channel).
+     *
+     * @param i  cell index (0..{@value CELLS}-1)
+     * @param pv dynamic pressure (Pa-ish gauge, >=0)
+     */
+    public void setPressure(int i, float pv) {
+        promote();
+        ensurePressure();
+        p[i] = pv;
+    }
+
+    /**
+     * Returns the <em>live</em> pressure array (length {@value CELLS}), allocating it if needed.
+     * Also promotes temp/mass to {@code FULL}.
+     */
+    public float[] pArray() {
+        promote();
+        ensurePressure();
+        return p;
+    }
+
+    // -------------------------------------------------------------------------
     // Demotion: FULL -> UNIFORM when all cells are equal
     // -------------------------------------------------------------------------
 
@@ -292,6 +333,14 @@ public final class SectionData {
                 }
             }
         }
+        // Only demote if pressure is absent or all-zero (else demotion would silently drop p).
+        if (p != null) {
+            for (int i = 0; i < CELLS; i++) {
+                if (p[i] != 0f) {
+                    return false;
+                }
+            }
+        }
         uniformTemperature = t0;
         uniformMass = m0;
         temperature = null;
@@ -299,6 +348,7 @@ public final class SectionData {
         velX = null;
         velY = null;
         velZ = null;
+        p = null;
         form = Form.UNIFORM;
         return true;
     }
@@ -315,6 +365,11 @@ public final class SectionData {
     /** Whether this section has non-default (non-null) velocity arrays. Used by the codec. */
     public boolean hasVelocity() {
         return velX != null;
+    }
+
+    /** Whether this section has a non-default (non-null) pressure array. Used by the codec. */
+    public boolean hasPressure() {
+        return p != null;
     }
 
     /**

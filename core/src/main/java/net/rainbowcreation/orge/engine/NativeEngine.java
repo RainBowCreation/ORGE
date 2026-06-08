@@ -54,10 +54,10 @@ public final class NativeEngine implements OrgeEngine {
             int lutEpoch,
             int nCols, int[] cx, int[] cz,
             char[] matIx, float[] mass, float[] tIn,
-            float[] vxIn, float[] vyIn, float[] vzIn,
+            float[] vxIn, float[] vyIn, float[] vzIn, float[] pIn,
             int passes, double dtSeconds,
             float[] tOut, float[] massOut, char[] matOut,
-            float[] vxOut, float[] vyOut, float[] vzOut,
+            float[] vxOut, float[] vyOut, float[] vzOut, float[] pOut,
             int injCount,
             int[] injColumn, int[] injCell,
             char[] injSpecies, float[] injMass, float[] injTemp,
@@ -112,19 +112,21 @@ public final class NativeEngine implements OrgeEngine {
             ledgerOut = new float[2 * matCount];
         }
 
-        // Velocity in from flatten; velocity out from pool.
+        // Velocity + dynamic-pressure in from flatten; out from pool.
         float[] vxIn  = f.vxIn();
         float[] vyIn  = f.vyIn();
         float[] vzIn  = f.vzIn();
+        float[] pIn   = f.pIn();
         float[] vxOut = scratch.velXOut(total);
         float[] vyOut = scratch.velYOut(total);
         float[] vzOut = scratch.velZOut(total);
+        float[] pOut  = scratch.pOut(total);
 
         lastStepMillis = orgeStepWorld(
                 lutEpoch, f.nCols(), f.cx(), f.cz(), f.matIx(), f.mass(), f.tIn(),
-                vxIn, vyIn, vzIn,
+                vxIn, vyIn, vzIn, pIn,
                 passes, dtSeconds, tOut, massOut, matOut,
-                vxOut, vyOut, vzOut,
+                vxOut, vyOut, vzOut, pOut,
                 injCount, injCol, injCell, injSp, injMs, injTp, ledgerOut);
 
         float[] injected = new float[matCount];
@@ -134,7 +136,7 @@ public final class NativeEngine implements OrgeEngine {
             System.arraycopy(ledgerOut, matCount, sealedLoss, 0, matCount);
         }
         return new RegionStepResult(
-                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, f.nCols()),
+                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, f.nCols()),
                 injected, sealedLoss);
     }
 

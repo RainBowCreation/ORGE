@@ -20,6 +20,7 @@ public final class ScratchPool {
     private float[] velXOut = new float[0];
     private float[] velYOut = new float[0];
     private float[] velZOut = new float[0];
+    private float[] pOut    = new float[0];
 
     /** A {@code float[]} of at least {@code n}, reused when the held array is already big enough. */
     public float[] temp(int n) {
@@ -65,5 +66,11 @@ public final class ScratchPool {
     public float[] velZOut(int n) {
         if (velZOut.length < n) velZOut = new float[n];
         return velZOut;
+    }
+
+    /** Dynamic-pressure output channel ({@code p}). Mirrors {@link #velXOut(int)}. */
+    public float[] pOut(int n) {
+        if (pOut.length < n) pOut = new float[n];
+        return pOut;
     }
 }
