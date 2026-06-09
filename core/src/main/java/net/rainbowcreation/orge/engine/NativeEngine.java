@@ -31,11 +31,13 @@ public final class NativeEngine implements OrgeEngine {
      * (each {@link RegionMarshaller#CHUNK_N} cells), run conduction and/or advection per {@code passes},
      * and read next-state back into {@code tOut}/{@code massOut}/{@code matOut} (length {@code nCols·CHUNK_N}).
      *
-     * <p><b>Canonical six-array LUT order (Task 2.1; Phase 3 C++ must match exactly):</b>
-     * {@code lutCond} (thermal_conductivity), {@code lutHeatCap} (heat_capacity), {@code lutMolar}
-     * (molar_mass), {@code lutMinMass} (min_mass), {@code lutMaxMass} (max_mass), {@code lutVisc}
-     * (viscosity; +∞ = frozen/immovable). The legacy {@code lutFullMass/lutFluid/lutMinFlow/lutGas/
-     * lutAir} arrays are gone — immovability is {@code visc == +∞}, not a flag.</p>
+     * <p><b>Law §8 fixed-schema LUT (issue #2; {@code orge_jni.cpp} must match exactly):</b> eight
+     * physics floats — {@code cond} (thermal_conductivity), {@code heatCap}, {@code molar},
+     * {@code minMass}, {@code maxMass}, {@code visc} (+∞ = frozen/immovable), {@code defaultMass}
+     * (EOS rest density m₀), {@code yieldStress} (threshold axis, 0 for fluids) — plus the phase
+     * quadruple {@code minTemp}/{@code maxTemp} and {@code minTarget}/{@code maxTarget} (the target
+     * material's globally-stable {@code matIx}, {@code 0xFFFF} = no target). The phase quadruple is
+     * engine-resident so a future DECODE relabels locally. Immovability is {@code visc == +∞}, not a flag.</p>
      *
      * <p>Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.</p>
      *
@@ -48,7 +50,9 @@ public final class NativeEngine implements OrgeEngine {
             int lutEpoch, int matCount,
             float[] cond, float[] heatCap, float[] molar,
             float[] minMass, float[] maxMass, float[] visc,
-            float[] defaultMass);
+            float[] defaultMass, float[] yieldStress,
+            float[] minTemp, float[] maxTemp,
+            int[] minTarget, int[] maxTarget);
 
     private static native double orgeStepWorld(
             int lutEpoch,
@@ -71,7 +75,8 @@ public final class NativeEngine implements OrgeEngine {
         LutArrays L = LutArrays.pack(table);
         orgeRegisterMaterials(lutEpoch, L.matCount(),
                 L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
-                L.defaultMass());
+                L.defaultMass(), L.yieldStress(),
+                L.minTemp(), L.maxTemp(), L.minTarget(), L.maxTarget());
         epochMatCount.put(lutEpoch, table.size());
     }
 

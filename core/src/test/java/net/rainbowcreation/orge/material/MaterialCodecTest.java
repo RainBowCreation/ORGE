@@ -86,12 +86,33 @@ class MaterialCodecTest {
                 "max_temp default should be +Infinity");
         assertTrue(Float.isInfinite(m.minTemp()) && m.minTemp() < 0,
                 "min_temp default should be -Infinity");
+        assertEquals(0f, m.yieldStress(), 0f, "yield_stress default should be 0 (pure fluid)");
 
         // Nullable id fields — absent means null
         assertNull(m.maxTarget(),       "max_target absent → null");
         assertNull(m.minTarget(),      "min_target absent → null");
         assertEquals(Identifier.fromNamespaceAndPath("minecraft", "test_stone"), m.representativeBlock(),
                 "representative_block absent → minecraft:<path> (canonical default)");
+    }
+
+    // -------------------------------------------------------------------------
+    // (b2) yield_stress (law §8 threshold axis) parses when present
+    // -------------------------------------------------------------------------
+    @Test
+    void yieldStressParsesWhenPresent() {
+        String json = """
+                {
+                  "thermal_conductivity": 2.5,
+                  "heat_capacity": 840.0,
+                  "molar_mass": 0.060,
+                  "default_mass": 1600.0,
+                  "default_temperature": 290.0,
+                  "yield_stress": 5000.0
+                }
+                """;
+
+        Material m = MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json));
+        assertEquals(5000.0f, m.yieldStress(), 1e-3f, "yield_stress should decode from JSON");
     }
 
     // -------------------------------------------------------------------------
