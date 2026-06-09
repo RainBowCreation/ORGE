@@ -27,6 +27,7 @@ class MaterialCodecTest {
                   "default_mass": 2700.0,
                   "default_temperature": 290.0,
                   "viscosity": 0.001,
+                  "yield_stress": 1500.0,
                   "max_temp": 3000.0,
                   "min_temp": 1600.0,
                   "max_target": "orge:lava",
@@ -42,6 +43,7 @@ class MaterialCodecTest {
         assertEquals(2.5f, m.thermalConductivity(), 1e-5f);
         assertEquals(840.0f, m.heatCapacity(), 1e-5f);
         assertEquals(0.001f, m.viscosity(), 1e-5f);
+        assertEquals(1500.0f, m.yieldStress(), 1e-5f); // law §8 threshold axis parses when present
         assertEquals(2700.0f, m.defaultMass(), 1e-5f);
         assertEquals(0.060f, m.molarMass(), 1e-5f);
         assertEquals(290.0f, m.defaultTemperature(), 1e-5f);
@@ -82,6 +84,7 @@ class MaterialCodecTest {
                 "viscosity default should be +Infinity (absent => frozen)");
         assertEquals(1000.0f, m.minMass(), 1e-3f, "min_mass default should be default_mass");
         assertEquals(1000.0f, m.maxMass(), 1e-3f, "max_mass default should be default_mass");
+        assertEquals(0.0f, m.yieldStress(), 0f, "yield_stress default should be 0 (no-op for fluids)");
         assertTrue(Float.isInfinite(m.maxTemp()) && m.maxTemp() > 0,
                 "max_temp default should be +Infinity");
         assertTrue(Float.isInfinite(m.minTemp()) && m.minTemp() < 0,

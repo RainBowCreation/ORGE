@@ -39,11 +39,12 @@ public final class NativeEngine implements OrgeEngine {
      * (each {@link RegionMarshaller#CHUNK_N} cells), run conduction and/or advection per {@code passes},
      * and read next-state back into {@code tOut}/{@code massOut}/{@code matOut} (length {@code nCols·CHUNK_N}).
      *
-     * <p><b>Canonical six-array LUT order (Task 2.1; Phase 3 C++ must match exactly):</b>
-     * {@code lutCond} (thermal_conductivity), {@code lutHeatCap} (heat_capacity), {@code lutMolar}
-     * (molar_mass), {@code lutMinMass} (min_mass), {@code lutMaxMass} (max_mass), {@code lutVisc}
-     * (viscosity; +∞ = frozen/immovable). The legacy {@code lutFullMass/lutFluid/lutMinFlow/lutGas/
-     * lutAir} arrays are gone — immovability is {@code visc == +∞}, not a flag.</p>
+     * <p><b>Canonical law §8 eight-array LUT order (issue #2; Phase 3 C++ must match exactly):</b>
+     * {@code cond} (thermal_conductivity), {@code heatCap} (heat_capacity), {@code molar}
+     * (molar_mass), {@code minMass}, {@code maxMass}, {@code visc} (viscosity; +∞ = frozen/immovable),
+     * {@code defaultMass} (= EOS rest density m₀), {@code yieldStress} (threshold axis; 0 for current
+     * fluids — present, deferred). The legacy {@code fullMass/fluid/minFlow/gas/air} arrays are gone
+     * — immovability is {@code visc == +∞}, not a flag.</p>
      *
      * <p>Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.</p>
      *
@@ -55,7 +56,8 @@ public final class NativeEngine implements OrgeEngine {
     private static native void orgeRegisterMaterials(
             int lutEpoch, int matCount,
             float[] cond, float[] heatCap, float[] molar,
-            float[] minMass, float[] maxMass, float[] visc);
+            float[] minMass, float[] maxMass, float[] visc,
+            float[] defaultMass, float[] yieldStress);
 
     private static native double orgeStepWorld(
             int lutEpoch,
@@ -75,7 +77,8 @@ public final class NativeEngine implements OrgeEngine {
         if (table.isEmpty()) return;
         LutArrays L = LutArrays.pack(table);
         orgeRegisterMaterials(lutEpoch, L.matCount(),
-                L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc());
+                L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
+                L.defaultMass(), L.yieldStress());
         epochMatCount.put(lutEpoch, table.size());
     }
 

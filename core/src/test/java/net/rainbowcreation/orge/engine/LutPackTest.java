@@ -13,7 +13,8 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Task 2.1: LutArrays packs EXACTLY the six physics floats; absent viscosity → +∞; void slot 0 = 0/0/0/finite. */
+/** Issue #2: LutArrays packs EXACTLY the law §8 octet (defaultMass + yieldStress added); absent
+ *  viscosity → +∞; void slot 0 = 0/0/0/finite; yieldStress defaults to 0 (no-op for current fluids). */
 class LutPackTest {
 
     /** Live water built via the canonical builder: molar 0.018, minMass 125, maxMass 1000, visc 0.001. */
@@ -34,33 +35,36 @@ class LutPackTest {
     }
 
     @Test
-    void recordHasExactlySixFloatArraysPlusMatCount() {
+    void recordHasExactlyTheLaw8OctetPlusMatCount() {
         RecordComponent[] comps = LutArrays.class.getRecordComponents();
         Set<String> names = Arrays.stream(comps).map(RecordComponent::getName).collect(Collectors.toSet());
-        // Exactly the six physics floats + matCount.
-        assertEquals(Set.of("cond", "heatCap", "molar", "minMass", "maxMass", "visc", "matCount"), names);
+        // Exactly the law §8 octet (+ defaultMass = EOS rest density m₀, + yieldStress) + matCount.
+        assertEquals(Set.of("cond", "heatCap", "molar", "minMass", "maxMass", "visc",
+                "defaultMass", "yieldStress", "matCount"), names);
         // The dropped flag/legacy arrays must not exist.
         for (String banned : List.of("fluid", "gas", "air", "fullMass", "minFlow")) {
             assertFalse(names.contains(banned), "LutArrays must not carry '" + banned + "'");
         }
-        // Six float[] components, one int component.
+        // Eight float[] components, one int component.
         long floats = Arrays.stream(comps).filter(c -> c.getType() == float[].class).count();
         long ints = Arrays.stream(comps).filter(c -> c.getType() == int.class).count();
-        assertEquals(6, floats, "exactly six per-material float arrays");
+        assertEquals(8, floats, "exactly eight per-material float arrays (law §8 octet)");
         assertEquals(1, ints, "matCount");
     }
 
     @Test
-    void packEmitsTheSixArraysForANormalMaterial() {
+    void packEmitsTheOctetForANormalMaterial() {
         LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, water()));
         assertEquals(2, L.matCount());
-        // water at slot 1 — the exact six values.
-        assertEquals(0.6f,   L.cond()[1],    1e-6f);
-        assertEquals(4186f,  L.heatCap()[1], 1e-3f);
-        assertEquals(0.018f, L.molar()[1],   1e-6f);
-        assertEquals(125f,   L.minMass()[1], 1e-4f);
-        assertEquals(1000f,  L.maxMass()[1], 1e-4f);
-        assertEquals(0.001f, L.visc()[1],    1e-6f);
+        // water at slot 1 — the exact octet values.
+        assertEquals(0.6f,   L.cond()[1],        1e-6f);
+        assertEquals(4186f,  L.heatCap()[1],     1e-3f);
+        assertEquals(0.018f, L.molar()[1],       1e-6f);
+        assertEquals(125f,   L.minMass()[1],     1e-4f);
+        assertEquals(1000f,  L.maxMass()[1],     1e-4f);
+        assertEquals(0.001f, L.visc()[1],        1e-6f);
+        assertEquals(1000f,  L.defaultMass()[1], 1e-4f); // EOS rest density m₀
+        assertEquals(0f,     L.yieldStress()[1], 0f);    // threshold axis: 0 (no-op) for fluids
     }
 
     @Test

@@ -20,6 +20,9 @@ import net.minecraft.resources.Identifier;
  * @param viscosity           physical resistance (Pa·s); {@link Float#POSITIVE_INFINITY} = frozen/immovable
  * @param minMass             kg, per-cell floor (cohesion); defaults to {@code defaultMass}
  * @param maxMass             kg, per-cell capacity cap; defaults to {@code defaultMass}
+ * @param yieldStress         Pa — resistance THRESHOLD axis (law §8/§5); defaults to {@code 0} (and is
+ *                            {@code 0} for every current fluid). Present + plumbed end-to-end, but a
+ *                            no-op axis — the granular static-yield stage is DEFERRED
  * @param minTemp             K — lower threshold; below it the cell becomes {@code minTarget}
  * @param maxTemp             K — upper threshold; above it the cell becomes {@code maxTarget}
  * @param minTarget           MATERIAL id placed when temperature drops below {@code minTemp}, or null
@@ -41,6 +44,7 @@ public record Material(
         float viscosity,
         float minMass,
         float maxMass,
+        float yieldStress,
         float minTemp,
         float maxTemp,
         Identifier minTarget,
@@ -84,6 +88,7 @@ public record Material(
         private Float viscosity;
         private Float minMass;
         private Float maxMass;
+        private float yieldStress = 0f;   // law §8 threshold axis; 0 (no-op) for all current fluids
         private float minTemp = Float.NEGATIVE_INFINITY;
         private float maxTemp = Float.POSITIVE_INFINITY;
         private Identifier minTarget;
@@ -103,6 +108,7 @@ public record Material(
         public Builder viscosity(float v) { this.viscosity = v; return this; }
         public Builder minMass(float v) { this.minMass = v; return this; }
         public Builder maxMass(float v) { this.maxMass = v; return this; }
+        public Builder yieldStress(float v) { this.yieldStress = v; return this; }
         public Builder minTemp(float v) { this.minTemp = v; return this; }
         public Builder maxTemp(float v) { this.maxTemp = v; return this; }
         public Builder minTarget(Identifier v) { this.minTarget = v; return this; }
@@ -124,7 +130,7 @@ public record Material(
                     ? representativeBlock
                     : Identifier.fromNamespaceAndPath("minecraft", id.getPath());  // absent => minecraft:<path>
             return new Material(id, thermalConductivity, heatCapacity, molarMass, defaultMass,
-                    defaultTemperature, visc, minM, maxM, minTemp, maxTemp,
+                    defaultTemperature, visc, minM, maxM, yieldStress, minTemp, maxTemp,
                     minTarget, maxTarget, repr, pinned);
         }
     }
