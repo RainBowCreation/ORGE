@@ -8,20 +8,25 @@ line of code is subordinate to it. It is intentionally tiny so it cannot drift a
 ## The law
 
 1. **Pressure = ONE number per cell** — a single scalar `P`. Never two terms, never split by direction.
-   Depth lives *inside* `P` (a deep cell carries a big `P`, a surface cell a small `P`).
+   Depth lives *inside* `P` (a deep cell carries a big `P`, a surface cell a small `P`). `P` is the only
+   persisted *intensive* field — it is iteratively relaxed, so it carries across ticks.
 
-2. **Force = ONE Vector3 per cell** (`Fx, Fy, Fz`). It is built in RESOLVE by reading the 6 face-neighbors:
-   each face contributes `P_self − P_neighbor`, and opposing faces combine into the vector
-   (`+x/−x → Fx`, `+y/−y → Fy`, `+z/−z → Fz`). A cell reads only the neighbor it touches across each
-   face — nothing global, no column sums.
+2. **Force = ONE Vector3 per cell** (`Fx, Fy, Fz`), accumulated into the cell's **momentum** in RESOLVE
+   from three sources: (i) the **internal** 6-face term — each face contributes `P_self − P_neighbor`,
+   opposing faces combine into the vector (`+x/−x → Fx`, `+y/−y → Fy`, `+z/−z → Fz`), applied as `−∇P·dt`;
+   (ii) **gravity** — a global acceleration `g` (set at material-table load, overridable per `step_world`),
+   applied as `mass·g·dt`; (iii) an optional **external momentum-impulse** array supplied per cell by the
+   caller, added directly. A cell reads only the neighbor it touches across each face for (i) — nothing
+   global, no column sums.
 
 3. **The same rule acts in all 6 directions.** Up, down, and sideways are identical. A deep side-hole gushes
    because the deep cell's big `P` faces a small `P` across that face — automatically, with no special
    "vertical vs horizontal" handling.
 
-4. **One step: ENCODE → RESOLVE → DECODE** (one `step_world`). ENCODE is per-cell local (build `P`).
-   RESOLVE is the **only** cross-cell step (the 6-face force, move mass). DECODE is per-cell local
-   (write back / relabel).
+4. **One step: ENCODE → RESOLVE → DECODE** (one `step_world`). ENCODE is per-cell **local** (apply gravity
+   + external impulse to `momentum`; cache `T` and the gas EOS — no neighbor reads). RESOLVE is the **only**
+   cross-cell step (relax `P`, build the 6-face force, move mass + heat). DECODE is per-cell **local**
+   (derive `T`/`v`, relabel, write back).
 
 5. **A cell moves when its net force beats its resistance.** Resistance is a *threshold*
    (yield_stress / cohesion). Viscosity is a *rate* only — never a threshold.
@@ -31,6 +36,24 @@ line of code is subordinate to it. It is intentionally tiny so it cannot drift a
    **conduction** = the 6-face flux `k·(T_i − T_j)` (mass-free, antisymmetric → energy exact), and
    **advection** = enthalpy `ṁ·h` carried by the moving mass. Same shape as the force: one carried scalar per
    cell, one isotropic 6-face flux. No separate conduction pass, no per-phase branch.
+
+7. **State — store EXTENSIVE, derive INTENSIVE.** Each cell stores only conserved extensive quantities plus
+   its material and pressure: `matIx, mass, momentum (px,py,pz), enthalpy E, P`. Intensive quantities are
+   **derived every tick, never stored**: `velocity = momentum/mass`, `T = E/(mass·cp)`. Extensive storage
+   makes advection structurally conservative and keeps thinned cells bounded; a stored raw `v` or raw `T`
+   is the velocity-ghost / temp-ghost drift — **forbidden**.
+
+8. **Material LUT = a fixed schema** (adding or removing a field is a law change): `heatCapacity,
+   thermalConductivity, molarMass, minMass, maxMass, viscosity, defaultMass (= EOS rest density m₀),
+   yieldStress`, plus the phase quadruple `minTemp→minTarget`, `maxTemp→maxTarget` — **kept in the engine
+   LUT** (not Java) so DECODE relabels locally, keeping `E`. `viscosity` is the rate / movability axis
+   (`+INF` = frozen); `yieldStress` is the threshold axis (`0` for all current fluids — present, deferred).
+
+9. **Mass moves, never vanishes.** Inside the domain mass only *moves* — conservative antisymmetric flux
+   (donor-budget + receiver-room clamps) or a permutation swap. The only source/sink is the caller's
+   place/break at the boundary, separately ledgered. A cell that is pushed but has **no escape** is a
+   **no-op** (mass stays; it compresses via EOS) — never deleted. A `no_escape` detection seam fires on
+   that case (empty body for now) for future handling; the default is do-nothing, never destroy.
 
 ---
 

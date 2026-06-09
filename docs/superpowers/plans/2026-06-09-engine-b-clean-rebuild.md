@@ -5,6 +5,25 @@
 > **Read [`../DESIGN-LAW.md`](../DESIGN-LAW.md) FIRST, verbatim.** It is frozen and outranks this plan, the
 > old spec, and all code. If anything here contradicts it, the law wins — stop and flag it.
 
+> **⚠ LAW AMENDMENTS (2026-06-09, ratified by the user) — these SUPERSEDE the stage text below on conflict.**
+> The law gained points 7–9 and revised 1/2/4 *after* this plan was drafted. Honor these deltas:
+> - **State (law §7): store EXTENSIVE, derive INTENSIVE.** Per-cell stored = `matIx, mass,
+>   momentum(px,py,pz), E, P`. **Store `E` not `T`** (`T = E/(mass·cp)` derived) and **store `momentum`
+>   not velocity** (`v = momentum/mass` derived). The "int16 velocity" reuse in Stage 0/2 becomes **int16
+>   momentum**; Stage 4.1 (enthalpy carried) is promoted to a Stage-0 invariant, not a late add.
+> - **Force / gravity / external (law §2):** the 6-face force accumulates into `momentum`. Gravity = global
+>   `g` (registered with the material table at mod-load, overridable per `step_world`). **External force
+>   enters as a per-cell momentum-impulse array** argument to `step_world`, added directly to momentum —
+>   the Stage 7 JNI ABI must carry it.
+> - **ENCODE output (law §4) is minimal:** provisional `momentum*` (`= momentum + mass·g·dt + external`),
+>   cached `T`, and gas `P_eos`. Nothing else re-emitted (this kills the drifted 14-field `CellEncrypt`).
+> - **Material schema (law §8):** the 8 engine fields + the phase quadruple `minTemp→minTarget,
+>   maxTemp→maxTarget` all live **in the engine LUT**. `defaultMass` = **EOS rest density m₀**, NOT
+>   placement mass — correct any stage text that implies otherwise (esp. Stage 5).
+> - **Conservation (law §9):** there is **no `sealedLoss` deletion**. A pushed cell with no escape is a
+>   **no-op** (it compresses via EOS). Add a `no_escape` detection seam (empty body) in RESOLVE (Stage 2 /
+>   Stage 6) for later use — it must default to do-nothing, never destroy.
+
 **Goal:** Rebuild the Engine-B physics core (ENCODE→RESOLVE→DECODE) clean from the frozen law — replacing the
 drifted `A+B` pressure split with **one** pressure scalar `P` computed by **iterative local relaxation** — so a
 single 6-face `−∇P` Vector3 force does all mass movement and heat rides the same pipeline.
