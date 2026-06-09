@@ -1,3 +1,14 @@
+> # ⚠ THIS IS NOT THE DESIGN — it is the working spec (current implementation + deviations).
+> **The design is [`../DESIGN-LAW.md`](../DESIGN-LAW.md) (frozen; only the user edits it).** Read the law
+> first. Where this document and the law disagree, **the law wins.** In particular, the `A + B` pressure
+> split documented below (overburden + own-weight head, own-weight used only sideways) is **DEBT, not
+> design** — it violates the law (one number `P`; one isotropic six-face force). It is kept here only
+> because the engine cannot yet build a correct single `P`; its **exit criterion** is a real single-`P`
+> solve, after which the second term is deleted and the six-face force handles every direction. Everything
+> below describes *what the code does today and why*, not *what the engine should be*. Use the genuinely
+> reusable parts (the anti-drift apparatus §9–§12, the resistance continuum §2, the granular-yield design
+> §6) — but never copy the A+B split, or any direction-split force, into the law.
+
 # Engine-B — Unified Flow / Force / Resistance law + anti-drift apparatus (design)
 
 **Date:** 2026-06-09 · **Status:** PROPOSED **v3** (REVERSAL of v2 — see changelog). Ratifies the **A+B

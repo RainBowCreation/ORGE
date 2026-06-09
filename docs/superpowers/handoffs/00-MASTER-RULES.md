@@ -1,5 +1,14 @@
 # Engine-B RESOLVE-force rebuild — MASTER RULES (read FIRST, every task references this)
 
+> ## ⛔⛔ READ [`../DESIGN-LAW.md`](../DESIGN-LAW.md) BEFORE THIS FILE — it is THE design, frozen.
+> Pressure is **ONE** scalar `P` per cell; force is **ONE** Vector3 built from the **6 face-neighbors**
+> (`P_self − P_neighbor` per face); the **same rule in all 6 directions**; one step ENCODE→RESOLVE→DECODE.
+> The law outranks this file, the working spec, AND the code. **"Spec is truth" below means the
+> DESIGN-LAW is truth** — a *working spec* that contradicts the law is itself drift. Any second pressure
+> number, or any force rule that differs by direction, is drift → reject (the engine's current `A+B` split
+> is tracked DEBT, never design). A reviewer's first question is *"does this match the DESIGN-LAW?"*, never
+> *"does the spec match the code?"*.
+
 **You are an implementer (or reviewer) in a subagent-driven build.** This file is the law for the whole
 track. Each task file (`T1…T8`) is your specific brief. **Read this file, then your task file, then ONLY
 the authoritative specs named below. Do NOT read the C++ to learn the design.**
