@@ -58,6 +58,7 @@ public final class MaterialCodec {
             Optional<Float> viscosity,
             Optional<Float> minMass,
             Optional<Float> maxMass,
+            Optional<Float> yieldStress,
             float maxTemp,
             float minTemp,
             Optional<Identifier> maxTarget,
@@ -90,6 +91,9 @@ public final class MaterialCodec {
                             .forGetter(BodyData::minMass),
                     Codec.FLOAT.optionalFieldOf("max_mass")
                             .forGetter(BodyData::maxMass),
+                    // law §8 threshold axis — absent ⇒ 0 (pure fluid), applied by the builder default.
+                    Codec.FLOAT.optionalFieldOf("yield_stress")
+                            .forGetter(BodyData::yieldStress),
                     Codec.FLOAT.optionalFieldOf("max_temp", Float.POSITIVE_INFINITY)
                             .forGetter(BodyData::maxTemp),
                     Codec.FLOAT.optionalFieldOf("min_temp", Float.NEGATIVE_INFINITY)
@@ -156,6 +160,7 @@ public final class MaterialCodec {
         bd.viscosity().ifPresent(b::viscosity);
         bd.minMass().ifPresent(b::minMass);
         bd.maxMass().ifPresent(b::maxMass);
+        bd.yieldStress().ifPresent(b::yieldStress);
         bd.minTarget().ifPresent(b::minTarget);
         bd.maxTarget().ifPresent(b::maxTarget);
         bd.representativeBlock().ifPresent(b::representativeBlock);
