@@ -11,9 +11,10 @@
 
 # Engine-B — Unified Flow / Force / Resistance law + anti-drift apparatus (design)
 
-**Date:** 2026-06-09 · **Status:** PROPOSED **v3** (REVERSAL of v2 — see changelog). Ratifies the **A+B
-hydrostatic split** (proven by probe), deletes v2's backwards `NOTE-B`/ρ-aware-`p_dyn` premise and its INV-1b
-"keystone". **Track:** `rebuild` (parent `/home/claude/ORGE-B` ↔ engine `/home/claude/ORGE-B/ORGE-ENGINE`).
+**Date:** 2026-06-09 · **Status:** PROPOSED **v3** (REVERSAL of v2 — see changelog). Documents the **A+B
+hydrostatic split as LABELED DEBT** (per the frozen law — one `P`; the probe only confirms B is currently
+*load-bearing*, NOT that the split is design), and deletes v2's backwards `NOTE-B`/ρ-aware-`p_dyn` premise and its
+INV-1b "keystone". **Track:** `rebuild` (parent `/home/claude/ORGE-B` ↔ engine `/home/claude/ORGE-B/ORGE-ENGINE`).
 
 > **Read order:** `handoffs/00-MASTER-RULES.md` → `2026-06-07-engine-b-CANONICAL-pipeline.md` (THE LAW) →
 > `2026-06-07-engine-b-vector-map-decomposition-design.md` **§8** → `2026-06-04-engine-b-unified-formula.md`
@@ -59,7 +60,8 @@ pressure value.** Everything below is an instance of this.
 
 > Every cell movement is the **same push request**: a single resolved force `F⃗ = −∇P + g⃗ + advection` meets a
 > single **resistance `R`** of the interface, and the outcome (flow / swap / push / hold) is a point on the
-> resistance continuum. There is **ONE resolver** (ENCRYPT → RESOLVE → DECRYPT, one `step_world`, one
+> resistance continuum. There is **ONE resolver** (ENCRYPT → RESOLVE → DECRYPT — the law's ENCODE→RESOLVE→DECODE,
+same three steps under this doc's older verbs; one `step_world`, one
 > antisymmetric 6-face snapshot pass): `P` is a *persisted* field that relaxes over ticks (artificial
 > compressibility); `F` is its resolved gradient computed in the **same pass**. **No** second "force" resolve,
 > **no** within-tick pressure-Poisson solve, **no** global column scan.
@@ -92,9 +94,12 @@ labelled limitation, not the law).
 
 ---
 
-## §3 — Hydrostatic pressure = A + B (the SCENE-1 fix; `NOTE-B`/ρ-aware-`p_dyn` is DISPROVEN)
+## §3 — Hydrostatic pressure (today) = A + B — LABELED DEBT (the SCENE-1 fix; `NOTE-B`/ρ-aware-`p_dyn` is DISPROVEN)
 
-**`P = ρg·d` decomposes EXACTLY into two terms — bless both, delete neither:**
+**`P = ρg·d` decomposes EXACTLY into two terms. Both are load-bearing *today* — deleting either one now breaks the
+engine (§3.2) — so the engine keeps both. But per the frozen law this split is DEBT, not design: its exit criterion
+is a real single-`P` solve, after which **B is deleted** and the one `P`'s six-face gradient handles every
+direction. Until then, the exact discretization is:**
 
 ```
 P_hydrostatic(cell at depth d = k·dx)  =  ρg·(k·dx)   [A: OVERBURDEN — the k cells of weight above]
@@ -102,6 +107,13 @@ P_hydrostatic(cell at depth d = k·dx)  =  ρg·(k·dx)   [A: OVERBURDEN — the
 ```
 
 This is the exact discretization of a hydrostatic column, **not** two redundant patches.
+
+> **Note — the runtime *third* term (why "A+B" understates the gap to one `P`).** The force the resolver actually
+> reads at an open face is `½((p_dyn+p)_i + (p_dyn+p)_j)` (`engine_b.hpp:952/:989`) — i.e. A (`= p`) **plus a
+> transient `p_dyn`** (the in-pass `divU` dynamic pressure, ≈0 at rest, NOT persisted); `p_eos` is inert
+> (`max==default`). So "`P = p_eos + A + B`" is a *conceptual* decomposition; the live force is `∇(p_dyn+p)` on all
+> 6 faces, with B bolted on at the 3 horizontal sites. The real distance to the law's single `P` is therefore
+> slightly wider than the "A+B" label alone.
 
 - **A — overburden** = the persisted `Chunk::p`, built by the `divU` artificial-compressibility relaxation
   (`engine_b.hpp:1257`, `pNew = p − head_relax·p_ac_scale·(1−χ)·divU`). **It is NOT a column-sum** (banned: non-local
@@ -116,9 +128,13 @@ This is the exact discretization of a hydrostatic column, **not** two redundant 
   for **unsupported/free-surface** cells (cell below is not a mass-bearing wall/incompressible solid).
 
 ### §3.1 — Composition rule (violating it re-introduces the air-launch bug)
-**A drives the VERTICAL/depth force. B drives HORIZONTAL/leveling ONLY. B is NEVER added to the vertical kick
-and NEVER persisted into `Chunk::p`.** Safe because: (i) same-level cells share the same A, which cancels in the
-horizontal gradient, so horizontal leveling is driven by B's density difference; (ii) stacked cells get their
+**A drives the VERTICAL/depth force AND the bulk of HORIZONTAL leveling** — A's horizontal gradient slumps any
+*height* difference (verified: the connected-leveling U-tube has an all-equal 1000 kg base row, so ΔB = 0 along
+it, yet it still levels ⇒ A did it, not B). **B is a NARROW patch for the one case A cannot see: a same-level,
+floor-resting pair with a FILL difference** (equal overburden ⇒ A's horizontal gradient cancels ⇒ "reads 0 at
+rest," so B's mass difference is the only remaining signal). **B is NEVER added to the vertical kick and NEVER
+persisted into `Chunk::p`.** Safe because: (i) same-level cells share the same A, which cancels in the horizontal
+gradient, leaving that *residual same-level* leveling to B's density difference; (ii) stacked cells get their
 depth from A and never use B vertically. **Why B must stay out of the vertical kick:** transmitting a cell's
 average head *up* would rocket the 1.2 kg air cell above the free surface (`½·ρg·dx·A·dt` on a 1.2 kg cell),
 reversing leveling and collapsing the pool. (`own_weight_head` is read at exactly 3 sites, **all horizontal**:
@@ -269,12 +285,14 @@ The swap is a **pure permutation** (mass/matIx/T copied wholesale from the snaps
 
 ---
 
-## §9 — ANTI-DRIFT APPARATUS (premise FIXED: every invariant runs before it is enshrined)
+## §9 — ANTI-DRIFT APPARATUS (premise FIXED: every invariant ENSHRINED-AS-PROVEN runs first; INV-ELIG/INV-7 are build-gated TODOs, marked unrun)
 
 The root cause of the v1/v2 oscillation was an invariant (INV-1b) **enshrined from a premise that was never run**
 — it was *backwards* (it demanded leveling be driven by `p_dyn`, which is `0` at rest, so it would have REJECTED
-the correct engine). v3's first anti-drift rule is therefore: **NO invariant, fork, or "keystone" is written into
-this spec until it has been RUN against the live engine and its number recorded in §12.**
+the correct engine). v3's first anti-drift rule is therefore: **NO invariant, fork, or "keystone" is *enshrined as
+proven* (given a ✅ in §12) until it has been RUN against the live engine and its number recorded there.** An
+invariant that needs a not-yet-built feature is marked `(author with build)` and is **never** given a ✅ — INV-ELIG
+and INV-7 are exactly such build-gated TODOs (currently unrun, by design, not oversight).
 
 ### §9.1 — Frozen symbol surface (checked-in manifest; adding a symbol = build failure)
 **Persisted `Chunk` fields (`sim_engine.hpp`):** `{ matIx, T_curr, T_next, mass_kg, vx, vy, vz, p, void_ix }` —
@@ -342,9 +360,13 @@ the implementer's tests did not use, computes an **analytic absolute reference**
 - **DEC-A — One resolver, artificial compressibility.** `P` relaxes over ticks; `F=∇P` same pass. REJECTED the
   classical two-step predictor + pressure-Poisson projection (global iterative solve = non-local, breaks GPU-local
   single-pass). Cost accepted: O(H)-tick convergence (FORK-4/§11).
-- **DEC-B — A+B split, NOT ρ-aware `p_dyn`, NOT `p_surf`.** A = `divU` overburden (verified, stacks), B =
-  `own_weight_head` (verified, single cell + lateral). REJECTED NOTE-B (ρ-aware A — impossible, `divU=0` at rest)
-  and the 4th-field `p_surf` (double-counts). REVERSES v2 §3/§9.0/INV-1b. (§3)
+- **DEC-B — A+B split is LABELED DEBT, not design; NOT ρ-aware `p_dyn`, NOT `p_surf`.** A = `divU` overburden
+  (verified, stacks; carries depth AND the bulk of leveling), B = `own_weight_head` (verified — but only patches
+  A's same-level FILL blind spot, §3.1). Per the frozen law the split violates "one `P`"; it is kept ONLY because
+  A cannot yet be made correct at rest/edges, and **B is deleted at the single-`P` exit**. REJECTED v2's
+  *premature* "delete B now" (B is load-bearing today — INV-B2), NOT the law's eventual delete. REJECTED NOTE-B
+  (ρ-aware A — impossible, `divU=0` at rest) and the 4th-field `p_surf` (double-counts). REVERSES v2
+  §3/§9.0/INV-1b. (§3)
 - **DEC-C — eligibility predicate, ranks density/head not absolute `p`.** REJECTED naive lowest-`P` (ties a wall
   to air at `P≈0`; and absolute mid-column `p` is checkerboard-lumpy). (§4)
 - **DEC-D — checkerboard accepted (named), base-contractual.** REJECTED "require smooth per-depth `ρg·d`" for v3
