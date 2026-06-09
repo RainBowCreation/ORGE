@@ -1,7 +1,8 @@
 # Engine-B — Unified Flow / Force / Resistance law + anti-drift apparatus (design)
 
-**Date:** 2026-06-09 · **Status:** PROPOSED (brainstormed with the user 2026-06-09; supersedes the
-reverted `p_surf` head; ratifies `NOTE-B`'s ρ-aware `p_dyn`; specifies the granular extension).
+**Date:** 2026-06-09 · **Status:** PROPOSED **v2** (brainstormed 2026-06-09; **drift-audited** `wmr21mnjb`
+→ §9 hardening folded in; the audit found §6 *necessary but not sufficient* and caught a LIVE re-drift, §9.0).
+Supersedes the reverted `p_surf` head; ratifies `NOTE-B`'s ρ-aware `p_dyn`; specifies the granular extension.
 **Track:** `rebuild` (parent `/home/claude/ORGE-B` ↔ engine `/home/claude/ORGE-B/ORGE-ENGINE`).
 
 > Read order: `00-MASTER-RULES.md` → `2026-06-07-engine-b-CANONICAL-pipeline.md` (LAW) →
@@ -234,5 +235,146 @@ lava sinks, no residue). The headless invariants are necessary; the in-game audi
 
 ---
 
-*Next: `superpowers:writing-plans` → a staged, TDD, subagent-driven plan that implements §3 then §4, each
-gated by its INV-* property tests + the independent oracle, on `rebuild`.*
+---
+
+## §9 — DRIFT-AUDIT HARDENING (v2, 2026-06-09, from independent audit `wmr21mnjb`)
+
+The §6 apparatus was drift-audited by 8 adversaries + a synthesizer. Verdict: **necessary but NOT
+sufficient** — proven *empirically*, the live engine already embodies the canonical `p_surf` drift and would
+pass all 8 invariants green. The four root gaps and their closers (these AMEND §3/§4/§5/§6 above):
+
+### §9.0 — CRITICAL STATE CORRECTION: the engine has RE-DRIFTED (verified)
+Engine HEAD `c73e0f7` ("§8.4 leveling via own-weight head") **re-introduced the reverted head** as the
+**function** `own_weight_head()` (`engine_b.hpp:285` = `ρg·dx/2`), wired as the §8.4/§8.5 lateral pressure
+read (`:628/:893/:894`), **decoupled from `p_dyn`**. §3's "`p_surf` is reverted" is **FALSE in the live
+engine.** **PRECONDITION to §3 (build-failure if violated):** `own_weight_head()` and the entire own-weight
+lateral path **MUST be deleted**; §8.4/§8.5 read **ONLY** persisted `p_dyn` (`Chunk::p`) — no
+freshly-computed `ρgh`. *(Reverting `c73e0f7` itself is a user/controller decision — see handoff.)*
+Extend §6.1's FORBIDDEN list **semantically**: any **function/expression** of the form `(m|mass)/V·g·(dx|h)`
+or `rho*g*…` that sources a horizontal/lateral pressure read **outside** the persisted-`p` divU relaxation —
+name `own_weight_head` and any `*_head(` FUNCTION form explicitly (the field-only grep was evaded).
+
+### §9.1 — INV-1b COUPLING (the keystone — kills the whole right-value/wrong-mechanism class)
+SCENE-1 `[1000|500]` real LUT: with any side-channel head zeroed, **FREEZE `p_dyn` at rest ⇒ lateral flow
+VANISHES** (no leveling); with ρ-aware `p_dyn` ⇒ levels to `750|750`. Equivalently assert per-step lateral
+`Δm ∝ (p_dyn_i − p_dyn_j)` directly. **No parallel head term survives this.** (Closes §6.2's "no invariant
+couples leveling to `p_dyn`".)
+
+### §9.2 — INV-7 rewritten: STRUCTURAL + SEMANTIC (was a toothless output-only "shape assert")
+`force_advect.hpp`'s 3-local-passes AND a predictor+projection 2-loop split both pass an output test
+(determinism ≠ single-pass). Replace with: (a) **wording** — "RESOLVE reads grid state from EXACTLY ONE
+pre-pass snapshot; ZERO reads of any post-update `m/u/T/p_dyn/p` during the pass; `Fx,Fy,Fz` fall out of ONE
+face-traversal accumulating BOTH advective and pressure flux per face — no separate predictor sweep, no
+separate pressure-projection sweep even over the same snapshot." (b) **semantic CI grep** — `resolve_world`
+reads only the frozen snapshot/encrypt buffers, writes only the `WorldAccum` delta; flag any live-grid READ
+in the accumulation loop, any 2nd `snapshot_world()` in `step_world_b`, any TWO distinct face-loops both
+indexing the snapshot. (c) **order-invariance test** — forward vs reverse cell iteration ⇒ BIT-IDENTICAL
+output. (d) **antisymmetry** — random 2-cell pair, `Δm_i == −Δm_j` to FP.
+
+### §9.3 — INV-1/INV-2 made MECHANISM-pinning (was fixed-point only ⇒ a static `ρg·d`/column-sum passes)
+- **INV-1 → fill-fraction SWEEP** (masses {1000,750,500,250,125}, equal-height walled): `p_dyn(m)/p_dyn(ref)
+  ≈ m/ref` for ALL pairs, fitted intercept ≈ 0 (kills additive/clamp constants), proving `ρ_cell=m/V`.
+- **INV-2b TRANSIENT/LOCALITY** — start the column far from hydrostatic (`p_dyn=0`); `p_dyn(depth d)` reaches
+  `ρg·d` **only after ≥ d ticks** (signal speed ≤ 1 cell/tick). A column-sum/static head fills **instantly**
+  and FAILS; the `−c²ρ·divU` relaxation passes. (This is the spec's *defining* property, asserted nowhere
+  before.) Add **scaling**: run at `H∈{4,16,32}`, settle-time grows ~linearly in `H` (not constant-time).
+- **divU-determinism lock** — a sealed incompressible cell at `m=default, u=0` ⇒ `divU≡0` ⇒ `p_dyn` MUST stay
+  `0` (a static `ρg·d` source wrongly injects `p` with zero divergence).
+- **INV-2 "settles/no ring" QUANTIFIED** — `settled := max‖u‖ < 1e-4·Δx/dt` for 2N ticks AND
+  `|p_dyn − ρg·d·V| < tol` at every depth; `rings :=` `p_dyn` non-monotone by `> tol` after first crossing
+  `0.9·ρg·d`. Legal ranges numeric (`head_relax∈[0.05,0.3]`, `vel_damp∈[0,0.2]`); with `vel_damp=0` it must
+  still settle within `K·H` ticks (convergence from physics, not the velocity-killer).
+
+### §9.4 — DEFINE `c²`; add FORK-7 (closes the "`p_ac_scale=2000` survives as `c²`" door)
+`c²` is the artificial sound speed² **DERIVED from EOS stiffness K** (`c²=∂p/∂ρ`, unified-formula §G.1b) —
+**NOT** a new Globals constant, **NOT** `p_ac_scale` renamed. **Remove the `p_ac_scale→(c²·ρ)` blessing from
+§6.1**; rename to `c2`/derive-from-`K`. Tie INV-1's fitted **absolute** slope to the K/EOS prediction `±10%`
+so one calibratable constant can't satisfy both linearity AND the K-tie. **FORK-7:** "if the relax
+coefficient needs a free constant, ESCALATE."
+
+### §9.5 — §2 FORK-6 fix: viscosity is RATE, never THRESHOLD (live `R_pair=swap_kv·√visc` violates this)
+Change `R_pair` to depend ONLY on **cohesion (`min_mass`) and `yield_stress`**; **demote viscosity to a
+time-constant** on a *committed* swap (ticks-to-complete) so it CANNOT appear in the `>`-comparison that
+decides hold-vs-swap. **Add `swap_kv` to §6.1 FORBIDDEN** (it is the viscosity-into-barrier coefficient = the
+FORK-6 mechanism, same class as the banned `swap_threshold`). **INV-9** "viscosity is rate not threshold":
+(a) any pair with buoyant drive `> swap_kc·min·g` MUST eventually swap regardless of viscosity (heavier
+reaches bottom by 4N steps); (b) doubling viscosity on same-species cells changes only step-count to level,
+never WHETHER it levels. Re-author the `swap_resistance` HIGHRES hold to credit cohesion/yield, not viscosity
+(it currently cements the drift green).
+
+### §9.6 — §6.1 → CHECKED-IN MANIFEST (the prose list had false-positives AND false-negatives)
+Real globals: `{K, gamma, alpha, T_ref, g, dx, V, A, eps_mass, head_relax, vel_damp, c2(was p_ac_scale),
+swap_kc}` **+ promote `CHI_COMPR_EPS` and `LEVEL_MOB`** (file-level constants that ARE leveling knobs;
+`LEVEL_MOB=0.01` was an unfrozen gameable knob) — **drop `k_scale`/`λ_scale`** (not in code; they were
+false-positives that break the grep on the unmodified build; note as not-yet-in-code conduction knobs). Real
+persisted fields: `{matIx, T_curr, T_next, mass_kg, vx, vy, vz, p, void_ix}` with the spec↔code map
+**`p_dyn≡Chunk::p`, `s≡matIx`, `m≡mass_kg`, `u≡(vx,vy,vz)`, `T≡T_curr/T_next` (double-buffer)** and an
+explicit **FORBID a 2nd persisted pressure buffer**. INV-3 = `git diff` of struct-members vs the manifest
+must be EMPTY; adding a symbol edits the manifest **in the same commit** (spec-change-first, mechanized).
+**Transient-scratch exemption:** `CellEncrypt/CellAccum/SwapRef/resolve-local` scratch is UNFROZEN if
+recomputed each tick and never persisted. *(`p_dyn≡p` matters: a `ρgh` source slipped into the existing `p`
+field would evade a "new field" check — INV-1b + §9.0 semantic grep are the backstops.)*
+
+### §9.7 — §4 eligibility pinned + lateral conservation (closes movable/viscosity alias + untested leak)
+- **Eligibility keys on `χ` and the yield-lock, NEVER on `viscosity`/`movable()`** (conflating = FORK-6).
+  Pin `χ>0` from `maxMass/minMass` spread per EOS (real-LUT air `1/1.2/1000`); forbid `χ≡movable`/`!isfinite(visc)`.
+- **INV-5 strengthened:** ≥2 DISTINCT solid species + a **high-viscosity COMPRESSIBLE** sink (assert
+  CONSUMED ⇒ χ-keying not viscosity) + an **over-max/χ=0** full neighbour (assert NOT consumed) + a rest-state
+  **P-tie** (wall-`P`==air-`P`, assert air chosen ⇒ filter-before-rank). Kills the `matIx==STONE` hardcode.
+- **INV-5b per-species lateral conservation:** water→air spread, per-species water AND air mass EXACT over N
+  steps; air relocates to ITS OWN 1-hop lowest-`P` neighbour. **Boxed-in REJECT:** air with no eligible sink
+  on all 6 faces ⇒ move REJECTED, `Δm=0`, air NOT deleted. **1-hop guard:** sink 2 cells behind one
+  consumable air ⇒ this tick consumes ONLY the 1-hop neighbour.
+
+### §9.8 — §5 granular: author the tests NOW even though dormant (silent drift detonates on first finite `τ_y`)
+- **INV-8a DORMANCY GOLDEN (active TODAY):** with all `τ_y=∞`, a multi-cell step output is BIT-IDENTICAL to
+  the pre-§5 determinism golden ⇒ the §5 gate is a true no-op. (§8's "dormant" row now reads "guarded by INV-8a".)
+- **INV-8 swept stacking:** one drive `F` with `τ_y < F < 2τ_y` ⇒ 1-thick BURSTS, 2-thick HOLDS; measure
+  `F*(n)` for `n=1,2,3`, assert `F*(2)/F*(1)∈[2±ε]`, `F*(3)/F*(1)∈[3±ε]` (kills undiminished `F_out=F_in`).
+- **INV-8b/c NET-FORCE gate:** finite-`τ_y` solid in SYMMETRIC water (`P≫τ_y`, net≈0) must NOT yield; same
+  block with air one side (net>`τ_y`) DOES ⇒ proves post-RESOLVE netted force, not absolute `P`; forbids the
+  ENCRYPT-Bingham shortcut. **INV-8d/e atomic chain:** `[A,S,S,WALL]` ⇒ NOTHING moves, per-species exact;
+  `[A,S,S,sink]` ⇒ exactly one-cell permutation shift. Reword "atomic chain" → "the same over-ticks resolver
+  flux (≤1 cell/tick, §4 1-hop)" and **forbid carrying yield through `relocate_chain`**.
+
+### §9.9 — INV-6 non-null twin + INV-4b flux-XOR-swap junction
+- **INV-6 + OFF-BALANCE control** (same test): perturb one cell's `p_dyn` below hydrostatic ⇒ it MOVES the
+  right way, THEN re-settles to `Δm≈0` (ungameable by a frozen "dead engine"). **Rule: every NULL invariant
+  carries a non-null twin.**
+- **INV-4b:** a cell with BOTH a vertical swap-partner below AND a lateral lower-`P` air neighbour in ONE step
+  does EXACTLY ONE of {swap, lateral-consume} (**XOR is per-CELL**, precedence vertical-swap > vertical-flux >
+  lateral-flux), per-species exact, air sink claimed by ≤ 1 consumer. **FORK-10** states this precedence.
+
+### §9.10 — stopgap disposition + perf budget (the §1/§4 one-resolver claim coexists with a 64-deep DFS)
+- **§4 over-ticks 1-hop mover REPLACES** the within-tick non-local injection DFS (`find_chain_hop`/
+  `relocate_chain`, `sim_engine.hpp`, `INJ_CHAIN_MAX=64`). Until rip-out (T8) they COEXIST on DIFFERENT paths
+  (`step_world_b` ≤1 cell/tick, placement not) — a KNOWN temporary violation. **No NEW within-tick transitive
+  DFS** in `step_world_b`/`resolve_world`; §5 yield must NEVER carry force through those functions. Add them
+  to §6.1 FORBIDDEN in a resolve/granular-yield diff context. **INV-7c:** one `step_world_b` moves any mass
+  front by AT MOST 1 cell.
+- **FORK-9 (perf/convergence):** O(H)-tick convergence is the accepted artificial-compressibility cost; the
+  fix is NOT sub-cycling, NOT raising `head_relax` past range, NOT a non-local column jump-start — a real fix
+  is two-step projection = architecture change = ESCALATE. **Add an explicit ms/cell perf ceiling to §8** so
+  the noted ~100× resolver cost is a GATE, not an in-game surprise. **FORK-8 (incompr):** pin whether the
+  relax coefficient is `c²·ρ_cell` alone or `·(1−χ)` and why; assert a resting air cell's `p_dyn` is strictly
+  below water's by ≥ the ρ-ratio so "air = low-P sink" rests on a checkable source.
+
+### §9.11 — §6.4 oracle upgraded to a MECHANISM checklist (observable-only agreed with `p_surf`)
+The oracle MUST: (1) assert the observable on a **NEW geometry** the implementer's tests did not use (3-mass
+sweep / 5-cell column); (2) compute an **analytic absolute reference** (`ρg·d` hand-calc) and assert the
+value `±tol`, not just "leveled"; (3) **run the §6.1 manifest diff itself** as a mechanism check — auditable
+WITHOUT reading the algorithm, catching the invented field/function a pure-observable oracle structurally
+cannot. State plainly: **observable-only re-derivation is INSUFFICIENT — it agreed with `own_weight_head`.**
+
+### §9.12 — Un-attacked surfaces (flagged for a 2nd audit pass before/with implementation)
+Conduction/heat map (the spec'd `k_scale`/`λ_scale` don't exist in code); EOS §B.1 `max==default` hard-`γ`
+wall vs the new ρ-aware `p_dyn` (do `p_eos` and `p_dyn` **double-count** at over-max fills?); DECRYPT
+vacuum-relabel + §8.7 min_mass restore vs the lateral relocate target creating `0<m<min` fragments; the
+scheduler `dt`/sub-cycle boundary (a perf fork lands here); and the §6.4 oracle's OWN independence (never
+adversarially tested against a deliberately-drifted build).
+
+---
+
+*Next: resolve §9.0 (the live `c73e0f7` re-drift) with the user, then `superpowers:writing-plans` → a staged,
+TDD, subagent-driven plan that implements §3 (ρ-aware `p_dyn`, `own_weight_head` ripped out) then §4, each
+gated by its INV-* property tests (incl. the §9 keystone INV-1b) + the upgraded §6.4 oracle, on `rebuild`.*
