@@ -26,12 +26,19 @@ line of code is subordinate to it. It is intentionally tiny so it cannot drift a
 5. **A cell moves when its net force beats its resistance.** Resistance is a *threshold*
    (yield_stress / cohesion). Viscosity is a *rate* only — never a threshold.
 
+6. **Thermal rides the same pipeline.** Each cell encodes **enthalpy `E`** (`E = mass·cp·T`); temperature is
+   *derived* (`T = E/(mass·cp)`), never the stored source of truth. Heat moves in **RESOLVE only**, two ways:
+   **conduction** = the 6-face flux `k·(T_i − T_j)` (mass-free, antisymmetric → energy exact), and
+   **advection** = enthalpy `ṁ·h` carried by the moving mass. Same shape as the force: one carried scalar per
+   cell, one isotropic 6-face flux. No separate conduction pass, no per-phase branch.
+
 ---
 
 ## Drift test (mechanical — no debate)
 
-Any spec, plan, or code that introduces **(a) a second pressure number**, or **(b) a force rule that
-differs by direction** — is **drift. Reject it.**
+Any spec, plan, or code that introduces **(a) a second pressure number**, **(b) a force rule that
+differs by direction**, or **(c) a stored temperature treated as source-of-truth (instead of derived from
+enthalpy) or a separate conduction pass** — is **drift. Reject it.**
 
 > The current engine's `A + B` split (overburden + own-weight head, own-weight used only sideways) violates
 > both (a) and (b). It is **DEBT**, not design. It exists only because the engine cannot yet build a correct
