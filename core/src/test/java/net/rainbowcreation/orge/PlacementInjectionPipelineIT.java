@@ -117,7 +117,7 @@ class PlacementInjectionPipelineIT {
 
         // Drive the REAL native engine through the injection-aware 5-arg overload.
         RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
-                OrgeEngine.PASS_CONDUCTION, List.of(inj));
+                0 /* no step: issue #7 unified passes; inject+readback only */, List.of(inj));
 
         ColumnResult out = r.columns().get(0);
 
@@ -202,7 +202,7 @@ class PlacementInjectionPipelineIT {
 
         // Drive the REAL native engine through the injection-aware 5-arg overload (same call as fluids).
         RegionStepResult r = engine.stepWorld(cols, 1, 0.25,
-                OrgeEngine.PASS_CONDUCTION, List.of(inj));
+                0 /* no step: issue #7 unified passes; inject+readback only */, List.of(inj));
 
         ColumnResult out = r.columns().get(0);
 
