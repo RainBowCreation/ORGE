@@ -1,17 +1,27 @@
-> **Material-table model (current, 2026-06-03)** — see
-> `docs/superpowers/specs/2026-06-03-engine-resident-material-table-design.md`.
-> `matIx` ids are globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM, slots 1..N
-> = `MaterialRegistry.all()` sorted by namespaced id). The LUT is **engine-resident** (register-once via
-> `orgeRegisterMaterials`), selected per step by `lutEpoch`, NOT shipped per `orgeStepWorld` call. The
-> walkthrough below reflects this; any older "per-step / batch-local / first-seen LUT" phrasing has been
-> corrected.
+> # ⚠ STATUS 2026-06-10 — read this box before trusting any section below
+> This walkthrough describes the **parent/Java orchestration as it RUNS TODAY** (scheduler, SectionStore,
+> column assembly, ledger, write-back: Steps 0–4 and 6–8 — still accurate). The **engine-core internals
+> (Step 5.2–5.3) and the LUT schema (Step 4) are SUPERSEDED** by the amended
+> [`superpowers/DESIGN-LAW.md`](superpowers/DESIGN-LAW.md) + the ratified working spec
+> [`superpowers/specs/2026-06-10-engine-b-unified-spec-v4.md`](superpowers/specs/2026-06-10-engine-b-unified-spec-v4.md)
+> — the v4 core is ENCODE→RESOLVE(P-relaxation + 5 micro-passes)→DECODE with conduction + **radiation** +
+> latent-heat phase change. The v4 implementation will also change this doc's integration contract:
+> per-cell **momentum (px,py,pz), enthalpy E, pressure P, and swapReady persist across ticks** (law #1/#7),
+> so the JNI arrays and `SectionStore` grow those channels and the "stateless engine / pure function"
+> framing below survives only with them included. **Rewrite this walkthrough when v4 lands in code.**
+>
+> **Material-table model (current, 2026-06-03)** — design doc deleted 2026-06-10 in the doc cleanup (git
+> history). `matIx` ids are globally STABLE (fixed per material at load/`/reload`, slot 0 = VACUUM,
+> slots 1..N = `MaterialRegistry.all()` sorted by namespaced id). The LUT is **engine-resident**
+> (register-once via `orgeRegisterMaterials`), selected per step by `lutEpoch`, NOT shipped per
+> `orgeStepWorld` call. That registration model is unchanged by v4 — only the schema grew (see Step 4 note).
 
 # ORGE step — what happens from "server decides what to simulate" to the next T
 
 This walks the whole-region physics step end to end: how the server decides which blocks to load and
 simulate, what it hands the native engine, what the engine does to reach the next state, and how that state
 is written back. It describes the architecture as it actually runs after the 2026-06-01 whole-region pivot
-(`docs/superpowers/specs/2026-06-01-whole-region-engine-step-design.md`).
+(design doc deleted; git history).
 
 **One-line mental model:** every cadence tick, the server gathers the *awake* chunk columns near players
 (plus a one-column loaded "apron"), packs each as a **full-height column** of cells, hands the whole set to
@@ -37,7 +47,9 @@ independent cadences** on the 20-ticks-per-second grid (`Scheduler.java`):
 
 At a cadence boundary the scheduler, if idle, submits **exactly one** off-thread job (single-in-flight). It
 is **stateless per call**: the server owns the truth (`SectionStore`), the engine holds nothing between
-calls. Everything below is one cycle.
+calls *(⚠ under v4 this stays true only because the server ships/stores the law-persisted channels —
+`momentum, E, P, swapReady` — alongside mass/T; the engine still holds nothing, but those fields MUST
+round-trip or `P` loses its tick-carrying relaxation, law #1)*. Everything below is one cycle.
 
 ---
 
@@ -116,10 +128,14 @@ selects the **engine-resident** material table. The LUT itself is no longer rebu
 `cx[]`, `cz[]`, and `matIx/mass/tIn` each `nCols · CHUNK_N` long (column-major). The per-material LUT is
 **not** packed per step — it is registered **once**, separately, whenever the material set changes
 (load/`/reload`): `NativeEngine.registerMaterials(lutEpoch, table)` → `LutArrays.pack` → the native
-`orgeRegisterMaterials`, shipping the **six** physics floats per slot (conductivity, heat capacity, molar
-mass, `minMass`, `maxMass`, viscosity). There is no separate movability / fluid / gas / air flag —
-immovability is `visc == +∞`, buoyancy falls out of molar mass, and slot 0 is the VACUUM sentinel (the
-lightest *movable* fluid: `molar/minMass/maxMass == 0` with finite viscosity).
+`orgeRegisterMaterials`. **⚠ Schema superseded 2026-06-10:** the per-slot fields are the amended law-§8
+fixed schema — `heatCapacity, thermalConductivity, molarMass, minMass, maxMass, defaultMass, viscosity,
+yieldStress, emissivity, thermalExpansion, latentHeatMin, latentHeatMax`, the phase quadruple, and a
+per-gas `T_ref` (the old "six floats" wording predates law-§8/PR #15 and v4). Still true: no separate
+movability/fluid/gas/air flag — immovability is `visc == +∞`, gas means `χ > 0.999`
+(χ = (max−default)/(max−min), ≡0 when max==min), and slot 0 is the VACUUM sentinel. **No longer true:**
+"buoyancy falls out of molar mass" — the v4 swap driver is density-based (`ρ_eff`); `molarMass`'s consumer
+is the gas EOS (v4 §2.1).
 
 `NativeEngine.stepWorld(columns, lutEpoch, dt, passes)` hands the column data to the native
 `orgeStepWorld`, which selects the already-resident table by `lutEpoch`. (If the native lib is absent,
@@ -135,22 +151,19 @@ This is the heart. In one JNI call (`orge_jni.cpp`), pinning the arrays via `Get
    and copy its `matIx/mass/T_curr` straight in. Set `sectionLoaded[*] = 1` for all 24 sections so every
    section actually steps (full-height). The World is a sparse map of columns keyed by `(cx,cz)`; an absent
    key is the no-flow wall from Step 1.
-2. **Conduction** (if `passes & PASS_CONDUCTION`): `compute_frame_to_backbuffers(world, dt)` computes each
-   cell's next temperature into the back buffer (harmonic-mean conductivity, forward-Euler, reads neighbour
-   chunks' `T_curr` live across X/Z), then `swap_all_backbuffers` publishes it. Mass/material untouched.
-3. **Advection** (if `passes & PASS_ADVECTION`): take **one pre-advection `WorldSnapshot`** of the whole
-   assembled World (`snapshot_world`), then `advect_chunk(world, chunk, mats, &snap)` for every column. The
-   snapshot is what makes **cross-column X/Z** flow correct and order-independent (without it, X/Z chunk
-   seams are a no-flow wall). Inside `advect_chunk`, for each column the engine runs the §10/§11 passes:
-   - **fall** — gravity pulls liquid down (interior to a section);
-   - **horizontal spread / level** — liquid evens out, viscosity- and `minFlow`-limited;
-   - **cross-seam flow** — across the old 16-block section boundaries (Y) and across chunk boundaries (X/Z),
-     using the snapshot so a donor's debit equals the receiver's credit (antisymmetric → conservative);
-   - **liquid-displaces-gas** — liquid sinks into a lighter finite-air cell and the air rises (the
-     un-banked cross-seam-into-air cases, vertical *and* horizontal);
-   - **gas volume-fill / buoyancy** — gas expands into vacuum and lighter-over-denser swaps.
-   Every pass writes only its **own** cell and derives its transfer from the shared snapshot, so each
-   species' mass is conserved by construction.
+2.–3. **The physics passes — ⚠ this is the SUPERSEDED part.** The pass list that historically ran here
+   (conduction back-buffers; then fall / horizontal-spread / cross-seam / liquid-displaces-gas /
+   gas-volume-fill advection) describes the pre-v4 core. **The ratified v4 core
+   (`superpowers/specs/2026-06-10-engine-b-unified-spec-v4.md` §3–§9) replaces the internals of this JNI
+   call with:** ENCODE (per-cell: gravity+external into momentum, cache T/p_eos) → RESOLVE (2·N_relax
+   red–black pressure half-sweeps on the ONE persisted `P`, then the 5 micro-passes R0 swap-intent → R1
+   mutuality+flux-intent+donor-scale → R1.5 receiver-scale → R2 commit, carrying mass + momentum +
+   enthalpy + conduction + **radiation**, all antisymmetric from the post-ENCODE snapshot) → DECODE
+   (derive `u = p⃗/m`, `T = h⁻¹(E/m)` on latent-plateau enthalpy curves; T-continuous relabels; CFL/void
+   guards). What survives from the old description: one transient World from resident-LUT columns, the
+   pre-step snapshot making cross-column flow order-independent and conservative, absent column = no-flow
+   wall. What does NOT survive: the per-mechanism pass list, forward-Euler conduction without the
+   conservative max-principle flux limiter (v4 §8.2), and any reasoning from the old pass names.
 4. **Read back.** Copy each column's `matIx / mass_kg / T_curr` (post-swap, post-advect) into the output
    arrays, release the arrays (outputs copied back), return elapsed milliseconds.
 
