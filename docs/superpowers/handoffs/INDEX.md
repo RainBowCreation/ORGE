@@ -1,5 +1,11 @@
 # Engine-B RESOLVE-force rebuild — handoff index
 
+> # ⚠ HISTORICAL 2026-06-10 (except 00-MASTER-RULES): the T1–T8 track shipped. The current authority
+> chain is **DESIGN-LAW → DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10 → specs/2026-06-10-engine-b-unified-
+> spec-v4.md → notes/2026-06-10-physics-math-audit-report.md** — start at the rewritten
+> [`00-MASTER-RULES.md`](00-MASTER-RULES.md). The T-file list and the "Authoritative design" list below
+> describe the SHIPPED track, not the current model (decomp §8 is superseded by v4 §3–§7).
+
 Fresh-agent handoffs for the emergent-pressure RESOLVE rebuild (subagent-driven, on `rebuild`).
 **Every task file says "read 00-MASTER-RULES.md first" — enforce that.**
 

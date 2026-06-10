@@ -1,3 +1,9 @@
+> # ⛔ PARTIALLY SUPERSEDED 2026-06-10 by [`2026-06-10-engine-b-unified-spec-v4.md`](2026-06-10-engine-b-unified-spec-v4.md):
+> the §B.1 EOS (singular at max==default — audit), the single bundled `E` vector, and **§E's "Energy cannot
+> be created ⇒ no blow-ups" claim (RETRACTED — conservation does not imply per-cell stability; explicit
+> conduction needs the v4 §8.2 bound + clamp)** are superseded. The worked examples (§J) and the CFL/units
+> apparatus (§G) remain valid illustrations. See `../notes/2026-06-10-physics-math-audit-report.md`.
+
 # Engine B — Unified Energy-Vector Engine — explicit formulas (companion to the design spec)
 
 **Date:** 2026-06-04

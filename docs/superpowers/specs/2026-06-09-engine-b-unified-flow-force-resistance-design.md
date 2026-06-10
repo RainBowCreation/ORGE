@@ -1,3 +1,8 @@
+> # ⛔ SUPERSEDED 2026-06-10 by [`2026-06-10-engine-b-unified-spec-v4.md`](2026-06-10-engine-b-unified-spec-v4.md)
+> (user-authorized redesign off the physics/math audit `../notes/2026-06-10-physics-math-audit-report.md`).
+> v4 RETIRES this doc's A+B split (single-`P` relaxation absorbs B), the `(1−χ)` factor, `own_weight_head`,
+> the `swap_kv·√visc` threshold (→ cadence), and the §9.1 raw-T/v manifest. Kept below for history only.
+>
 > # ⚠ THIS IS NOT THE DESIGN — it is the working spec (current implementation + deviations).
 > **The design is [`../DESIGN-LAW.md`](../DESIGN-LAW.md) (frozen; only the user edits it).** Read the law
 > first. Where this document and the law disagree, **the law wins.** In particular, the `A + B` pressure

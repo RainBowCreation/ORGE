@@ -1,3 +1,9 @@
+> # ⚠ NOTE 2026-06-10: the FRAME (force > resistance) stands. Fork-1's "bless A+B" and Fork-4's
+> "keep the viscosity-threshold proxy" are superseded by the v4 spec
+> ([`../specs/2026-06-10-engine-b-unified-spec-v4.md`](../specs/2026-06-10-engine-b-unified-spec-v4.md)),
+> which executes exactly the exits those forks banked (single-`P` solve; viscosity → swap cadence).
+> Fork-2 (checkerboard): v4's red–black relaxation damps the mode. Fork-3 (residue): v4 §6.4.
+
 # Engine-B flow/force — Fork 1–4 decisions + the movement-law frame (user-ratified 2026-06-09)
 
 **Purpose:** the ratified answers to the spec-rewrite/audit agent's four open forks, plus the unifying frame

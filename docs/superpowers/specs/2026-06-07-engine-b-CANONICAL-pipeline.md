@@ -1,3 +1,7 @@
+> # ⚠ NOTE 2026-06-10: the one-sentence law (ENCRYPT→RESOLVE→DECRYPT, un-mixed maps, one resolver) STANDS;
+> the mechanism details below (EOS-as-pressure-modifier, reflection-emergent overburden, swap barrier
+> composition) are superseded by [`2026-06-10-engine-b-unified-spec-v4.md`](2026-06-10-engine-b-unified-spec-v4.md).
+
 # Engine-B — CANONICAL pipeline (READ THIS FIRST, before any code)
 
 **Date:** 2026-06-07 · **Status:** CANONICAL (user-reaffirmed 2026-06-07, in-game audit).
@@ -52,8 +56,9 @@ force-threshold swap, antisymmetric conservation) is unchanged from 2026-06-04.
   incompressible reflection** — NOT a global "Σ mass above" sum, NOT an EOS compression band (refined
   2026-06-07 PM). The live code's local-EOS `p_face` is `0` at rest under `max==default` ⇒ the leveling
   bug. One force VECTOR, one pass, every read a single neighbour, yield-gated transmission (fluid passes +
-  own weight down / unchanged sideways; locked solid bears+blocks; vacuum resets). **See the decomposition
-  design §8 for the full refined model** (`…-vector-map-decomposition-design.md`).
+  own weight down / unchanged sideways; locked solid bears+blocks; vacuum resets). ~~See the decomposition
+  design §8 for the full refined model~~ **(2026-06-10: decomp §8 superseded — the refined model is now
+  `2026-06-10-engine-b-unified-spec-v4.md` §3–§7.)**
 - **No phase/state branch.** One branchless law per cell; `yield_stress` is the universal axis
   (fluid = 0, solid = huge, bedrock = ∞). Immovable = `viscosity = ∞` (data, not a branch).
 

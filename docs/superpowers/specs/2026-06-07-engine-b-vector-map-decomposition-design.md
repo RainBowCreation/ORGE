@@ -1,3 +1,8 @@
+> # ⛔ PARTIALLY SUPERSEDED 2026-06-10 by [`2026-06-10-engine-b-unified-spec-v4.md`](2026-06-10-engine-b-unified-spec-v4.md):
+> **§8 (force model) and §3's sub-min→VACUUM rule are superseded** (the latter DELETES mass — audit finding;
+> v4 §6.4 flags-and-drains instead). The un-mixed-maps decomposition (§1) and staging idea remain historical
+> context. See `../notes/2026-06-10-physics-math-audit-report.md`.
+
 # Engine-B — Vector-Map Decomposition & Phase-Split Staging (design)
 
 **Date:** 2026-06-07 · **Status:** RATIFIED this session (the user's "last spec talk" — confirmed the

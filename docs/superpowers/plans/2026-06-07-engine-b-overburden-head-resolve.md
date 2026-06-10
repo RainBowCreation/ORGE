@@ -1,3 +1,6 @@
+> # ⚠ HISTORICAL 2026-06-10: the T1–T8 track this plan drove has shipped; its model is superseded by
+> [`../specs/2026-06-10-engine-b-unified-spec-v4.md`](../specs/2026-06-10-engine-b-unified-spec-v4.md).
+
 # Engine-B — Emergent pressure in RESOLVE (leveling / relief / displacement, the refined model)
 
 **Date:** 2026-06-07 PM · **Track:** `rebuild` · **Status:** PLAN (model ratified by user 2026-06-07 PM).
