@@ -51,7 +51,10 @@ class ResidentLutParityIT {
 
     /**
      * Regression guard: an 8-step run must produce bit-identical output every time it runs.
-     * Golden regenerated for Engine B (Stage-1) on 2026-06-05 switchover from Engine A.
+     * Golden regenerated for Engine B (Stage-1) on 2026-06-05 switchover from Engine A;
+     * regenerated again 2026-06-10 for the issue-#8 enthalpy-cargo advection (DECODE derives T
+     * from E_new = E_snap + Σṁ·h instead of the float mass-weighted T mix — last-ULP T shifts
+     * on moving cells).
      * The other two tests ({@code oldEpoch...}, {@code unknownEpoch...}) prove run-to-run determinism
      * independently, making this capture stable.
      */
