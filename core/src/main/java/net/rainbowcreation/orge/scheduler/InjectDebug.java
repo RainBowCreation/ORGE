@@ -8,17 +8,17 @@ import org.slf4j.LoggerFactory;
  * gate/clear). Pure observability — no behaviour. Every log line is gated on {@link #on()} AND on the
  * event being an actual injection event, so idle play and the headless suites stay silent.
  *
- * <p>Toggle with the JVM flag {@code -Dorge.debug.inject=false} to silence, or
- * {@code -Dorge.debug.inject=true} (the default) to trace. Logs go to the {@code ORGE-INJECT} logger
- * at INFO so they appear in the normal server console.</p>
+ * <p>Off by default. Enable at startup with the JVM flag {@code -Dorge.debug.inject=true}, or at
+ * runtime with {@code /orge debug on|off} (op). Logs go to the {@code ORGE-INJECT} logger at INFO
+ * so they appear in the normal server console.</p>
  */
 public final class InjectDebug {
 
     public static final Logger LOG = LoggerFactory.getLogger("ORGE-INJECT");
 
-    /** Master toggle. Default ON so a freshly-built mod traces placements without extra setup. */
+    /** Master toggle. Default OFF; enable via {@code -Dorge.debug.inject=true} or {@code /orge debug on}. */
     public static volatile boolean ON =
-            Boolean.parseBoolean(System.getProperty("orge.debug.inject", "true"));
+            Boolean.parseBoolean(System.getProperty("orge.debug.inject", "false"));
 
     private static final java.util.Map<String, Long> LAST_LOG = new java.util.concurrent.ConcurrentHashMap<>();
 

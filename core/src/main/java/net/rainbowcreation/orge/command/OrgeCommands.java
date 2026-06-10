@@ -24,6 +24,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.scheduler.InjectDebug;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
@@ -87,7 +88,27 @@ public final class OrgeCommands {
                                         .then(Commands.argument("k", FloatArgumentType.floatArg())
                                                 .executes(ctx -> fill(ctx, null))
                                                 .then(Commands.argument("mass", FloatArgumentType.floatArg(0f))
-                                                        .executes(ctx -> fill(ctx, FloatArgumentType.getFloat(ctx, "mass")))))))));
+                                                        .executes(ctx -> fill(ctx, FloatArgumentType.getFloat(ctx, "mass"))))))))
+                .then(Commands.literal("debug")
+                        .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
+                        .executes(ctx -> debug(ctx, null))
+                        .then(Commands.literal("on").executes(ctx -> debug(ctx, true)))
+                        .then(Commands.literal("off").executes(ctx -> debug(ctx, false)))));
+    }
+
+    /**
+     * {@code /orge debug [on|off]} (op): toggles the ORGE-INJECT diagnostic log at runtime by
+     * writing {@link InjectDebug#ON}. With no argument it just reports the current state. The
+     * JVM flag {@code -Dorge.debug.inject} still sets the startup default.
+     */
+    private int debug(CommandContext<CommandSourceStack> ctx, Boolean on) {
+        if (on != null) {
+            InjectDebug.ON = on;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "ORGE debug log " + (InjectDebug.on() ? "ON" : "OFF")
+                        + (on == null ? " (use /orge debug on|off to change)" : "")), false);
+        return Command.SINGLE_SUCCESS;
     }
 
     private int read(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Op op, BlockPos p) {
