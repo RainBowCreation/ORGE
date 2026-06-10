@@ -2,6 +2,8 @@
 
 **FROZEN. Only the user edits this file.** This is the design. Every spec, plan, handoff, review, and
 line of code is subordinate to it. It is intentionally tiny so it cannot drift and cannot be reinterpreted.
+**Amended 2026-06-10: the user ratified amendments 1–9** (proposed off the 2026-06-10 physics/math audit;
+the proposal record and the pre-amendment text live in git history).
 
 ---
 
@@ -12,48 +14,71 @@ line of code is subordinate to it. It is intentionally tiny so it cannot drift a
    persisted *intensive* field — it is iteratively relaxed, so it carries across ticks.
 
 2. **Force = ONE Vector3 per cell** (`Fx, Fy, Fz`), accumulated into the cell's **momentum** in RESOLVE
-   from three sources: (i) the **internal** 6-face term — each face contributes `P_self − P_neighbor`,
-   opposing faces combine into the vector (`+x/−x → Fx`, `+y/−y → Fy`, `+z/−z → Fz`), applied as `−∇P·dt`;
-   (ii) **gravity** — a global acceleration `g` (set at material-table load, overridable per `step_world`),
-   applied as `mass·g·dt`; (iii) an optional **external momentum-impulse** array supplied per cell by the
-   caller, added directly. A cell reads only the neighbor it touches across each face for (i) — nothing
-   global, no column sums.
+   from two sources: (i) the **internal** 6-face term — each face carries the face pressure
+   `½(P_self + P_neighbor)`, and the six faces combine as the closed surface integral
+   `F⃗ = −Σ_faces p_face·A·n̂_out` (= `−∇P·V`; net per axis `½(P_low-side − P_high-side)·A`), applied as
+   the impulse `−∇P·V·dt`; (ii) **advected momentum** — moving mass carries its momentum `ṁ·u_donor`.
+   **Gravity** (a global acceleration `g`, set at material-table load, overridable per `step_world`) and
+   the optional caller-supplied **external momentum-impulse** are applied **once, in ENCODE** (they need
+   no neighbor). A cell reads only the neighbor it touches across each face for (i) — nothing global,
+   no column sums.
 
 3. **The same rule acts in all 6 directions.** Up, down, and sideways are identical. A deep side-hole gushes
    because the deep cell's big `P` faces a small `P` across that face — automatically, with no special
    "vertical vs horizontal" handling.
 
 4. **One step: ENCODE → RESOLVE → DECODE** (one `step_world`). ENCODE is per-cell **local** (apply gravity
-   + external impulse to `momentum`; cache `T` and the gas EOS — no neighbor reads). RESOLVE is the **only**
-   cross-cell step (relax `P`, build the 6-face force, move mass + heat). DECODE is per-cell **local**
-   (derive `T`/`v`, relabel, write back).
+   + external impulse to `momentum` — the one and only application; cache `T` and the gas EOS — no neighbor
+   reads). RESOLVE is the **only** cross-cell step (relax `P`, build the 6-face force + advected momentum,
+   move mass + heat). DECODE is per-cell **local** (derive `T`/`v`, relabel, write back).
 
 5. **A cell moves when its net force beats its resistance.** Resistance is a *threshold*
    (yield_stress / cohesion). Viscosity is a *rate* only — never a threshold.
 
-6. **Thermal rides the same pipeline.** Each cell encodes **enthalpy `E`** (`E = mass·cp·T`); temperature is
-   *derived* (`T = E/(mass·cp)`), never the stored source of truth. Heat moves in **RESOLVE only**, two ways:
-   **conduction** = the 6-face flux `k·(T_i − T_j)` (mass-free, antisymmetric → energy exact), and
-   **advection** = enthalpy `ṁ·h` carried by the moving mass. Same shape as the force: one carried scalar per
-   cell, one isotropic 6-face flux. No separate conduction pass, no per-phase branch.
+6. **Thermal rides the same pipeline.** Each cell encodes **enthalpy `E`** on its material's **enthalpy
+   curve** `E = m·h(T)` — piecewise linear in `T` (slope `cp`) whose inverse has **plateaus of width
+   `latentHeat`** at the phase thresholds; phase-paired curves are **chain-anchored**
+   (`h_target(T*) ≡ h_donor(T*) + L` at each plateau's far edge), so a relabel is the identity on `E`
+   (**ΔE ≡ 0**) and `T` is continuous across every transition. Temperature is *derived*
+   (`T = h⁻¹(E/m)`), never the stored source of truth. Heat moves in **RESOLVE only**, three ways:
+   **conduction** = the 6-face flux `k_face·(T_i − T_j)·(A/Δx)·dt` (`k_face` = harmonic mean — mass-free,
+   antisymmetric → energy exact); **radiation** = the 6-face flux `ε_eff·σ·(T_i⁴ − T_j⁴)·A·dt`
+   (`ε_eff` = the condensed side's `ε` against a transparent partner, `ε_i·ε_j` between condensed cells —
+   which exchange only when `|ΔT| > 300 K`, the film-boiling surrogate; gas partners absorb locally;
+   vacuum faces exchange with a world `T_sky`, boundary-ledgered); and **advection** = the moving mass
+   carries its **momentum `ṁ·u_donor`** and its **enthalpy `ṁ·h_donor`**. All explicit thermal fluxes are
+   bounded by the **discrete maximum principle, enforced conservatively** (the offending FACE fluxes are
+   scaled symmetrically — never a one-sided clip, which would create/destroy energy). Same shape as the
+   force: carried extensive quantities per cell, isotropic antisymmetric 6-face fluxes. No separate
+   conduction pass; the radiation face-condition (gases have `ε = 0`) is the one sanctioned
+   material-class-conditional term.
 
 7. **State — store EXTENSIVE, derive INTENSIVE.** Each cell stores only conserved extensive quantities plus
-   its material and pressure: `matIx, mass, momentum (px,py,pz), enthalpy E, P`. Intensive quantities are
-   **derived every tick, never stored**: `velocity = momentum/mass`, `T = E/(mass·cp)`. Extensive storage
-   makes advection structurally conservative and keeps thinned cells bounded; a stored raw `v` or raw `T`
-   is the velocity-ghost / temp-ghost drift — **forbidden**.
+   its material and pressure: `matIx, mass, momentum (px,py,pz), enthalpy E, P` — plus two persisted
+   **bookkeeping** fields with no physical meaning (`swapReady`, the swap-cadence accumulator; `void_ix`,
+   the engine free-list index). Intensive quantities are **derived every tick, never stored**:
+   `velocity = momentum/mass`, `T = h⁻¹(E/m)`. Extensive storage makes advection structurally conservative
+   and keeps thinned cells bounded; a stored raw `v` or raw `T` is the velocity-ghost / temp-ghost drift —
+   **forbidden**.
 
 8. **Material LUT = a fixed schema** (adding or removing a field is a law change): `heatCapacity,
    thermalConductivity, molarMass, minMass, maxMass, viscosity, defaultMass (= EOS rest density m₀),
-   yieldStress`, plus the phase quadruple `minTemp→minTarget`, `maxTemp→maxTarget` — **kept in the engine
-   LUT** (not Java) so DECODE relabels locally, keeping `E`. `viscosity` is the rate / movability axis
-   (`+INF` = frozen); `yieldStress` is the threshold axis (`0` for all current fluids — present, deferred).
+   yieldStress, emissivity, thermalExpansion, latentHeatMin, latentHeatMax`, plus the phase quadruple
+   `minTemp→minTarget`, `maxTemp→maxTarget`, plus a per-gas `T_ref` — **kept in the engine LUT** (not
+   Java) so DECODE relabels locally. Compressibility class: `χ = (maxMass − defaultMass)/(maxMass −
+   minMass)`, with the guard `χ ≡ 0` whenever `maxMass == minMass`; gas means `χ > 0.999`. `molarMass`'s
+   consumer is the gas EOS (#9). `viscosity` is the rate / movability axis (`+INF` = frozen);
+   `yieldStress` is the threshold axis (`0` for all current fluids — present, deferred).
 
 9. **Mass moves, never vanishes.** Inside the domain mass only *moves* — conservative antisymmetric flux
    (donor-budget + receiver-room clamps) or a permutation swap. The only source/sink is the caller's
-   place/break at the boundary, separately ledgered. A cell that is pushed but has **no escape** is a
-   **no-op** (mass stays; it compresses via EOS) — never deleted. A `no_escape` detection seam fires on
-   that case (empty body for now) for future handling; the default is do-nothing, never destroy.
+   place/break at the boundary, separately ledgered. A pushed cell with **no escape** is a **no-op**
+   (mass stays). A **gas** genuinely compresses and pushes back via its live EOS
+   `p_eos = (m/M)·R·T/V − P₀` (gauge; `P₀` = its rest-state pressure at its `T_ref`) — a 700× compressed
+   pocket resists with real megapascals. An **incompressible** cell (`max == default`) does not compress;
+   its relief is its pressure `P` rising through the relaxation (`P` is the constraint force). Mass is
+   never deleted in either case. A `no_escape` detection seam fires on that case (empty body for now) for
+   future handling; the default is do-nothing, never destroy.
 
 ---
 
@@ -61,13 +86,13 @@ line of code is subordinate to it. It is intentionally tiny so it cannot drift a
 
 Any spec, plan, or code that introduces **(a) a second pressure number**, **(b) a force rule that
 differs by direction**, or **(c) a stored temperature treated as source-of-truth (instead of derived from
-enthalpy) or a separate conduction pass** — is **drift. Reject it.**
+the enthalpy curve) or a separate conduction pass** — is **drift. Reject it.**
 
-> The current engine's `A + B` split (overburden + own-weight head, own-weight used only sideways) violates
-> both (a) and (b). It is **DEBT**, not design. It exists only because the engine cannot yet build a correct
-> single `P` (the cheap method reads 0 at rest and is dirty at edges). It is tracked in the working spec as a
-> deviation **with an exit criterion** (build a real single-`P` solve → delete the second term → the six-face
-> force handles everything). It is **never** copied into this file.
+> The engine's **code** still carries the `A + B` split (overburden + own-weight head, own-weight used only
+> sideways) — it violates both (a) and (b) and remains **DEBT**, not design. Its exit is now fully
+> specified and ratified: the working spec's single-`P` relaxation (v4 §3) — implement it, delete the
+> second term, and the six-face force handles everything. Until that lands, the split stays tracked debt;
+> it is **never** copied into this file.
 
 ---
 
@@ -76,8 +101,8 @@ enthalpy) or a separate conduction pass** — is **drift. Reject it.**
 - **Read this file first, verbatim.** It is the truth. If anything you write contradicts it, *you are wrong*,
   not the law.
 - **Do NOT edit this file** unless you are the user changing the design.
-- The working spec (`specs/2026-06-09-engine-b-unified-flow-force-resistance-design.md`) describes the
-  *current implementation and its deviations*. It is subordinate. Where it disagrees with this file, **this
-  file wins.**
+- The working spec is **the dated spec named in `handoffs/00-MASTER-RULES.md`** (currently
+  `specs/2026-06-10-engine-b-unified-spec-v4.md`). It describes the current implementation and its
+  deviations; it is subordinate. Where it disagrees with this file, **this file wins.**
 - A review's first question is **"does the artifact match this law, and is every gap filed as labeled debt?"**
   — never "does the spec match the code?" (that question is what laundered the workaround into the design).

@@ -1,15 +1,15 @@
 # Engine-B — Unified working spec v4 (flow / force / resistance / thermal / radiation)
 
-**Date:** 2026-06-10 · **Status:** PROPOSED v4.1 (full redesign authorized by the user 2026-06-10; v4.0
-adversarially reviewed by a 6-lens fleet — 2 blockers + ~25 majors found and fixed in this revision).
-**Subordinate to [`../DESIGN-LAW.md`](../DESIGN-LAW.md)** — where they disagree, the law wins. Items that
-need a law text change cite `[LAW-AMEND-n]` from
-[`../DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10.md`](../DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10.md) and are
-**inert until the user ratifies that amendment.**
+**Date:** 2026-06-10 · **Status:** **RATIFIED v4.1** (full redesign authorized by the user 2026-06-10;
+v4.0 adversarially reviewed by a 6-lens fleet — 2 blockers + ~25 majors found and fixed; **the user
+ratified all law amendments 1–9 the same day — they are applied in `../DESIGN-LAW.md`'s current text, so
+every `[LAW-AMEND-n]` tag below is now a satisfied cross-reference, not a gate**).
+**Subordinate to [`../DESIGN-LAW.md`](../DESIGN-LAW.md)** — where they disagree, the law wins.
 
-> **Supersedes** (where they conflict): spec v3 (2026-06-09), vector-map-decomposition §8 (2026-06-07),
-> unified-formula §B–§D math (2026-06-04), and the Fork-1/Fork-4 *mechanisms* in FORK-DECISIONS (the
-> *frame* — force > resistance — is kept). Those files carry banners pointing here. Driving audit:
+> **Supersedes — and the superseded files were DELETED 2026-06-10** (user-ordered doc cleanup; text in git
+> history): spec v3, the vector-map decomposition, the 2026-06-04 unified-formula, the CANONICAL pipeline
+> note, FORK-DECISIONS, and the T1–T8 plan/handoffs. This file + the law + 00-MASTER-RULES + the audit
+> report are the complete current doc set. Driving audit:
 > [`../notes/2026-06-10-physics-math-audit-report.md`](../notes/2026-06-10-physics-math-audit-report.md);
 > §12 maps every audit finding → disposition.
 
@@ -189,14 +189,16 @@ F⃗_i·dt = Σ_faces −p̄_f·A·dt·n̂_out        p̄_f = ½(P_i + P_j); aga
 ### §5.1 Yield (threshold)
 Net force vs `τ_y·A_face` [N vs N]. Stacked chains, **direction-projected** *(review: v4.0 had the sign
 backwards vs its cited source)*: `F_out = F_in + m_own·(g⃗·n̂_chain) − τ_y·A_face` — weight ADDS down-chain,
-subtracts up-chain, contributes 0 sideways (matches decomp §8.3's down-accumulate / sideways-transmit).
+subtracts up-chain, contributes 0 sideways (down-accumulate / sideways-Pascal-transmit — normative here;
+the historical source, decomp §8.3, is deleted).
 Solids: τ_y = ∞ ⇒ never swap, never yield; dense-solid-on-liquid statics stay deferred (granular stage).
 
 ### §5.2 Cohesion (min_mass) — deterministic legalization *(fixes B-13)*
 Proposal `f` (donor D → receiver R, same species) is legalized: `f ← min(f, maxMass − R, D)`; then if
 `0 < D − f < min`: `f ← D − min` if `D − min > 0`, else `f ← D` if `R + D ≤ maxMass`, else `f ← 0`.
-Total and deterministic (review-verified). **Worked (UPDATED; escalated):** 130-onto-875 → f = 5 →
-[125 | 880]; 250-onto-875 → f = 125 → [125 | 1000]. Composition with R1's σ-scaling: legalize per-face
+*(B-13 closed by ratification; all cohesion-rule semantics resolve into this file alone.)*
+Total and deterministic (review-verified). **Worked (user-ratified 2026-06-10 — rule wins, replacing the
+old "blocked" example):** 130-onto-875 → f = 5 → [125 | 880]; 250-onto-875 → f = 125 → [125 | 1000]. Composition with R1's σ-scaling: legalize per-face
 first, then σ; σ's donor budget is `m − minMass` (or `m` when a single full-drain face is the only
 outflow), so post-scale donors never land in (0, min).
 
@@ -388,9 +390,9 @@ neighbor or held by ice's τ_y=∞ (bounded, stated). Lava→stone: 2650/2700 = 
   (§8.1, §4) · B-22 (MASTER-RULES + INDEX banners) · C-5/MAT-1, MAT-5, MAT-6 (§1.2, §2.1) · C-6/MAT-4
   (§5.3) · C-10/TS-3 (§9) · C-11/PC-1 (§0/§7.3 same-species gate — review-blocker closed) · C-15 (§3.1
   anchor explicit) · MAT-2/ES-7 (§8.4) · checkerboard family (§3.2 dataflow).
-- **Gated on ratification `[LAW-AMEND-n]`:** B-4/5/6/7 (1–4) · radiation + clamp (5) · schema fields +
-  bookkeeping state (6) · gas EOS/law-#9 (7 — §2.1/§3.1 mechanics are spec-ready) · enthalpy curves (8) ·
-  B-18/B-19 (6+8) · the law's working-spec pointer (9).
+- **Fixed via the RATIFIED law amendments (applied 2026-06-10):** B-4/5/6/7 (1–4) · radiation + clamp (5)
+  · schema fields + bookkeeping state (6) · gas EOS/law-#9 (7) · enthalpy curves / B-18/B-19 (6+8) · the
+  law's working-spec pointer (9). Nothing remains gated.
 - **Accepted & documented:** speed cap/slow motion + depth-blind gushes (§9, §10) · capillarity (C-14) ·
   no adiabatic heating (PC-3) · whole-cell fronts + freeze supersaturation (§8.4) · sealed-roof lava
   conduction-slow (§8.3) · solids-in-liquid statics (granular stage) · steam IR transparency (§1.2 note).

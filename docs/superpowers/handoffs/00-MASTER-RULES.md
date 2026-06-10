@@ -2,15 +2,11 @@
 
 > ## ⛔⛔ READ [`../DESIGN-LAW.md`](../DESIGN-LAW.md) BEFORE THIS FILE — it is THE design, frozen.
 > Pressure is **ONE** scalar `P` per cell; force is **ONE** Vector3 from the 6 face-neighbors (face-average
-> form — see the pending amendment below); the **same rule in all 6 directions**; one step
-> ENCODE→RESOLVE→DECODE; a cell moves when **force > resistance** (yield/cohesion = threshold, viscosity =
-> rate); thermal rides the same pipeline. The law outranks this file, the working spec, AND the code.
-> **⚠ The law has RATIFICATION-PENDING amendments** —
-> [`../DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10.md`](../DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10.md) —
-> fixing audit-confirmed defects in its own text (factor-2 face force, gravity double-assignment, missing
-> momentum advection, missing volume factor, radiation channel, latent-heat/emissivity/β schema fields,
-> law-#9 gas wording, enthalpy curves). Until the user ratifies an amendment, the existing law text stands
-> **except** where obeying it literally is proven wrong by the audit — in that case ESCALATE, do not guess.
+> surface integral, `−∇P·V·dt`); the **same rule in all 6 directions**; one step ENCODE→RESOLVE→DECODE;
+> a cell moves when **force > resistance** (yield/cohesion = threshold, viscosity = rate); thermal rides
+> the same pipeline (enthalpy curves + conduction + radiation + advection). The law outranks this file,
+> the working spec, AND the code. **The 2026-06-10 amendments were RATIFIED by the user and are applied
+> in the law's current text** — there are no pending amendments; the proposal record is in git history.
 
 **You are an implementer (or reviewer) in a subagent-driven build.** Read this file, then your task brief,
 then ONLY the authoritative docs below. **Do NOT read the C++ to learn the design.**
@@ -24,27 +20,24 @@ the spec wins and the code is the bug to fix. Do not reverse-engineer the physic
 
 ## ✅ AUTHORITATIVE docs — these, and ONLY these, define the model *(fixed precedence chain — audit B-22)*
 
-1. [`../DESIGN-LAW.md`](../DESIGN-LAW.md) — THE LAW (frozen; user-edit only).
-2. [`../DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10.md`](../DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-10.md) —
-   pending law fixes; check each `[LAW-AMEND-n]`'s ratification status before building on it.
-3. [`../specs/2026-06-10-engine-b-unified-spec-v4.md`](../specs/2026-06-10-engine-b-unified-spec-v4.md) —
+1. [`../DESIGN-LAW.md`](../DESIGN-LAW.md) — THE LAW (frozen; user-edit only; amendments 1–9 applied 2026-06-10).
+2. [`../specs/2026-06-10-engine-b-unified-spec-v4.md`](../specs/2026-06-10-engine-b-unified-spec-v4.md) —
    **THE working spec (v4).** One document: state, realistic material LUT, gas EOS, single-`P` relaxation,
-   force/momentum, gates, mass flux (3-pass RESOLVE), swap, thermal (conduction + radiation + latent),
+   force/momentum, gates, mass flux (5-pass RESOLVE), swap, thermal (conduction + radiation + latent),
    numerics/GPU, invariants, audit-disposition map.
-4. [`../notes/2026-06-10-physics-math-audit-report.md`](../notes/2026-06-10-physics-math-audit-report.md) —
+3. [`../notes/2026-06-10-physics-math-audit-report.md`](../notes/2026-06-10-physics-math-audit-report.md) —
    WHY v4 says what it says (54 verified findings; refuted-claims list — do not re-litigate those).
 
-## 🚫 HISTORICAL / SUPERSEDED — never pattern-match these into new work
-| Artifact | Status |
-|---|---|
-| `specs/2026-06-09-…-unified-flow-force-resistance-design.md` (v3) | superseded by v4; its A+B split, `(1−χ)` factor, `own_weight_head`, `swap_kv·√visc` threshold, raw-T/v manifest are all RETIRED |
-| `specs/2026-06-07-…-vector-map-decomposition-design.md` | §1–§3 pipeline framing kept historically; **§8 superseded by v4 §3–§7**; its §3 sub-min→VACUUM rule is DEAD (deletes mass — v4 §6.4) |
-| `specs/2026-06-07-engine-b-CANONICAL-pipeline.md` | the ENCRYPT→RESOLVE→DECRYPT + un-mixed-maps sentence stands; mechanism details superseded by v4 |
-| `specs/2026-06-04-engine-b-unified-formula.md` | worked examples (§J) remain illustrative; §B.1 EOS, §E "conservation ⇒ no blow-ups", and the single-E bundle are superseded/retracted |
-| `handoffs/FORK-DECISIONS-flow-force-2026-06-09.md` | the *frame* stands; Fork-1 (bless A+B) and Fork-4's proxy-keeping are superseded by v4 §3/§5.3 (the single-P exit + viscosity-as-cadence are exactly the exits those forks banked) |
-| `plans/2026-06-07-engine-b-overburden-head-resolve.md` (T1–T8) | historical record of the shipped T-track |
-| `core/force_advect.hpp`, `swap_threshold`, `chi`-swap-gates, `p_surf`, column sweeps, `find_chain_hop` | drift/stopgap — unchanged ban |
-| comments describing any of the above | comments lag; verify against v4 |
+## 🚫 HISTORICAL / SUPERSEDED — DELETED 2026-06-10 (user-ordered doc cleanup; full text in git history)
+All pre-v4 engine-B specs/plans/handoffs were **removed from the tree** so no future spec conflict is
+possible: v3 (A+B split, `(1−χ)`, `own_weight_head`, `swap_kv·√visc`, raw-T/v manifest — all RETIRED),
+the vector-map decomposition (its §8 model and its mass-deleting §3 sub-min→VACUUM rule are DEAD), the
+CANONICAL pipeline (its one-sentence pipeline survives inside v4), the 2026-06-04 unified-formula (its
+§B.1 EOS and §E stability "proof" are retracted; its §J worked examples were absorbed where still valid),
+FORK-DECISIONS (frame kept in v4 §0; Fork-1/Fork-4 mechanisms superseded), and the T1–T8 plan/handoffs.
+**Do not resurrect them from git as design sources.** Code-side bans unchanged: `force_advect.hpp`,
+`swap_threshold`, `chi`-swap-gates, `p_surf`, column sweeps, `find_chain_hop`; comments lag — verify
+against v4.
 
 ## 🧱 The model in one paragraph (v4)
 ENCODE (per-cell: gravity+external once into momentum; cache T, gas EOS) → RESOLVE (the ONE cross-cell
