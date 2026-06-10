@@ -4,6 +4,7 @@
   "package": "net.rainbowcreation.orge.fabric.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "FallingBlockMixin",
     "FlowingFluidMixin",
     "LiquidBlockMixin",
     "LavaFluidMixin",

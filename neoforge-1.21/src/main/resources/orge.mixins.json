@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "refmap": "orge.refmap.json",
   "mixins": [
+    "FallingBlockMixin",
     "FlowingFluidMixin",
     "LiquidBlockMixin",
     "LavaFluidMixin",
