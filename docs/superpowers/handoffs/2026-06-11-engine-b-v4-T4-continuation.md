@@ -5,9 +5,13 @@
 > 1. **Drift question is OPEN.** User challenged: T3's reviews only audited T3's diff — are T1/T2a/T2b
 >    also drifted? A 10-dimension **whole-arc drift-audit workflow** (engine `c148f49` vs every law
 >    clause + every v4 section, dedup, 2 adversarial lenses per NEW finding) was LAUNCHED and then
->    STOPPED before producing results (limits). The complete, self-contained workflow script is banked at
->    **`docs/superpowers/notes/2026-06-11-drift-audit-workflow.js`** — re-run it first (Workflow tool,
->    `{scriptPath}`), or execute its 10 dimension briefs manually as subagents. Its outputs feed step 2.
+>    STOPPED mid-run (limits). **5 of 10 dimensions COMPLETED and their 81 raw findings are salvaged at
+>    `docs/superpowers/notes/2026-06-11-drift-audit-partial-findings.md`** (RAW + UNVERIFIED — no dedup,
+>    no adversarial lenses; overlaps with the known queue expected). The complete, self-contained workflow
+>    script is banked at **`docs/superpowers/notes/2026-06-11-drift-audit-workflow.js`** — DO NOT re-run
+>    all 10 dims: edit its `DIMS` down to the 5 missing ones (**law-1-3, law-4-5, spec-1-manifest,
+>    spec-2-3, spec-9-11**), run those, then feed the UNION (salvaged file + new results) through the
+>    script's Synthesize + Verify stages. Outputs feed step 2.
 > 2. **Then produce two docs** (agreed with user, NOT yet written):
 >    a. `docs/superpowers/notes/2026-06-11-drift-audit-T1-T3.md` — full inventory: NEW-confirmed /
 >       known-queue (the ratification list below) / pending-by-design / refuted + forward-risk per task.
