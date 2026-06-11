@@ -1,5 +1,31 @@
 # HANDOFF — Engine-B v4 implementation, continue at T4 (§6 five micro-passes)
 
+> ## ⚠️ SESSION-END ADDENDUM (2026-06-11, session hit weekly limit + API 500s — read this first)
+> The controller session ended MID-STEP. Exact state and the agreed next moves:
+> 1. **Drift question is OPEN.** User challenged: T3's reviews only audited T3's diff — are T1/T2a/T2b
+>    also drifted? A 10-dimension **whole-arc drift-audit workflow** (engine `c148f49` vs every law
+>    clause + every v4 section, dedup, 2 adversarial lenses per NEW finding) was LAUNCHED and then
+>    STOPPED before producing results (limits). The complete, self-contained workflow script is banked at
+>    **`docs/superpowers/notes/2026-06-11-drift-audit-workflow.js`** — re-run it first (Workflow tool,
+>    `{scriptPath}`), or execute its 10 dimension briefs manually as subagents. Its outputs feed step 2.
+> 2. **Then produce two docs** (agreed with user, NOT yet written):
+>    a. `docs/superpowers/notes/2026-06-11-drift-audit-T1-T3.md` — full inventory: NEW-confirmed /
+>       known-queue (the ratification list below) / pending-by-design / refuted + forward-risk per task.
+>    b. `docs/superpowers/DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-11.md` — v4.2 amendment draft
+>       (mirrors the 2026-06-10 proposal format). Per item: exact replacement text, `IMPACT:` (consumer
+>       list, affected tasks, guarding §11 invariants, code delta — "none" where text-matches-running-code),
+>       `CAUTION:` (chain analysis). **Agents NEVER edit law/spec — user's pen only.** Known draft content:
+>       §4 boundary-face value `p̄ = P_i + ρ_i·g⃗·(r_f−r_i)` (interior faces keep ½(P_i+P_j)); §2.1
+>       sentence → "never SUMMED with P for the same cell"; note law #2 itself contains the literal
+>       ½(P_self+P_neighbor) — so this is a LAW amendment too, not only spec.
+> 3. **User decision framework already agreed:** no v5 rewrite — amend v4 in place, batched ratification;
+>    user accepted option A (ratify-as-we-go) *with caution* pending the whole-arc audit. The "why drift
+>    exists / why human pen" reasoning is recorded in the ratification-queue section below.
+> 4. **Only after ratification (or explicit debt-ride decision): start T4** per the brief below.
+> 5. Engine pushed at `c148f49`; parent pushed at `ea283ca`+ (this addendum's commit). Workflow partial
+>    transcripts (if salvage wanted) lived under the old session's `subagents/workflows/wf_640bcd1d-af9`
+>    — treat as disposable; re-running the banked script is cleaner.
+
 **Date:** 2026-06-11 · **Track:** Engine-B / branch `rebuild` · parent `/home/claude/ORGE-B` ↔ engine
 submodule `/home/claude/ORGE-B/ORGE-ENGINE` (both `rebuild`).
 **Engine HEAD `c148f49` (pushed).** Parent gitlink **intentionally pinned at pre-arc `96169ef`** — do
