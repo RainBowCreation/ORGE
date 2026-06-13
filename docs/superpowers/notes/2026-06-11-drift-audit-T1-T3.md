@@ -68,6 +68,12 @@ verify **15 confirmed REAL new drift**, 3 already-labeled, 5 refuted.
 
 ### Low severity (wording / test-shape / cosmetic range)
 
+- **ND-8 [law #9 no_escape seam absent]** — repo-wide grep zero; decision points `engine_b.hpp:1509`,
+  `sim_engine.hpp:720`. The law-mandated `no_escape` detection seam (empty body, for future handling)
+  exists nowhere. The RESOLVE push-with-no-room path correctly no-ops but fires no seam; the injection
+  path's no-escape case destroys instead of no-oping (overlaps ND-9/ND-10). Dedup of Batch A law-8-9#1.
+  → **CODE FIX** T4 (add the empty seam + route injection escape through the standard displacement path,
+  same fold-in as the banned `find_chain_hop`).
 - **ND-2 [law #4 DECODE 1-hop reads]** — `engine_b.hpp:1761-1787` + swap `:1690-1695`. DECODE does 1-hop
   neighbor reads (`wall_neighbor`, `xspecies_noflux_neighbor`) to zero velocity into wall / cross-species
   no-flux faces — a RESOLVE-domain face BC enforced in a clause-designated per-cell-local step. Mitigated:

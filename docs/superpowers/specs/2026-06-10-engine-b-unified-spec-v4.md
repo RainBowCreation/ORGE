@@ -25,9 +25,9 @@ flux already integrated over dt).
 | mechanism | driving FORCE [N] | resistance (threshold) | rate |
 |---|---|---|---|
 | FLOW | `−∇P·V` (6-face surface integral of the ONE field `P`) | ≈0 (fluid) | viscosity λ |
-| PUSH / yield | net `−∇P·V + m·g⃗ + external` | `τ_y·A_face` [N] | viscosity λ |
-| SWAP, cross-species | buoyancy `(ρ_eff,up − ρ_eff,low)·g·V` | `k_c·min(minMass)·g + τ_y·A_face` | swap cadence (§5.3) |
-| SWAP, same-species (thermal reorder) | same | **`τ_y·A_face` only — NO cohesion term** | swap cadence (§5.3) |
+| PUSH / yield | net `−∇P·V + m·g⃗ + external` | `τ_y` [N] *(force threshold — A-4)* | viscosity λ |
+| SWAP, cross-species | buoyancy `(ρ_eff,up − ρ_eff,low)·g·V` | `k_c·min(minMass)·g + τ_y` | swap cadence (§5.3) |
+| SWAP, same-species (thermal reorder) | same | **`τ_y` only — NO cohesion term** | swap cadence (§5.3) |
 
 Same-species pairs break no interface, so cohesion does not apply — this is what lets a 126 N thermal
 buoyancy clear the gate (worked: §7.3) *(review blocker #2; fixes audit C-11)*.
@@ -52,7 +52,8 @@ The frozen manifest (fields + knobs, units + legal ranges) is **§1.3**; INV-3 =
 ### §1.2 Material LUT — fixed schema (law #8 + `[LAW-AMEND-6]`), REALISTIC data *(fixes MAT-1/2/5, B-11, C-5)*
 
 Schema: `cp [J/kgK] · k [W/mK] · M [kg/mol] · minMass · defaultMass · maxMass [kg/cell] · μ [Pa·s] ·
-τ_y [Pa] · ε · β [1/K] · latentHeatMin/Max [J/kg] · phase quadruple · T_ref,gas [K] (gas rows)`.
+τ_y [N] · ε · β [1/K] · latentHeatMin/Max [J/kg] · phase quadruple · T_ref,gas [K] (gas rows)`
+(`τ_y` = a force threshold [N]; the move gate compares `max(τ_y,i, τ_y,j)` N vs N — `[LAW-AMEND-v42-A4]`).
 
 | material | min/default/max | cp | k | μ | τ_y | ε | β | M | phase (K→target, L J/kg) |
 |---|---|---|---|---|---|---|---|---|---|
@@ -80,8 +81,13 @@ Schema: `cp [J/kgK] · k [W/mK] · M [kg/mol] · minMass · defaultMass · maxMa
 applied **once per tick (first sweep only)** · `N_relax` sweeps/tick [1–8] · `vel_damp` [0–2 s⁻¹] ·
 `ε_mass` = 1e-6 kg · `k_c` = 3 (cohesion, cross-species swaps only) · `t_swap_min` = 0.5 s ·
 `α_eos` gas-EOS relaxation gain (0–1] · `T_sky` = 270 K · `T_ref,global` = 288 K (ρ_eff only) ·
-per-gas `T_ref,gas` (LUT column). Retired symbols (must not reappear): `own_weight_head, p_surf, swap_kv,
+per-gas `T_ref,gas` (LUT column). **Joint stability constraint** `ω·(1+α_eos) < 2` — the gas relaxation's
+combined SOR+EOS update diverges otherwise (the independent `ω`/`α_eos` ranges admit divergent pairs)
+`[LAW-AMEND-v42-A5]`. Retired symbols (must not reappear): `own_weight_head, p_surf, swap_kv,
 swap_threshold, head_relax, p_ac_scale, (1−χ) relaxation factor, T_curr/T_next, persisted vx/vy/vz`.
+`LADDER_BETA`, `LADDER_REST_DEADBAND`, `GAS_CHI_MIN` are **T4-transient gas-ladder knobs, exempt from INV-3**
+until T4's flux-intent rebuild deletes them — the manifest CI-diff does not fail on them meanwhile
+`[LAW-AMEND-v42-A5 / owner T4]`.
 
 ---
 
@@ -95,11 +101,18 @@ p_eos = p_abs − P0           # GAUGE: 0 at the gas's own rest state
 ```
 Air rest: (1.2/0.029)·8.314·288 ≈ 99.1 kPa ⇒ gauge 0. Steam rest at 373 K: ≈ 103.4 kPa ⇒ gauge 0
 *(per-gas T_ref — review: a global 288 K left resting steam pushing +24 kPa forever)*.
-**Cross-gas faces compare ABSOLUTE pressure** (`p_eos + P0` each side) so per-gas gauge offsets cancel.
+**Cross-gas faces compare ABSOLUTE pressure** (`p_eos + P0` each side) so per-gas gauge offsets cancel
+`[LAW-AMEND-v42-A2 / owner T4]` — to be implemented at **hetero-gas (different-species) faces on the EOS
+anchor** in T4 (same-gas faces stay gauge-cancelled); INV-AL needs an air|steam absolute-P variant once it
+lands.
 Compressed air at the in-game-observed 835 kg/cell: **p_eos ≈ 69 MPa** — the missing pushback.
-`p_eos` is **never read by the force** (§4); it enters only as the §3.1 relaxation source/anchor —
-exactly one pressure number per cell, always `P` *(review: the v4.0 "(+ gas p_eos)" face read was a
-drift-test-(a) double-count; deleted)*.
+`p_eos` is **never SUMMED with `P` as a second pressure for the same cell** — exactly one pressure number
+acts per cell; it enters the force only through the §3.1 relaxation that sets `P`, and a *gas* cell's own
+boundary-face ghost uses its EOS anchor in place of `P` (see A-8) `[LAW-AMEND-v42-A1]` *(review: the v4.0
+"(+ gas p_eos)" face read was a drift-test-(a) double-count; deleted)*.
+A gas cell's relaxed `P` is a **force-dead diagnostic** — every gas face uses its EOS anchor, not `P`; the
+relaxed `P` is computed and persisted but never read by the force, retained as a tracked diagnostic
+`[LAW-AMEND-v42-A8]`.
 
 ### §2.2 Incompressibles (max == default): no EOS branch exists *(fixes B-11)*
 `p_eos ≡ 0`; the compression branch is **removed**, not divided-by-zero. Their pressure is carried entirely
@@ -125,6 +138,9 @@ contribution of face f→j:
 target_i = ( Σ_f Φ_f ) / n_open                     [+ α_eos·(p_eos,i − P_i) if i is gas]
 P_i ← (1−ω)·P_i + ω·target_i        [− κ·divU_i, first sweep of the tick only]
 ```
+- **`divU` in the κ term reads the persisted (pre-ENCODE snapshot) velocity** — the post-ENCODE `−g·dt`
+  contribution is **excluded** (it is not a real divergence; including it would source a phantom `−g·dt`
+  floor divergence) `[LAW-AMEND-v42-A5]`.
 - **The gas-face anchor carries the hydrostatic offset too** — this is the load-bearing repair. A full
   water cell with an open top face gets `Φ_top = 0 + ½(1000+1.2)·10·1 ≈ 5006 Pa` — the half-cell own-fill
   head, *emerging from the same isotropic face rule*, not a bolted-on B.
@@ -168,10 +184,17 @@ P_i ← (1−ω)·P_i + ω·target_i        [− κ·divU_i, first sweep of the 
 ## §4 — Force & momentum (RESOLVE), with units
 
 ```
-F⃗_i·dt = Σ_faces −p̄_f·A·dt·n̂_out        p̄_f = ½(P_i + P_j); against gas/vacuum: ½(P_i + anchor Φ_f)
+F⃗_i·dt = Σ_faces −p̄_f·A·dt·n̂_out
+  interior fluid|fluid face:    p̄_f = ½(P_i + P_j) + ¼(ρ_j − ρ_i)·g⃗·(r⃗_f − r⃗_i)   # ¼Δρ density-diff correction [LAW-AMEND-v42-A6]
+  boundary face (gas/vacuum/solid against fluid i): p̄_f = P_i + ρ_i·g⃗·(r⃗_f − r⃗_i)  # the cell's own half-cell hydrostatic ghost — the boundary condition itself, NOT ½(P_i + Φ_f) [LAW-AMEND-v42-A1]
         + Σ_faces ±ṁ_f·u⃗_donor           # advected momentum [LAW-AMEND-4]; ṁ = per-tick mass [kg]
 (gravity m·g⃗·dt + external impulse: ONCE, in ENCODE [LAW-AMEND-3])
 ```
+- The face-value model is **each side's own half-cell hydrostatic extrapolation meets at the shared face**:
+  the interior `¼(ρ_j − ρ_i)·g⃗·(r⃗_f − r⃗_i)` correction makes the two sides' extrapolations agree
+  `[LAW-AMEND-v42-A6]`, and a boundary face carries the cell's own ghost `P_i + ρ_i·g⃗·(r⃗_f − r⃗_i)` rather
+  than an average with the far side (an average leaves `−m·g/2` on every free surface — a permanent
+  vel_damp heat pump) `[LAW-AMEND-v42-A1]`.
 - The force reads **only `P`** (and its boundary anchor). Every term is kg·m/s.
 - `vel_damp` defined: DECODE applies `u⃗ ← u⃗/(1 + vel_damp·dt)`; removed KE is deposited as heat in the
   same cell (`ΔE = ½m(‖u‖²−‖u'‖²)`) — books closed. With §3.1's stratified-gas rest state this deposits
@@ -179,6 +202,15 @@ F⃗_i·dt = Σ_faces −p̄_f·A·dt·n̂_out        p̄_f = ½(P_i + P_j); aga
 - Velocity invariants live HERE: `‖u⃗'‖ ≤ dx/dt`; void floor `m < ε_mass ⇒ u⃗=0`, **mass AND E ledgered to
   the boundary ledger** (law #9 has no de-minimis clause — nothing silently vanishes; magnitude ≤ ~1 J,
   ~1e-6 kg per event).
+- **No-penetration clamp (sanctioned 1-hop snapshot read in DECODE) `[LAW-AMEND-v42-A3]`:** DECODE may read
+  the **1-hop snapshot neighbor** to zero a velocity component pointing into a wall or a cross-species
+  no-flux face. The clamp zeroes velocity AND its derived momentum (`p = v·m`, so the matching momentum
+  component is zeroed too); **mass and E are untouched**; order-independent, snapshot-read, never transport.
+  The kinetic energy removed is a sanctioned **NO-DEPOSIT (ND-18)** — not deposited as heat (a resting
+  pool's into-floor numerical jitter would otherwise fake-boil it every tick).
+- **A-11 (future feature, NOT implemented):** genuine HIGH-SPEED impact (into-surface speed above a jitter
+  floor `v_impact_min`) *should* deposit the clamped KE as heat — deferred future feature, gated so resting
+  pools never self-heat; no code now `[LAW-AMEND-v42-A11 / FUTURE]`.
 - Solid faces: closed (no flux, no force exchange; shielding via the §3.1 stencil). The v3 one-sided
   wall-reaction kick is deleted; no transient is ever read as a physical impulse.
 
@@ -187,15 +219,27 @@ F⃗_i·dt = Σ_faces −p̄_f·A·dt·n̂_out        p̄_f = ½(P_i + P_j); aga
 ## §5 — Movement gates
 
 ### §5.1 Yield (threshold)
-Net force vs `τ_y·A_face` [N vs N]. Stacked chains, **direction-projected** *(review: v4.0 had the sign
-backwards vs its cited source)*: `F_out = F_in + m_own·(g⃗·n̂_chain) − τ_y·A_face` — weight ADDS down-chain,
-subtracts up-chain, contributes 0 sideways (down-accumulate / sideways-Pascal-transmit — normative here;
-the historical source, decomp §8.3, is deleted).
+Net force vs `max(τ_y,i, τ_y,j)` [N vs N] — `τ_y` is a **force threshold [N]** `[LAW-AMEND-v42-A4]`. Stacked
+chains, **direction-projected** *(review: v4.0 had the sign backwards vs its cited source)*:
+`F_out = F_in + m_own·(g⃗·n̂_chain) − τ_y` — weight ADDS down-chain, subtracts up-chain, contributes 0
+sideways (down-accumulate / sideways-Pascal-transmit — normative here; the historical source, decomp §8.3,
+is deleted).
+**Granular/sand is the universal cell with a FINITE `τ_y`** riding THIS SAME force-vs-yield gate (per
+law #0 / P-0): there is **NO separate granular sub-system and NO dedicated owner task** — the stacked-chain
+`F_out = F_in + m_own·(g⃗·n̂_chain) − τ_y` is the per-cell *restatement* of what the pressure field + yield
+gate already do emergently (hydrostatic pressure at a column base already equals the overburden weight), not
+a separate pass to implement `[LAW-AMEND-v42-A13]`. A true **angle of repose** (shear-aware/directional
+yield, ~34°) is a deferred future feature — a scalar `τ_y` gives hold-or-slump (flat-ish piles), not sloped
+dunes `[LAW-AMEND-v42-A14 / FUTURE]`.
 Solids: τ_y = ∞ ⇒ never swap, never yield; dense-solid-on-liquid statics stay deferred (granular stage).
 
 ### §5.2 Cohesion (min_mass) — deterministic legalization *(fixes B-13)*
 Proposal `f` (donor D → receiver R, same species) is legalized: `f ← min(f, maxMass − R, D)`; then if
 `0 < D − f < min`: `f ← D − min` if `D − min > 0`, else `f ← D` if `R + D ≤ maxMass`, else `f ← 0`.
+**The `0 < D − f < min` full-merge branch (`f ← D`) is superseded by INV-NOSUBMIN (A-10)** — once that
+invariant lands, a cell can NEVER become sub-min (the donor-side gate prevents sub-min at the source), so
+the branch is **unreachable** `[LAW-AMEND-v42-A7]` (the prior "HELD until T5" framing is dropped). The
+room/capacity clamp (`f ← min(f, maxMass − R, D)`) is unchanged.
 *(B-13 closed by ratification; all cohesion-rule semantics resolve into this file alone.)*
 Total and deterministic (review-verified). **Worked (user-ratified 2026-06-10 — rule wins, replacing the
 old "blocked" example):** 130-onto-875 → f = 5 → [125 | 880]; 250-onto-875 → f = 125 → [125 | 1000]. Composition with R1's σ-scaling: legalize per-face
@@ -242,9 +286,11 @@ cached). Kernel count: `6 + 2·N_relax` (= 10 at N_relax=2, 14 at N_relax=4).
 **Σ outflows ≤ budget and Σ inflows ≤ room, structurally** — INV-DB and INV-RR guard both.
 
 ### §6.2 Receiver room
-`room = maxMass − m` (gas: large band; incompressible: 0 at rest). Transient overshoot beyond maxMass is
-forbidden — the **single** exemption is the §8.4 freeze relabel (water→ice, 1000 > 917), bounded and
-relieved; water→steam is in-band by §1.2's steam band (review: the v4.0 "two transients" count was wrong).
+`room = maxMass − m` (gas: large band; incompressible: 0 at rest). **INV-NOOVERMAX
+`[LAW-AMEND-v42-A12]`: over-max is forbidden from ANY path** — the prior "single exemption" for the §8.4
+freeze relabel is **RETIRED**; the freeze must evict its excess in the SAME pass (atomic freeze-evict, §8.4),
+never sit over-max even transiently. water→steam is in-band by §1.2's steam band (review: the v4.0 "two
+transients" count was wrong).
 
 ### §6.3 Cross-species movement = swap/displacement ONLY *(fixes B-14)*
 No partial cross-species flux exists. Species crosses cells only as (a) a §7 buoyant swap, or (b) a
@@ -255,9 +301,16 @@ conservation is structural. (Gas mass can also compress into a gas neighbor via 
 + EOS.)
 
 ### §6.4 Sub-min residue *(fixes submin-deletes-mass / vacuum-relabel-E-hole)*
-`0 < m < min`: never deleted — DECODE flags it; next RESOLVE drains it into the strongest same-species
-neighbor (settled-state INV-COH stays the gate). Only `m < ε_mass` relabels to VACUUM with **mass and E
-both ledgered** (≤1e-6 kg, ~1 J). Decomp §3's `m < max(ε, min_mass) → VACUUM` rule is dead.
+**INV-NOSUBMIN `[LAW-AMEND-v42-A10]` — sub-min is prevented at the source, not cleaned afterward.** The prior
+"`0 < m < min`: never deleted — DECODE flags it; next RESOLVE drains it" wording is **SUPERSEDED**: no cell
+ever rests at `0 < m < min(species)` *from any path* (flow, relabel, empty-refill). A **relabel** (phase
+change or empty-cell adoption) is **FORBIDDEN when the carried mass `< min(target)`** — the cell keeps its
+species/mass/E (keep-E ⇒ blocking conserves energy exactly) until it legally clears the target min. An
+**empty-refill** requires a **donor-side gate**: a donor may not deliver `< target-min` into an empty cell
+**except on a full-drain** (the donor's whole mass moves, leaving the donor at 0, so the empty cell receives
+a legal `≥ min` quantum). The empty-refill donor-side gate + thermal guard land in **T4/T7**
+`[LAW-AMEND-v42-A10]`. Only `m < ε_mass` relabels to VACUUM with **mass and E both ledgered** (≤1e-6 kg,
+~1 J). Decomp §3's `m < max(ε, min_mass) → VACUUM` rule is dead.
 
 ---
 
@@ -266,8 +319,8 @@ both ledgered** (≤1e-6 kg, ~1 J). Decomp §3's `m < max(ε, min_mass) → VACU
 **§7.1 Payload:** permute `(mass, matIx, E, momentum)` — per-species mass AND momentum AND energy exact
 by construction *(fixes B-16)*. `swapReady` resets on both cells.
 **§7.2 Energy:** released PE `|ΔPE| = (m_h − m_l)·g·dx` deposits as heat, half each cell — books closed.
-**§7.3 Gate (worked):** cross-species: `Δρ_eff·g·V > k_c·min(minMass)·g + τ_y·A` — lava-over-water:
-16,500 N > 3,750 N ✓. Same-species: `Δρ_eff·g·V > τ_y·A` — 80 °C-under-20 °C water: Δρ_eff = 12.6 kg/m³ ⇒
+**§7.3 Gate (worked):** cross-species: `Δρ_eff·g·V > k_c·min(minMass)·g + τ_y` — lava-over-water:
+16,500 N > 3,750 N ✓. Same-species: `Δρ_eff·g·V > τ_y` — 80 °C-under-20 °C water: Δρ_eff = 12.6 kg/m³ ⇒
 126 N > 0 ✓ **convection fires** (cadence t_swap ≈ max(0.5, 2e-3/126) = 0.5 s) *(review blocker closed;
 INV-CONV is now satisfiable)*. Gas–gas: no swap path needed (EOS + flux reorder gases).
 
@@ -322,9 +375,13 @@ Stability: rides §8.2's flux limiter (linearized h_rad ≈ 4εσT̄³ ≈ 560 W
 Relabel never teleports mass. Boiled 1000 kg water → **steam at 1000 kg, inside steam's band** (≤ max
 1000): legal state; `p_abs = (1000/0.018)·8.314·373 ≈ 172 MPa` ⇒ the relaxation + flux expand it violently
 over following ticks, CFL- and room-capped — **the steam explosion emerges from the EOS**, bounded,
-conservative. Freezing water → ice: 1000 > 917 — the **one** sanctioned transient overshoot (9.1%
-supersaturation standing in for expansion-on-freezing), relieved by pushing 83 kg to a same-species
-neighbor or held by ice's τ_y=∞ (bounded, stated). Lava→stone: 2650/2700 = **98.1%** under-full (stated).
+conservative. Freezing water → ice: 1000 > 917 — per **INV-NOOVERMAX `[LAW-AMEND-v42-A12 / owner T7]`**
+over-max is no longer tolerated even transiently: the cell relabels to ice at maxMass and **evicts the
+surplus `(m − maxMass_ice)` in the SAME pass** to a legal neighbor (mass + E carried, obeying **both**
+bounds — receiver ends `≤ max`, and an **empty** receiver ends `≥ min` per A-10), or **DEFERS the freeze**
+(the cell stays cold water and retries next tick) if no legal target exists. keep-E ⇒ deferral conserves
+energy exactly; the prior "drain next RESOLVE" transient-overshoot exemption is retired. Lava→stone:
+2650/2700 = **98.1%** under-full (stated).
 
 ---
 
@@ -368,7 +425,10 @@ neighbor or held by ice's τ_y=∞ (bounded, stated). Lava→stone: 2650/2700 = 
 | INV-P1 | open-top H=8/16 column: bottom CELL-CENTER `P → ρg(H−½)dx` ±0.1% (75,000 / 155,000 Pa); floor-face reconstruction `→ ρgH` (80,000 / 160,000). Same tolerance both H. *(B-9 pinned)* |
 | INV-P2 | walled [1000|500], open tops: P fixed point ≈ [4172|3339] Pa, levels to [750|750], no upward leak, 1500.0000 kg exact |
 | INV-GAS | air pocket sealed under 2 m water: m stabilizes at **1.20 ± 0.05×** rest (= 1 + ρgh/P0); P ≈ overburden *(review: ≤2× was 4× too loose)* |
-| INV-AL | relaxed stratified rest atmosphere + pool: surface air `‖u‖ < 0.01·dx/dt` for 5000 ticks; no monotonic heating of static cells |
+| INV-AL | relaxed stratified rest atmosphere + pool: surface air `‖u‖ < 0.01·dx/dt` for 5000 ticks; no monotonic heating of static cells + an air\|steam interface variant: two resting gases at true equilibrium read NO spurious gradient (cross-gas absolute-P, A-2(i)) |
+| INV-UNIVERSAL | the core mechanic contains NO `switch(state)` / `if(isGas/isLiquid/…)` branch; state behavior comes only from material data (τ_y, χ, viscosity, min/max), never the species name — a state-branch in the core is a regression (acceptance test for every task). *(law #0 / P-0)* |
+| INV-NOSUBMIN | no cell rests at `0 < m < min(species)` from any path (flow, relabel, empty-refill); relabel forbidden when `m < min(target)`, empty-refill donor-side gated. *(A-10)* |
+| INV-NOOVERMAX | no cell rests at `m > max(species)`; the water→ice (lower-max) freeze evicts its surplus same-pass under both bounds, or defers. Twin of INV-NOSUBMIN: `min ≤ m ≤ max ∨ m = 0`. *(A-12)* |
 | INV-DB | 6-way diverging donor: Σ outflows ≤ budget every tick |
 | INV-RR | 6-donor converging receiver: m ≤ maxMass every tick *(the B-1 dual)* |
 | INV-COND | thinned 1e-6 kg cell in a 300/400 K stencil: T ∈ [300,400]; **grand E exact through the limiter**; full-cell golden bit-identical |
