@@ -196,4 +196,38 @@ class RegionFileTest {
             assertEquals(0, result.length, "empty blob should read back with length 0");
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Test 9: Blob far larger than the old 255-sector cap round-trips bit-identical
+    // (proves the save-crash that hit at ~388 sectors is lifted)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void largeBlobOver255SectorsRoundTripsBitIdentical() throws IOException {
+        Path file = dir.resolve("r.8.0.orge");
+        byte[] big = blob(2_000_000, 99); // ~489 sectors, > old 255 cap AND > the 388 that crashed
+
+        try (RegionFile rf = new RegionFile(file)) {
+            rf.write(10, 10, big);
+            assertArrayEquals(big, rf.read(10, 10), "large blob must round-trip bit-identical");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 10: Blob at EXACTLY 256 sectors (the old 255 boundary) round-trips
+    // (pins the 255/256 off-by-one)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void blobAtExactly256SectorsRoundTrips() throws IOException {
+        Path file = dir.resolve("r.9.0.orge");
+        // needSectors == 256 exactly: 4 (length prefix) + len == 256*4096.
+        int len = 256 * 4096 - 4;
+        byte[] data = blob(len, 7);
+
+        try (RegionFile rf = new RegionFile(file)) {
+            rf.write(11, 11, data);
+            assertArrayEquals(data, rf.read(11, 11), "256-sector blob must round-trip bit-identical");
+        }
+    }
 }
