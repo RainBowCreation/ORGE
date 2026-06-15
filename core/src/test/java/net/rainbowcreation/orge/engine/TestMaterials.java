@@ -52,6 +52,39 @@ public final class TestMaterials {
                 .build();
     }
 
+    /**
+     * Water WITH the v4 §1.2 latent plateaus wired in (freeze L=3.34e5 J/kg at 273.15 K → ice; boil
+     * L=2.256e6 J/kg at 373.15 K → steam) — same id as {@link #water()}. Kept separate from
+     * {@link #water()} so the existing off-plateau golden-parity suites are untouched; used only by
+     * {@code EnthalpyRestoreParityIT.midPlateauCellRoundTrip}, where a cell whose specific enthalpy
+     * η=E/m sits inside [h(373.15), h(373.15)+L] must derive T pinned at 373.15 K (the boil plateau).
+     */
+    public static Material waterWithLatent() {
+        return Material.builder(WATER)
+                .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(125f).maxMass(1000f)
+                .minTemp(273.15f).maxTemp(373.15f).maxTarget(STEAM).minTarget(ICE)
+                .latentHeatMin(3.34e5f).latentHeatMax(2.256e6f)
+                .build();
+    }
+
+    /**
+     * Live steam (v4 §1.2): the boil-plateau {@code maxTarget} of {@link #waterWithLatent()}. Present
+     * in the latent test LUT only so the engine's boil-plateau guard ({@code maxTarget < lut.size()})
+     * fires — without a resolvable target the inverse-curve plateau is skipped. A finite gas band so it
+     * is a legal substance; its own thermal data is irrelevant to the mid-plateau characterization.
+     */
+    public static Material steam() {
+        return Material.builder(STEAM)
+                .thermalConductivity(0.025f).heatCapacity(2080f).molarMass(0.018f)
+                .defaultMass(0.6f).defaultTemperature(Float.NaN)
+                .viscosity(0f).minMass(0.06f).maxMass(1000f)
+                .minTemp(373.15f).minTarget(WATER).latentHeatMin(2.256e6f)
+                .tRefGas(373f)
+                .build();
+    }
+
     /** Inert solid (stone): a no-flow wall (frozen ⇒ viscosity absent) that is not an air sink. */
     public static Material stone() {
         return Material.builder(STONE)
