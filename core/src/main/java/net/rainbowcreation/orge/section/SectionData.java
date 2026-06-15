@@ -43,6 +43,7 @@ public final class SectionData {
     private float[] velY;
     private float[] velZ;
     private float[] p;    // dynamic pressure (Pa-ish gauge, >=0); null until first pressure write/array request
+    private float[] swapReady; // §5.3 swap-cadence accumulator (law #7 bookkeeping, dimensionless >=0); null until first write/array request; IN-MEMORY ONLY, NOT serialized
 
     private SectionData(Form form, float uniformTemperature, float uniformMass,
                         float[] temperature, float[] mass) {
@@ -301,6 +302,47 @@ public final class SectionData {
     }
 
     // -------------------------------------------------------------------------
+    // Swap-cadence accumulator channel (§5.3, law #7 bookkeeping)
+    // IN-MEMORY ONLY — NEVER serialized; resets to 0 on world reload (spec-acceptable).
+    // -------------------------------------------------------------------------
+
+    /**
+     * Allocates the single swapReady array (zero-filled by JVM default) if not yet present.
+     * Independent of velocity and pressure (a section may carry swapReady without v/p, and vice versa).
+     */
+    private void ensureSwapReady() {
+        if (swapReady == null) {
+            swapReady = new float[CELLS];
+        }
+    }
+
+    /** §5.3 swap-cadence accumulator of cell {@code i} (dimensionless, >=0). Returns {@code 0} until first write. */
+    public float swapReadyAt(int i) { return swapReady == null ? 0f : swapReady[i]; }
+
+    /**
+     * Sets the swap-cadence accumulator of cell {@code i}, promoting this section to {@code FULL} (so that
+     * temp/mass arrays are materialized alongside the swapReady channel).
+     *
+     * @param i cell index (0..{@value CELLS}-1)
+     * @param v swap-cadence accumulator (dimensionless, >=0)
+     */
+    public void setSwapReady(int i, float v) {
+        promote();
+        ensureSwapReady();
+        swapReady[i] = v;
+    }
+
+    /**
+     * Returns the <em>live</em> swapReady array (length {@value CELLS}), allocating it if needed.
+     * Also promotes temp/mass to {@code FULL}.
+     */
+    public float[] swapReadyArray() {
+        promote();
+        ensureSwapReady();
+        return swapReady;
+    }
+
+    // -------------------------------------------------------------------------
     // Demotion: FULL -> UNIFORM when all cells are equal
     // -------------------------------------------------------------------------
 
@@ -341,6 +383,15 @@ public final class SectionData {
                 }
             }
         }
+        // Only demote if swapReady is absent or all-zero (else demotion would silently drop a
+        // nonzero §5.3 cadence accumulator — law #7 bookkeeping must survive section collapse).
+        if (swapReady != null) {
+            for (int i = 0; i < CELLS; i++) {
+                if (swapReady[i] != 0f) {
+                    return false;
+                }
+            }
+        }
         uniformTemperature = t0;
         uniformMass = m0;
         temperature = null;
@@ -349,6 +400,7 @@ public final class SectionData {
         velY = null;
         velZ = null;
         p = null;
+        swapReady = null;
         form = Form.UNIFORM;
         return true;
     }
@@ -370,6 +422,11 @@ public final class SectionData {
     /** Whether this section has a non-default (non-null) pressure array. Used by the codec. */
     public boolean hasPressure() {
         return p != null;
+    }
+
+    /** Whether this section has a non-default (non-null) swapReady array (in-memory only, never serialized). */
+    public boolean hasSwapReady() {
+        return swapReady != null;
     }
 
     /**

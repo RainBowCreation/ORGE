@@ -699,6 +699,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             float[] velY = new float[SectionData.CELLS];
             float[] velZ = new float[SectionData.CELLS];
             float[] p    = new float[SectionData.CELLS];
+            float[] swapReady = new float[SectionData.CELLS];
             if (store != null && store.hasSection(key)) {
                 SectionData sd = store.get(key);
                 for (int i = 0; i < SectionData.CELLS; i++) {
@@ -706,10 +707,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     velY[i] = sd.velYAt(i);
                     velZ[i] = sd.velZAt(i);
                     p[i]    = sd.pAt(i);
+                    swapReady[i] = sd.swapReadyAt(i);
                 }
             }
             return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                    velX, velY, velZ, p);
+                    velX, velY, velZ, p, swapReady);
         };
     }
 
@@ -758,6 +760,13 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             float[] secP = ColumnSectionCodec.sliceSectionChannel(result.p(), sectionY);
             float[] cleanP = StepValidator.cleanPressure(secP, null);
             System.arraycopy(cleanP, 0, data.pArray(), 0, SectionData.CELLS);
+            // T10c: persist the §5.3 swap-cadence accumulator in-memory (law #7 bookkeeping; NOT serialized)
+            // so swaps fire across scheduler calls. swapReady is a non-negative accumulator, so reuse
+            // cleanPressure's sanitizer (strips NaN/inf AND clamps <0 → 0) — the exact non-negative guard;
+            // it cannot wipe legitimate positive accumulation since the engine emits >=0.
+            float[] secSr = ColumnSectionCodec.sliceSectionChannel(result.swapReady(), sectionY);
+            float[] cleanSr = StepValidator.cleanPressure(secSr, null);
+            System.arraycopy(cleanSr, 0, data.swapReadyArray(), 0, SectionData.CELLS);
             // Durable identity (durable-material §, keystone-closing half): persist each cell's
             // engine-output material id into the store so next cycle E1's columnSource reads it as
             // authoritative (hasMaterials()==true). Effective-species rule mirrors recordCellMaterials:
