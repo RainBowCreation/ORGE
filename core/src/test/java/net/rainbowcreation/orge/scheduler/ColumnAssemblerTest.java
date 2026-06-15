@@ -211,4 +211,36 @@ class ColumnAssemblerTest {
         assertEquals(0f, t.mass()[ib], 1e-4,
                 "engine-drained same-species solid (prior==mat) is NOT seeded");
     }
+
+    /** S4: a known per-cell enthalpy E [J] in SectionCells lands at the correct engine-order
+     *  ColumnTask.enthalpy index — carried section-local→engine-index EXACTLY like temperature. */
+    @Test
+    void assembleThreadsEnthalpyFromSectionCells() {
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        // section 4: cell (1,2,3) carries a distinct enthalpy E; everything else 0.
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            float[] enth = new float[4096];
+            java.util.Arrays.fill(mat, (char) 2);     // air
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 300f);
+            if (sectionY == 4) {
+                int s = 1 + 16 * 2 + 256 * 3;
+                enth[s] = 4242.5f;                    // distinct E [J] at this cell
+            }
+            // full ctor with velocity/p/swapReady zero + enthalpy supplied
+            return new ColumnAssembler.SectionCells(mat, mass, temp, new char[4096], new Identifier[4096],
+                    new float[4096], new float[4096], new float[4096], new float[4096], new float[4096], enth);
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+        int wi = colIdx(1, 4, 2, 3);
+        assertEquals(4242.5f, t.enthalpy()[wi], 1e-4,
+                "SectionCells enthalpy carried to engine-order ColumnTask.enthalpy index, exact");
+        // a neighbouring cell stays 0 (no fabrication / no axis offset bug)
+        assertEquals(0f, t.enthalpy()[colIdx(0, 0, 0, 0)], 1e-6);
+    }
 }

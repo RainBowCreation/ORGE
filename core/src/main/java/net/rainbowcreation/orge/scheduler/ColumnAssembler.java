@@ -54,11 +54,21 @@ public final class ColumnAssembler {
      *        all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *    <li>{@code swapReady} — per-cell swap-cadence accumulator (law #7 / §5.3 bookkeeping,
      *        dimensionless >=0); all-zero for never-simulated / back-compat callers. Length 4096.</li>
+     *    <li>{@code enthalpy} — per-cell ABSOLUTE E [J] (law §6/§7 stored-extensive thermal truth) read
+     *        from the SectionStore; all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
-                               float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady) {
-        /** Back-compat: pressure supplied, zero swap-cadence accumulator. */
+                               float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady,
+                               float[] enthalpy) {
+        /** Back-compat: swapReady supplied, zero enthalpy (absolute E [J]). */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                            Identifier[] storedMaterial,
+                            float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady) {
+            this(matIx, mass, temperature, priorSpecies, storedMaterial,
+                 velX, velY, velZ, p, swapReady, new float[matIx.length]);
+        }
+        /** Back-compat: pressure supplied, zero swap-cadence accumulator, zero enthalpy. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
                             float[] velX, float[] velY, float[] velZ, float[] p) {
@@ -104,6 +114,7 @@ public final class ColumnAssembler {
         float[] velZ = new float[N];
         float[] p    = new float[N];
         float[] swapReady = new float[N];
+        float[] enthalpy = new float[N];
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
             for (int z = 0; z < 16; z++) {
@@ -145,11 +156,12 @@ public final class ColumnAssembler {
                         velZ[ci] = cells.velZ()[si];
                         p[ci]    = cells.p()[si];
                         swapReady[ci] = cells.swapReady()[si];
+                        enthalpy[ci] = cells.enthalpy()[si];
                     }
                 }
             }
         }
-        return new ColumnTask(cx, cz, matIx, mass, temp, velX, velY, velZ, p, swapReady);
+        return new ColumnTask(cx, cz, matIx, mass, temp, velX, velY, velZ, p, swapReady, enthalpy);
     }
 
     private ColumnAssembler() {}
