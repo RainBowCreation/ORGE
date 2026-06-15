@@ -116,6 +116,57 @@ class MaterialCodecTest {
     }
 
     // -------------------------------------------------------------------------
+    // (b3) v4 §1.2 radiation/convection/latent/gas-EOS columns parse when present
+    // -------------------------------------------------------------------------
+    @Test
+    void v4LutColumnsParseWhenPresent() {
+        String json = """
+                {
+                  "thermal_conductivity": 0.6,
+                  "heat_capacity": 4186.0,
+                  "molar_mass": 0.018,
+                  "default_mass": 1000.0,
+                  "default_temperature": 290.0,
+                  "emissivity": 0.96,
+                  "thermal_expansion": 2.1e-4,
+                  "latent_heat_min": 334000.0,
+                  "latent_heat_max": 2256000.0,
+                  "t_ref_gas": 288.0
+                }
+                """;
+
+        Material m = MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json));
+        assertEquals(0.96f, m.emissivity(), 1e-6f, "emissivity should decode from JSON");
+        assertEquals(2.1e-4f, m.thermalExpansion(), 1e-9f, "thermal_expansion should decode from JSON");
+        assertEquals(334000.0f, m.latentHeatMin(), 1e-1f, "latent_heat_min should decode from JSON");
+        assertEquals(2256000.0f, m.latentHeatMax(), 1e-1f, "latent_heat_max should decode from JSON");
+        assertEquals(288.0f, m.tRefGas(), 1e-3f, "t_ref_gas should decode from JSON");
+    }
+
+    // -------------------------------------------------------------------------
+    // (b4) v4 §1.2 columns default to 0.0 when absent (non-declaring => 0)
+    // -------------------------------------------------------------------------
+    @Test
+    void v4LutColumnsDefaultToZeroWhenAbsent() {
+        String json = """
+                {
+                  "thermal_conductivity": 1.0,
+                  "heat_capacity": 500.0,
+                  "molar_mass": 0.018,
+                  "default_mass": 1000.0,
+                  "default_temperature": 290.0
+                }
+                """;
+
+        Material m = MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json));
+        assertEquals(0.0f, m.emissivity(), 0f, "emissivity absent => 0");
+        assertEquals(0.0f, m.thermalExpansion(), 0f, "thermal_expansion absent => 0");
+        assertEquals(0.0f, m.latentHeatMin(), 0f, "latent_heat_min absent => 0");
+        assertEquals(0.0f, m.latentHeatMax(), 0f, "latent_heat_max absent => 0");
+        assertEquals(0.0f, m.tRefGas(), 0f, "t_ref_gas absent => 0 (not set => engine global T_ref)");
+    }
+
+    // -------------------------------------------------------------------------
     // (c) Partial targets: max_temp + max_target present, no min phase
     // -------------------------------------------------------------------------
     @Test

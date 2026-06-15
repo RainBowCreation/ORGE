@@ -22,6 +22,15 @@ import net.minecraft.resources.Identifier;
  * @param maxMass             kg, per-cell capacity cap; defaults to {@code defaultMass}
  * @param yieldStress         N — law §8 threshold axis (granular static yield); {@code 0} for all
  *                            current fluids (present, deferred). Absent ⇒ {@code 0} (pure fluid)
+ * @param emissivity          ε — dimensionless [0,1] radiation emissivity (v4 §1.2 / law #8).
+ *                            Gases are radiatively transparent ⇒ {@code 0}; non-declaring ⇒ {@code 0}
+ * @param thermalExpansion    β — 1/K volumetric thermal-expansion coefficient (v4 §1.2; convection
+ *                            ρ_eff). Absent ⇒ {@code 0}
+ * @param latentHeatMin       J/kg — latent heat of the {@code minTemp} transition (v4 §1.2). Absent ⇒ {@code 0}
+ * @param latentHeatMax       J/kg — latent heat of the {@code maxTemp} transition (v4 §1.2). Absent ⇒ {@code 0}
+ * @param tRefGas             K — per-gas EOS reference temperature (v4 §1.2/§2.1; air 288, steam 373).
+ *                            Absent ⇒ {@code 0}, the non-gas convention meaning "not set" ⇒ the engine
+ *                            falls back to the global T_ref
  * @param minTemp             K — lower threshold; below it the cell becomes {@code minTarget}
  * @param maxTemp             K — upper threshold; above it the cell becomes {@code maxTarget}
  * @param minTarget           MATERIAL id placed when temperature drops below {@code minTemp}, or null
@@ -44,6 +53,11 @@ public record Material(
         float minMass,
         float maxMass,
         float yieldStress,
+        float emissivity,
+        float thermalExpansion,
+        float latentHeatMin,
+        float latentHeatMax,
+        float tRefGas,
         float minTemp,
         float maxTemp,
         Identifier minTarget,
@@ -88,6 +102,11 @@ public record Material(
         private Float minMass;
         private Float maxMass;
         private float yieldStress = 0f; // law §8 threshold axis; absent => 0 (pure fluid)
+        private float emissivity = 0f;       // v4 §1.2 ε; absent => 0 (gases transparent / non-declaring)
+        private float thermalExpansion = 0f; // v4 §1.2 β [1/K]; absent => 0
+        private float latentHeatMin = 0f;    // v4 §1.2 J/kg (minTemp transition); absent => 0
+        private float latentHeatMax = 0f;    // v4 §1.2 J/kg (maxTemp transition); absent => 0
+        private float tRefGas = 0f;          // v4 §1.2/§2.1 K; absent => 0 ("not set" => global T_ref)
         private float minTemp = Float.NEGATIVE_INFINITY;
         private float maxTemp = Float.POSITIVE_INFINITY;
         private Identifier minTarget;
@@ -108,6 +127,11 @@ public record Material(
         public Builder minMass(float v) { this.minMass = v; return this; }
         public Builder maxMass(float v) { this.maxMass = v; return this; }
         public Builder yieldStress(float v) { this.yieldStress = v; return this; }
+        public Builder emissivity(float v) { this.emissivity = v; return this; }
+        public Builder thermalExpansion(float v) { this.thermalExpansion = v; return this; }
+        public Builder latentHeatMin(float v) { this.latentHeatMin = v; return this; }
+        public Builder latentHeatMax(float v) { this.latentHeatMax = v; return this; }
+        public Builder tRefGas(float v) { this.tRefGas = v; return this; }
         public Builder minTemp(float v) { this.minTemp = v; return this; }
         public Builder maxTemp(float v) { this.maxTemp = v; return this; }
         public Builder minTarget(Identifier v) { this.minTarget = v; return this; }
@@ -129,8 +153,9 @@ public record Material(
                     ? representativeBlock
                     : Identifier.fromNamespaceAndPath("minecraft", id.getPath());  // absent => minecraft:<path>
             return new Material(id, thermalConductivity, heatCapacity, molarMass, defaultMass,
-                    defaultTemperature, visc, minM, maxM, yieldStress, minTemp, maxTemp,
-                    minTarget, maxTarget, repr, pinned);
+                    defaultTemperature, visc, minM, maxM, yieldStress,
+                    emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas,
+                    minTemp, maxTemp, minTarget, maxTarget, repr, pinned);
         }
     }
 }

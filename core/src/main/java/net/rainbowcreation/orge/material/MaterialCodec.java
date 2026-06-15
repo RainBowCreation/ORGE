@@ -59,6 +59,48 @@ public final class MaterialCodec {
             Optional<Float> minMass,
             Optional<Float> maxMass,
             Optional<Float> yieldStress,
+            float emissivity,
+            float thermalExpansion,
+            float latentHeatMin,
+            float latentHeatMax,
+            float tRefGas,
+            float maxTemp,
+            float minTemp,
+            Optional<Identifier> maxTarget,
+            Optional<Identifier> minTarget,
+            Optional<Identifier> representativeBlock,
+            boolean pinned
+    ) {
+        // Accessors for the two-half split (DFU RecordCodecBuilder.group caps at 16 args; this
+        // body has 20 fields, so the codec is composed from CoreHalf + ThermalHalf — see below).
+        CoreHalf core() {
+            return new CoreHalf(thermalConductivity, heatCapacity, molarMass, defaultMass,
+                    defaultTemperature, viscosity, minMass, maxMass, yieldStress,
+                    maxTemp, minTemp, maxTarget, minTarget, representativeBlock, pinned);
+        }
+        ThermalHalf thermal() {
+            return new ThermalHalf(emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas);
+        }
+        static BodyData join(CoreHalf c, ThermalHalf t) {
+            return new BodyData(c.thermalConductivity(), c.heatCapacity(), c.molarMass(),
+                    c.defaultMass(), c.defaultTemperature(), c.viscosity(), c.minMass(), c.maxMass(),
+                    c.yieldStress(), t.emissivity(), t.thermalExpansion(), t.latentHeatMin(),
+                    t.latentHeatMax(), t.tRefGas(), c.maxTemp(), c.minTemp(), c.maxTarget(),
+                    c.minTarget(), c.representativeBlock(), c.pinned());
+        }
+    }
+
+    /** First half: the original 15 canonical body fields (within DFU's 16-arg group limit). */
+    record CoreHalf(
+            float thermalConductivity,
+            float heatCapacity,
+            float molarMass,
+            float defaultMass,
+            float defaultTemperature,
+            Optional<Float> viscosity,
+            Optional<Float> minMass,
+            Optional<Float> maxMass,
+            Optional<Float> yieldStress,
             float maxTemp,
             float minTemp,
             Optional<Identifier> maxTarget,
@@ -67,47 +109,80 @@ public final class MaterialCodec {
             boolean pinned
     ) {}
 
+    /** Second half: the v4 §1.2 / law #8 thermal columns (ε / β / latent / per-gas T_ref). */
+    record ThermalHalf(
+            float emissivity,
+            float thermalExpansion,
+            float latentHeatMin,
+            float latentHeatMax,
+            float tRefGas
+    ) {}
+
     // -------------------------------------------------------------------------
-    // Internal codec for the canonical body (five required + the optionals)
+    // Internal codecs for the canonical body (five required + the optionals).
+    // Split into two halves because DFU's RecordCodecBuilder.group caps at 16 args.
     // -------------------------------------------------------------------------
 
-    private static final Codec<BodyData> BODY_CODEC = RecordCodecBuilder.create(instance ->
+    private static final Codec<CoreHalf> CORE_CODEC = RecordCodecBuilder.create(instance ->
             instance.group(
                     // Required — fieldOf (not optionalFieldOf): absent ⇒ codec error.
                     Codec.FLOAT.fieldOf("thermal_conductivity")
-                            .forGetter(BodyData::thermalConductivity),
+                            .forGetter(CoreHalf::thermalConductivity),
                     Codec.FLOAT.fieldOf("heat_capacity")
-                            .forGetter(BodyData::heatCapacity),
+                            .forGetter(CoreHalf::heatCapacity),
                     Codec.FLOAT.fieldOf("molar_mass")
-                            .forGetter(BodyData::molarMass),
+                            .forGetter(CoreHalf::molarMass),
                     Codec.FLOAT.fieldOf("default_mass")
-                            .forGetter(BodyData::defaultMass),
+                            .forGetter(CoreHalf::defaultMass),
                     Codec.FLOAT.fieldOf("default_temperature")
-                            .forGetter(BodyData::defaultTemperature),
+                            .forGetter(CoreHalf::defaultTemperature),
                     // Optional — absence handled by Material.Builder's canonical defaults.
                     Codec.FLOAT.optionalFieldOf("viscosity")
-                            .forGetter(BodyData::viscosity),
+                            .forGetter(CoreHalf::viscosity),
                     Codec.FLOAT.optionalFieldOf("min_mass")
-                            .forGetter(BodyData::minMass),
+                            .forGetter(CoreHalf::minMass),
                     Codec.FLOAT.optionalFieldOf("max_mass")
-                            .forGetter(BodyData::maxMass),
+                            .forGetter(CoreHalf::maxMass),
                     // law §8 threshold axis — absent ⇒ 0 (pure fluid), applied by the builder default.
                     Codec.FLOAT.optionalFieldOf("yield_stress")
-                            .forGetter(BodyData::yieldStress),
+                            .forGetter(CoreHalf::yieldStress),
                     Codec.FLOAT.optionalFieldOf("max_temp", Float.POSITIVE_INFINITY)
-                            .forGetter(BodyData::maxTemp),
+                            .forGetter(CoreHalf::maxTemp),
                     Codec.FLOAT.optionalFieldOf("min_temp", Float.NEGATIVE_INFINITY)
-                            .forGetter(BodyData::minTemp),
+                            .forGetter(CoreHalf::minTemp),
                     Identifier.CODEC.optionalFieldOf("max_target")
-                            .forGetter(BodyData::maxTarget),
+                            .forGetter(CoreHalf::maxTarget),
                     Identifier.CODEC.optionalFieldOf("min_target")
-                            .forGetter(BodyData::minTarget),
+                            .forGetter(CoreHalf::minTarget),
                     Identifier.CODEC.optionalFieldOf("representative_block")
-                            .forGetter(BodyData::representativeBlock),
+                            .forGetter(CoreHalf::representativeBlock),
                     Codec.BOOL.optionalFieldOf("pinned", false)
-                            .forGetter(BodyData::pinned)
-            ).apply(instance, BodyData::new)
+                            .forGetter(CoreHalf::pinned)
+            ).apply(instance, CoreHalf::new)
     );
+
+    private static final Codec<ThermalHalf> THERMAL_CODEC = RecordCodecBuilder.create(instance ->
+            instance.group(
+                    // v4 §1.2 / law #8 — radiation, convection, latent heat, per-gas EOS ref temp.
+                    // All optional, absent ⇒ 0.0 (non-declaring materials reproduce prior behaviour).
+                    Codec.FLOAT.optionalFieldOf("emissivity", 0.0f)
+                            .forGetter(ThermalHalf::emissivity),
+                    Codec.FLOAT.optionalFieldOf("thermal_expansion", 0.0f)
+                            .forGetter(ThermalHalf::thermalExpansion),
+                    Codec.FLOAT.optionalFieldOf("latent_heat_min", 0.0f)
+                            .forGetter(ThermalHalf::latentHeatMin),
+                    Codec.FLOAT.optionalFieldOf("latent_heat_max", 0.0f)
+                            .forGetter(ThermalHalf::latentHeatMax),
+                    Codec.FLOAT.optionalFieldOf("t_ref_gas", 0.0f)
+                            .forGetter(ThermalHalf::tRefGas)
+            ).apply(instance, ThermalHalf::new)
+    );
+
+    // The two halves read from the SAME flat JSON object (both are map codecs over the body).
+    private static final Codec<BodyData> BODY_CODEC =
+            Codec.pair(CORE_CODEC, THERMAL_CODEC).xmap(
+                    pair -> BodyData.join(pair.getFirst(), pair.getSecond()),
+                    bd -> com.mojang.datafixers.util.Pair.of(bd.core(), bd.thermal()));
 
     // -------------------------------------------------------------------------
     // Primary public entry point
@@ -156,6 +231,11 @@ public final class MaterialCodec {
                 .defaultTemperature(bd.defaultTemperature())
                 .minTemp(bd.minTemp())
                 .maxTemp(bd.maxTemp())
+                .emissivity(bd.emissivity())
+                .thermalExpansion(bd.thermalExpansion())
+                .latentHeatMin(bd.latentHeatMin())
+                .latentHeatMax(bd.latentHeatMax())
+                .tRefGas(bd.tRefGas())
                 .pinned(bd.pinned());
         bd.viscosity().ifPresent(b::viscosity);
         bd.minMass().ifPresent(b::minMass);
