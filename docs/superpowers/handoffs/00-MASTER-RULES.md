@@ -60,6 +60,21 @@ jumps, the 130/875 "blocked" example (pending the user's §5.2 call), sub-min→
 or raw-v persistence, and the determinism golden (regenerate with sanity asserts when RESOLVE changes).
 Do NOT weaken conservation / no-fabrication / no-overshoot / settled-no-sub-min tests — those carry over.
 
+## 🕵️ DIFFERENTIAL-EVIDENCE RULE — a failing test is YOURS until proven otherwise (anti-rationalization)
+A failure is CAUSED BY YOUR CHANGE by default. Any dismissal — "pre-existing", "flaky", "unrelated", "stale
+golden", "ULP noise" — is REJECTED unless you attach VERBATIM output of the SAME test run at the task's BASE
+commit (pre-change / merge-base) showing the IDENTICAL failure there. No base-commit receipt ⇒ it is YOUR
+regression and the task is NOT done. (Why this exists: a manager twice called real Task-2 regressions
+"pre-existing"/"ULP-flaky"; re-running at the base commit disproved both — see [[engine-b-v4-spec-redesign]].)
+- Report tests as VERBATIM runner output (pass/fail counts + the failing `<testcase>` lines), NEVER prose —
+  "all green" is unverifiable and is exactly where the lie hides.
+- "Flaky" needs proof too: ≥2 runs that actually flip AND a base-commit run — not an assertion.
+- A GOLDEN may be regenerated ONLY after the cell-by-cell diff is shown, conservation/sanity verified, and
+  the shift EXPLAINED (isolate the change: last-ULP vs relabel vs structural). Never regenerate to silence an
+  unexplained diff (and never bundle an unrelated change into the regen — isolate first).
+- The PARENT/integrator independently RE-RUNS the gate before integrating — a subagent's "done" is a claim to
+  be disproven, not a fact. Trust nothing that is not reproduced.
+
 ## 🔒 Conservation — NON-NEGOTIABLE (every task)
 - Grand mass AND per-species mass exact every step (antisymmetric flux + full-payload permutation swaps).
 - Grand ENERGY exact every step: E-fluxes antisymmetric; vel_damp/dissipation/swap-ΔPE deposit to cell E;
