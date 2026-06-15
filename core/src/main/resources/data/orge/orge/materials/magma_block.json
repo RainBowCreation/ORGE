@@ -4,5 +4,7 @@
   "molar_mass": 0.06,
   "default_mass": 100,
   "default_temperature": 600,
-  "pinned": true
+  "pinned": true,
+  "emissivity": 0.95,
+  "thermal_expansion": 2e-05
 }
