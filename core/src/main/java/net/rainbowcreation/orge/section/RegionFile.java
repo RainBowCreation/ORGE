@@ -75,12 +75,19 @@ public final class RegionFile implements Closeable {
     /**
      * Opens (or creates) the region file at {@code file}.
      *
-     * <p>A fresh file (length &lt; 2 sectors) is initialized with the ORGB header + a zeroed
-     * location table. An existing file's magic is read into a field; the location table and
-     * per-slot derived counts are loaded and the free-map is rebuilt from the payload prefixes.</p>
+     * <p>A file is CREATED (ORGB header sector + a zeroed location-table sector) ONLY when it is
+     * truly empty (length == 0). An existing (non-empty) file's ORGB magic and version are
+     * VALIDATED; a file with missing/wrong magic, an unsupported version, or a truncated header
+     * (valid magic but shorter than the full 2-sector header region) is REJECTED with an
+     * {@link IOException} — there is NO migration, the user is told to start a fresh world.
+     * Once a file is accepted, the location table and per-slot derived counts are loaded and the
+     * free-map is rebuilt from the payload prefixes.</p>
      *
      * @param file path to the .orge region file
-     * @throws IOException on I/O errors
+     * @throws IOException on I/O errors, or if an existing file is not an ORGE region file
+     *                     (missing/!=ORGB magic), is an unsupported version, or is truncated
+     *                     (corrupt header) — in every reject case: delete world/orge and start
+     *                     a fresh world
      */
     public RegionFile(Path file) throws IOException {
         raf = new RandomAccessFile(file.toFile(), "rw");
@@ -117,6 +124,16 @@ public final class RegionFile implements Closeable {
                 raf.close();
                 throw new IOException("unsupported ORGE region version " + version
                         + ", expected " + VERSION + ": " + file + " — start a fresh world");
+            }
+            // Magic+version OK, but the file must still carry the FULL 2-sector header region
+            // (sector 0 = header, sector 1 = location table). A valid-magic-but-truncated file
+            // (< 2 sectors) is corrupt — reject it with the same clear missing-magic-style message
+            // rather than letting the table read at sector 1 leak a bare EOFException. The writer
+            // never produces this (fresh-create always lays 2 full sectors); this guards corruption.
+            if (raf.length() < 2L * SECTOR_BYTES) {
+                raf.close();
+                throw new IOException("truncated/corrupt ORGE region file (header < 2 sectors): " + file
+                        + " — delete world/orge and start a fresh world");
             }
             fileMagic = magic;
 

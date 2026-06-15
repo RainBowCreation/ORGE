@@ -351,4 +351,31 @@ class RegionFileTest {
                     "fresh file must round-trip after reopen (magic was persisted)");
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Test 16: A file with VALID magic+version but truncated header (< 2 sectors)
+    // is rejected with a clear ORGE message — NOT a bare EOFException
+    // -------------------------------------------------------------------------
+
+    @Test
+    void truncatedValidHeaderRejected() throws IOException {
+        Path file = dir.resolve("trunc.0.0.orge");
+        // 8 bytes: MAGIC @0 + VERSION @4, then EOF — a valid header start but far short of the
+        // 2-sector header region. Must reject with a clear message, not a raw EOFException.
+        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "rw")) {
+            raf.setLength(8L);
+            raf.seek(0);
+            raf.writeInt(RegionFile.MAGIC);
+            raf.writeInt(RegionFile.VERSION);
+        }
+
+        IOException ex = assertThrows(IOException.class, () -> new RegionFile(file),
+                "a valid-magic but truncated (< 2 sector) file must be rejected");
+        assertFalse(ex instanceof java.io.EOFException,
+                "reject must be a clear ORGE IOException, not a bare EOFException: " + ex);
+        assertNotNull(ex.getMessage(), "reject message must be non-null (not a bare EOFException)");
+        String msg = ex.getMessage().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(msg.contains("region") || msg.contains("fresh world"),
+                "reject message must mention 'region' or 'fresh world': " + ex.getMessage());
+    }
 }
