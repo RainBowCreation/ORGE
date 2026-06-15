@@ -1,6 +1,7 @@
 package net.rainbowcreation.orge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.util.ArrayList;
@@ -123,5 +124,33 @@ class NativeEngineInjectionIT {
 
         // 5) No sealed loss for air (it escaped UP to void at y=1).
         assertEquals(0f, r.sealedLoss()[AIR], 1e-2f, "no sealed loss (air escaped UP to void)");
+
+        // 6) T10.8: the ENERGY side of the §9 ledger now crosses the JNI (ledgerOut[2n..4n)).
+        //    The E-side arrays are present and LUT-length (proves the [4*matCount] ledger was passed
+        //    AND the C++ forward-compat guard wrote the E side).
+        assertEquals(LUT.size(), r.injectedE().length, "injectedE.length == lut.size()");
+        assertEquals(LUT.size(), r.sealedE().length, "sealedE.length == lut.size()");
+
+        //    The placed 1000 kg of 290 K water carries real enthalpy: injectedE[WATER] is strongly
+        //    positive (E = mass·cp·T booked as a SOURCE; law #9). This proves the E channel is wired,
+        //    not silently dropped. (Asserting > a large floor rather than an exact value keeps the test
+        //    decoupled from the §8.1 enthalpy curve / latent plateaus.)
+        assertTrue(r.injectedE()[WATER] > 1.0e6f,
+                "ledger booked the injected water ENERGY (E side surfaced): " + r.injectedE()[WATER]);
+
+        //    Air escaped UP to void (no incumbent destroyed), so no sealed ENERGY either — the mass and
+        //    energy sides of the seal agree (both ~0 for air).
+        assertEquals(0f, r.sealedE()[AIR], 1e-2f, "no sealed ENERGY (air escaped UP to void)");
+
+        //    Grand-energy closure across the placement seam: with no sealing and one placed species,
+        //    the only ledgered energy is the injected water source — sealedE total must be ~0 and the
+        //    injected-E source must equal the water entry (nothing leaked into other species).
+        double sealedETotal = 0, injectedEOther = 0;
+        for (int s = 0; s < LUT.size(); s++) {
+            sealedETotal += r.sealedE()[s];
+            if (s != WATER) injectedEOther += r.injectedE()[s];
+        }
+        assertEquals(0.0, sealedETotal, 1e-2, "no sealed energy anywhere (clean displacement)");
+        assertEquals(0.0, injectedEOther, 1e-2, "all injected energy is the placed water species");
     }
 }

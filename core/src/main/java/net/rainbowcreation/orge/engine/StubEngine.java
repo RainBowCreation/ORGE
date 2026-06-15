@@ -32,7 +32,10 @@ public final class StubEngine implements OrgeEngine {
     public RegionStepResult stepWorld(List<ColumnTask> columns, int lutEpoch,
                                       double dtSeconds, int passes, List<EngineInjection> injections) {
         int n = epochMatCount.getOrDefault(lutEpoch, 0);
-        return new RegionStepResult(stepWorld(columns, lutEpoch, dtSeconds, passes), new float[n], new float[n]);
+        // No injection in the stub: mass + energy ledger sides are all-zero (T10.8 grew the result with
+        // injectedE/sealedE).
+        return new RegionStepResult(stepWorld(columns, lutEpoch, dtSeconds, passes),
+                new float[n], new float[n], new float[n], new float[n]);
     }
 
     @Override

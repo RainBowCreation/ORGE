@@ -21,6 +21,11 @@ public final class ScratchPool {
     private float[] velYOut = new float[0];
     private float[] velZOut = new float[0];
     private float[] pOut    = new float[0];
+    // T10.8: absolute-E (law #6) + swap-cadence accumulator (law #7, §5.3) JNI channels.
+    private float[] eIn          = new float[0];
+    private float[] swapReadyIn  = new float[0];
+    private float[] eOut         = new float[0];
+    private float[] swapReadyOut = new float[0];
 
     /** A {@code float[]} of at least {@code n}, reused when the held array is already big enough. */
     public float[] temp(int n) {
@@ -72,5 +77,37 @@ public final class ScratchPool {
     public float[] pOut(int n) {
         if (pOut.length < n) pOut = new float[n];
         return pOut;
+    }
+
+    /**
+     * Absolute-enthalpy input channel ({@code Ein} [J], law #6). The caller MUST fill every
+     * slot it intends to use (the held array may carry stale data past {@code n}); T10.8 rebuilds
+     * Ein = mass·cp·T over exactly the {@code total} cells each step, so there is no stale read.
+     */
+    public float[] eIn(int n) {
+        if (eIn.length < n) eIn = new float[n];
+        return eIn;
+    }
+
+    /**
+     * Swap-cadence accumulator input channel ({@code swapReadyIn}, law #7 / §5.3). NOT persisted to
+     * disk; seeded to 0 each step (the engine re-establishes the cadence per v4 §1.1 reset-on-mismatch).
+     * The buffer is zero-filled by the caller because it may be reused and carry stale values.
+     */
+    public float[] swapReadyIn(int n) {
+        if (swapReadyIn.length < n) swapReadyIn = new float[n];
+        return swapReadyIn;
+    }
+
+    /** Absolute-enthalpy output channel ({@code Eout} [J]). Captured from the native; see T10.8 note. */
+    public float[] eOut(int n) {
+        if (eOut.length < n) eOut = new float[n];
+        return eOut;
+    }
+
+    /** Swap-cadence accumulator output channel ({@code swapReadyOut}). Captured from the native. */
+    public float[] swapReadyOut(int n) {
+        if (swapReadyOut.length < n) swapReadyOut = new float[n];
+        return swapReadyOut;
     }
 }

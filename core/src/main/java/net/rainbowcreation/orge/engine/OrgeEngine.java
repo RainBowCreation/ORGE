@@ -32,7 +32,8 @@ public interface OrgeEngine {
                                        int lutEpoch, double dtSeconds, int passes,
                                        java.util.List<EngineInjection> injections) {
         java.util.List<ColumnResult> cols = stepWorld(columns, lutEpoch, dtSeconds, passes);
-        return new RegionStepResult(cols, new float[0], new float[0]);
+        // Default ignores injections: mass + energy ledger sides are empty (T10.8 grew the result).
+        return new RegionStepResult(cols, new float[0], new float[0], new float[0], new float[0]);
     }
 
     /** Per-section compute time of the last {@link #step}, ms — drives health throttling. */
