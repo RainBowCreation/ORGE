@@ -187,4 +187,64 @@ class EnthalpyCurveTest {
         // mass<=0 also returns fallback
         assertEquals(288f, EnthalpyCurve.deriveT(123.0, 0f, water(), lut, 288f), 0f);
     }
+
+    // ---- (N5a) Cyclic / self-referential LUT must terminate (depth cap), not StackOverflow. ----
+    @Test
+    void cyclicLutDoesNotStackOverflow() {
+        // A <-> B cycle: each material's minTarget resolves (via the lookup) to the other, forever.
+        Identifier aId = Identifier.fromNamespaceAndPath("orge", "cyc_a");
+        Identifier bId = Identifier.fromNamespaceAndPath("orge", "cyc_b");
+        Material a = Material.builder(aId)
+                .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN).viscosity(1.0e-3f)
+                .minTemp(273f).minTarget(bId).latentHeatMin(L_FREEZE)
+                .build();
+        Material b = Material.builder(bId)
+                .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN).viscosity(1.0e-3f)
+                .minTemp(273f).minTarget(aId).latentHeatMin(L_FREEZE)
+                .build();
+        Map<Identifier, Material> byId = new HashMap<>();
+        byId.put(aId, a);
+        byId.put(bId, b);
+        Function<Identifier, Material> lut = byId::get;
+
+        // The point: every entry point TERMINATES (no StackOverflowError) and falls back to ROOT (0,0),
+        // i.e. the depth-capped anchor degrades to single-slope cp*T for the off-cycle evaluation.
+        float T = 350f;
+        double h = EnthalpyCurve.hOf(a, lut, T);
+        assertEquals(4186.0 * 350.0, h, 1e-3, "cyclic LUT degrades hOf to ROOT single-slope cp*T");
+        assertEquals(350f, EnthalpyCurve.tOfEta(a, lut, h, Float.NaN), 1e-2f, "cyclic tOfEta terminates on slope");
+        double E = 1000.0 * h;
+        assertEquals(350f, EnthalpyCurve.deriveT(E, 1000f, a, lut, Float.NaN), 1e-2f,
+                "cyclic deriveT terminates on slope");
+    }
+
+    // ---- (N5b) minTarget present but latentHeatMin == 0 => no plateau pin (the `&& L > 0f` guard). ----
+    @Test
+    void targetPresentButZeroLatentSkipsPlateau() {
+        // water-like row but with a resolvable minTarget and ZERO latent: T must derive straight on the
+        // slope through what would be the threshold, with NO plateau pin at 273.
+        Identifier zId = Identifier.fromNamespaceAndPath("orge", "zero_latent");
+        Material z = Material.builder(zId)
+                .thermalConductivity(0.6f).heatCapacity(4186f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN).viscosity(1.0e-3f)
+                .minTemp(273f).minTarget(ICE).latentHeatMin(0f) // resolvable target, zero latent => no plateau
+                .build();
+        Map<Identifier, Material> byId = new HashMap<>();
+        byId.put(ICE, ice());
+        byId.put(zId, z);
+        Function<Identifier, Material> lut = byId::get;
+
+        // anchor: ice ROOT (0,0); h_anchor = ice.cp*273 + 0 = 2108*273. At eta = h(273) and just below it,
+        // T derives straight on the slope (273 at the anchor, < 273 below) -- NO pin to 273.
+        double hAnchor = 2108.0 * 273.0; // h(273), L=0 so no offset
+        double mass = 1000.0;
+        // exactly at the would-be threshold: 273 (anchor point, on the slope, not a plateau)
+        assertEquals(273f, EnthalpyCurve.deriveT(mass * hAnchor, (float) mass, z, lut, Float.NaN), 1e-2f);
+        // 5 K of slope below the threshold: with NO plateau, T = 268 straight on the slope.
+        double etaBelow = hAnchor - 4186.0 * 5.0;
+        assertEquals(268f, EnthalpyCurve.deriveT(mass * etaBelow, (float) mass, z, lut, Float.NaN), 1e-2f,
+                "zero latent => no plateau pin, T resumes on slope below threshold");
+    }
 }

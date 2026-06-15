@@ -46,14 +46,37 @@ public final class EnthalpyCurve {
      * ROOT (no resolvable {@code minTarget}) ⇒ {@code (0, 0)} so {@code h(T) = cp·T} (matches the engine
      * bit-for-bit for non-phase rows).
      */
+    /** Sentinel signalling a cyclic LUT was detected below this frame — fail the WHOLE walk closed to ROOT. */
+    private static final CurveAnchor CYCLE = new CurveAnchor(Double.NaN, Double.NaN);
+
     private static CurveAnchor curveAnchor(Material m, Function<Identifier, Material> lookup) {
+        CurveAnchor ca = curveAnchor(m, lookup, 0);
+        // A cycle anywhere along the chain collapses the entire material to ROOT (single slope cp·T) — we
+        // can't trust ANY accumulated latent offset once the chain is non-terminating.
+        return (ca == CYCLE) ? new CurveAnchor(0.0, 0.0) : ca;
+    }
+
+    /**
+     * Depth-bounded recursion. Spec §8.1 caps the cold chain at ≤ 3 hops, so a cap of 8 never trips for
+     * valid data; it fails closed to ROOT {@code (0,0)} only on a cyclic / self-referential datapack LUT
+     * (e.g. {@code minTarget} resolving back to self, or A→B→A), guaranteeing termination instead of a
+     * StackOverflow. The {@link #CYCLE} sentinel propagates up so the whole material degrades to ROOT
+     * (not a partially-offset anchor). A self-target is just the degenerate cycle — caught by the same cap.
+     */
+    private static CurveAnchor curveAnchor(Material m, Function<Identifier, Material> lookup, int depth) {
+        if (depth > 8) {
+            return CYCLE; // cyclic LUT: fail closed to ROOT (single slope), propagated up the stack
+        }
         Identifier coldId = m.minTarget();
         Material colder = (coldId == null) ? null : lookup.apply(coldId);
         if (colder == null) {
             return new CurveAnchor(0.0, 0.0); // ROOT: legacy single slope
         }
         double tStar = m.minTemp();
-        CurveAnchor ca = curveAnchor(colder, lookup);
+        CurveAnchor ca = curveAnchor(colder, lookup, depth + 1);
+        if (ca == CYCLE) {
+            return CYCLE; // a cycle below: don't add this frame's offset, just propagate ROOT-collapse up
+        }
         double hColderAtStar = ca.hAnchor() + (double) colder.heatCapacity() * (tStar - ca.tAnchor());
         // This material sits L above its colder phase at the shared threshold (latent released on freeze).
         return new CurveAnchor(tStar, hColderAtStar + (double) m.latentHeatMin());
@@ -81,6 +104,8 @@ public final class EnthalpyCurve {
         // Affine inverse on this material's own slope.
         double T = a.tAnchor() + (eta - a.hAnchor()) / cp;
 
+        // NOTE: the anchor chain walks ONLY the cold side (minTarget); the hot-side band below is layered
+        // above h(maxTemp) on this same curve, not by walking maxTarget.
         // maxTemp plateau (HEATING into the hotter phase, e.g. water boil at 373): the latent band sits
         // ABOVE h(maxTemp) = [h(T*), h(T*)+latentHeatMax], pinned at T*. Above the band, subtract L so T
         // resumes on the slope. (No maxTarget => no plateau on this side.)
