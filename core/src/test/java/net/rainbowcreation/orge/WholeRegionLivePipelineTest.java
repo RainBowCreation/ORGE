@@ -126,9 +126,9 @@ class WholeRegionLivePipelineTest {
                             mass[s][si] = r.mass()[ci];
                             temp[s][si] = r.temperature()[ci];
                             prior[s][si] = r.matIx()[ci]; // signature = engine output species
-                            velX[s][si] = r.velX()[ci];
-                            velY[s][si] = r.velY()[ci];
-                            velZ[s][si] = r.velZ()[ci];
+                            velX[s][si] = r.momX()[ci];
+                            velY[s][si] = r.momY()[ci];
+                            velZ[s][si] = r.momZ()[ci];
                         }
                     }
             }

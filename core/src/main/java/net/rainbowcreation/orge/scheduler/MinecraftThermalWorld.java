@@ -796,9 +796,11 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             // mass. A massless cell ⇒ momentum 0 (m·v = 0) ⇒ no velocity-ghost when a cell is thinned.
             // The section is already FULL from the E/mass array writes above, so momXArray() etc. allocate
             // safely. Does NOT gate mass conservation.
-            float[] secVx = ColumnSectionCodec.sliceSectionChannel(result.velX(), sectionY);
-            float[] secVy = ColumnSectionCodec.sliceSectionChannel(result.velY(), sectionY);
-            float[] secVz = ColumnSectionCodec.sliceSectionChannel(result.velZ(), sectionY);
+            // F2-S5-TODO: ColumnResult momentum channel renamed (velX→momX); writeback still treats it as
+            // velocity (v=p/m reconstruction) — full momentum-direct writeback is S4/S6.
+            float[] secVx = ColumnSectionCodec.sliceSectionChannel(result.momX(), sectionY);
+            float[] secVy = ColumnSectionCodec.sliceSectionChannel(result.momY(), sectionY);
+            float[] secVz = ColumnSectionCodec.sliceSectionChannel(result.momZ(), sectionY);
             float[] cleanVx = StepValidator.cleanVelocity(secVx, null);
             float[] cleanVy = StepValidator.cleanVelocity(secVy, null);
             float[] cleanVz = StepValidator.cleanVelocity(secVz, null);

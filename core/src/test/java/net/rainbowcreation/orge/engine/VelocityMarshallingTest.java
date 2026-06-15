@@ -5,6 +5,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 import static net.rainbowcreation.orge.engine.RegionMarshaller.CHUNK_N;
 
+// F2-S5-TODO: stale velocity name — channel renamed velX→momX / vxIn→pxIn (accessor refs flipped to
+// compile); assertions still read momentum slots as velocity. S5 re-authors this for the momentum ABI.
 class VelocityMarshallingTest {
     @Test
     void flattenSliceRoundTripsVelocity() {
@@ -15,20 +17,20 @@ class VelocityMarshallingTest {
         vx[probe] = 1.5f; vy[probe] = -2.0f; vz[probe] = 0.25f;
         ColumnTask col = new ColumnTask(3, -7, mat, mass, t, vx, vy, vz);  // 8-arg canonical
         RegionMarshaller.Flat flat = RegionMarshaller.flatten(List.of(col));
-        assertEquals(1.5f, flat.vxIn()[probe]);
+        assertEquals(1.5f, flat.pxIn()[probe]);
         List<ColumnResult> out = RegionMarshaller.slice(
-                flat.matIx(), flat.mass(), flat.tIn(), flat.vxIn(), flat.vyIn(), flat.vzIn(), 1);
-        assertEquals(-2.0f, out.get(0).velY()[probe]);
+                flat.matIx(), flat.mass(), flat.tIn(), flat.pxIn(), flat.pyIn(), flat.pzIn(), 1);
+        assertEquals(-2.0f, out.get(0).momY()[probe]);
     }
 
     @Test
     void backCompatConstructorsZeroFillVelocity() {
         char[] mat = new char[CHUNK_N]; float[] mass = new float[CHUNK_N]; float[] t = new float[CHUNK_N];
         ColumnTask col = new ColumnTask(0, 0, mat, mass, t);   // OLD 5-arg still compiles
-        assertEquals(CHUNK_N, col.velX().length);
-        assertEquals(0f, col.velX()[100]);
+        assertEquals(CHUNK_N, col.momX().length);
+        assertEquals(0f, col.momX()[100]);
         ColumnResult r = new ColumnResult(mat, mass, t);       // OLD 3-arg still compiles
-        assertEquals(CHUNK_N, r.velY().length);
+        assertEquals(CHUNK_N, r.momY().length);
     }
 
     @Test
@@ -44,7 +46,7 @@ class VelocityMarshallingTest {
         assertEquals(9876.5f, flat.pIn()[probe], "pressure flattened");
         List<ColumnResult> out = RegionMarshaller.slice(
                 flat.matIx(), flat.mass(), flat.tIn(),
-                flat.vxIn(), flat.vyIn(), flat.vzIn(), flat.pIn(), 1);
+                flat.pxIn(), flat.pyIn(), flat.pzIn(), flat.pIn(), 1);
         assertEquals(9876.5f, out.get(0).p()[probe], "pressure sliced back");
     }
 

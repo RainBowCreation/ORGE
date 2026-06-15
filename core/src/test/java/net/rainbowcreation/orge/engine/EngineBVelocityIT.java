@@ -18,6 +18,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static net.rainbowcreation.orge.engine.TestMaterials.lutOf;
 import static net.rainbowcreation.orge.engine.TestMaterials.registryOf;
 
+// F2-S5-TODO: stale velocity name — channel renamed velX→momX (accessor refs flipped to compile);
+// assertions still read momentum slots as velocity. S5 re-authors this test for the momentum ABI.
 @Tag("integration")
 class EngineBVelocityIT {
     private static boolean nativeAvailable() {
@@ -59,7 +61,7 @@ class EngineBVelocityIT {
         mat[cell]=(char)1; mass[cell]=1000f; t[cell]=290f;
         ColumnTask col = new ColumnTask(0,0, mat, mass, t);
         ColumnResult r = engine.stepWorld(java.util.List.of(col), 102, 0.25, OrgeEngine.PASS_ADVECTION).get(0);
-        assertTrue(Float.isFinite(r.velX()[cell]), "velocity-out finite after step");
+        assertTrue(Float.isFinite(r.momX()[cell]), "velocity-out finite after step");
     }
 
     @Test
@@ -148,14 +150,14 @@ class EngineBVelocityIT {
 
         ColumnTask task = ColumnAssembler.assemble(0, 0, lut, reg, src);
 
-        assertEquals(expectedVx, task.velX()[expectedEngineIdx], 1e-6f,
+        assertEquals(expectedVx, task.momX()[expectedEngineIdx], 1e-6f,
                 "velX scattered to correct engine index");
-        assertEquals(expectedVy, task.velY()[expectedEngineIdx], 1e-6f,
+        assertEquals(expectedVy, task.momY()[expectedEngineIdx], 1e-6f,
                 "velY scattered to correct engine index");
-        assertEquals(expectedVz, task.velZ()[expectedEngineIdx], 1e-6f,
+        assertEquals(expectedVz, task.momZ()[expectedEngineIdx], 1e-6f,
                 "velZ scattered to correct engine index");
         // Cells not set must be zero.
-        assertEquals(0f, task.velX()[0], "unset velX must be zero");
+        assertEquals(0f, task.momX()[0], "unset velX must be zero");
     }
 
     /**
@@ -173,7 +175,7 @@ class EngineBVelocityIT {
 
         ColumnTask t3 = ColumnAssembler.assemble(0, 0, lut, reg, src3arg);
         for (int i = 0; i < RegionMarshaller.CHUNK_N; i++) {
-            if (t3.velX()[i] != 0f || t3.velY()[i] != 0f || t3.velZ()[i] != 0f) {
+            if (t3.momX()[i] != 0f || t3.momY()[i] != 0f || t3.momZ()[i] != 0f) {
                 fail("Back-compat 3-arg: velocity must be all zeros but cell " + i + " is non-zero");
             }
         }
@@ -184,7 +186,7 @@ class EngineBVelocityIT {
 
         ColumnTask t4 = ColumnAssembler.assemble(0, 0, lut, reg, src4arg);
         for (int i = 0; i < RegionMarshaller.CHUNK_N; i++) {
-            if (t4.velX()[i] != 0f || t4.velY()[i] != 0f || t4.velZ()[i] != 0f) {
+            if (t4.momX()[i] != 0f || t4.momY()[i] != 0f || t4.momZ()[i] != 0f) {
                 fail("Back-compat 4-arg: velocity must be all zeros but cell " + i + " is non-zero");
             }
         }

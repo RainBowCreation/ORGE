@@ -142,9 +142,9 @@ public final class NativeEngine implements OrgeEngine {
         }
 
         // Velocity + dynamic-pressure in from flatten; out from pool.
-        float[] vxIn  = f.vxIn();
-        float[] vyIn  = f.vyIn();
-        float[] vzIn  = f.vzIn();
+        float[] vxIn  = f.pxIn();   // F2-S5-TODO: Flat momentum channel renamed; full feed-in rework is S5/S6
+        float[] vyIn  = f.pyIn();
+        float[] vzIn  = f.pzIn();
         float[] pIn   = f.pIn();
         float[] vxOut = scratch.velXOut(total);
         float[] vyOut = scratch.velYOut(total);

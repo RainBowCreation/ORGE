@@ -52,7 +52,7 @@ class RegionMarshallerTest {
         float[] eOut = new float[N * 2];
         for (int k = 0; k < N; k++) { eOut[k] = 9000f + k; eOut[N + k] = 13000f + k; }
         List<ColumnResult> r = RegionMarshaller.slice(f.matIx(), f.mass(), f.tIn(),
-                f.vxIn(), f.vyIn(), f.vzIn(), f.pIn(), f.swapReadyIn(), eOut, 2);
+                f.pxIn(), f.pyIn(), f.pzIn(), f.pIn(), f.swapReadyIn(), eOut, 2);
         for (int k = 0; k < N; k += 7919) {
             assertEquals(9000f + k,  r.get(0).enthalpy()[k], "col0 enthalpy out");
             assertEquals(13000f + k, r.get(1).enthalpy()[k], "col1 enthalpy out");
