@@ -51,8 +51,10 @@ public final class ColumnAssembler {
      *    <li>{@code storedMaterial} — the DURABLE per-cell stored material id (authoritative), or
      *        {@code null} = the cell's section has no stored layer ⇒ use first-touch {@code matIx}.
      *        Length 4096.</li>
-     *    <li>{@code velX}/{@code velY}/{@code velZ} — per-cell velocity (m/s) from the SectionStore,
-     *        or all-zero for never-simulated / back-compat callers. Length 4096.</li>
+     *    <li>{@code momX}/{@code momY}/{@code momZ} — per-cell EXTENSIVE momentum p [kg·m/s] (law §7;
+     *        §1.1 persisted extensive set) sourced RAW from the SectionStore, or all-zero for
+     *        never-simulated / back-compat callers. Crosses to the engine with NO conversion (mirror of
+     *        the enthalpy channel — never down-converted to velocity here). Length 4096.</li>
      *    <li>{@code p} — per-cell dynamic pressure (Pa-ish gauge, >=0) from the SectionStore, or
      *        all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *    <li>{@code swapReady} — per-cell swap-cadence accumulator (law #7 / §5.3 bookkeeping,
@@ -62,36 +64,36 @@ public final class ColumnAssembler {
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
-                               float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady,
+                               float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
                                float[] enthalpy) {
         /** Back-compat: swapReady supplied, zero enthalpy (absolute E [J]). */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
-                            float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady) {
+                            float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial,
-                 velX, velY, velZ, p, swapReady, new float[matIx.length]);
+                 momX, momY, momZ, p, swapReady, new float[matIx.length]);
         }
         /** Back-compat: pressure supplied, zero swap-cadence accumulator, zero enthalpy. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
-                            float[] velX, float[] velY, float[] velZ, float[] p) {
+                            float[] momX, float[] momY, float[] momZ, float[] p) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial,
-                 velX, velY, velZ, p, new float[matIx.length]);
+                 momX, momY, momZ, p, new float[matIx.length]);
         }
-        /** Back-compat: velocity supplied, zero pressure, zero swap-cadence accumulator. */
+        /** Back-compat: momentum supplied, zero pressure, zero swap-cadence accumulator. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
-                            float[] velX, float[] velY, float[] velZ) {
+                            float[] momX, float[] momY, float[] momZ) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial,
-                 velX, velY, velZ, new float[matIx.length]);
+                 momX, momY, momZ, new float[matIx.length]);
         }
-        /** Convenience: prior signature + stored material layer, zero velocity, zero pressure. */
+        /** Convenience: prior signature + stored material layer, zero momentum, zero pressure. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial,
                  new float[matIx.length], new float[matIx.length], new float[matIx.length]);
         }
-        /** Back-compat: prior signature, no stored material layer, zero velocity, zero pressure. */
+        /** Back-compat: prior signature, no stored material layer, zero momentum, zero pressure. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies) {
             this(matIx, mass, temperature, priorSpecies, new Identifier[matIx.length]);
         }
@@ -112,9 +114,9 @@ public final class ColumnAssembler {
         char[] matIx = new char[N];
         float[] mass = new float[N];
         float[] temp = new float[N];
-        float[] velX = new float[N];
-        float[] velY = new float[N];
-        float[] velZ = new float[N];
+        float[] momX = new float[N];
+        float[] momY = new float[N];
+        float[] momZ = new float[N];
         float[] p    = new float[N];
         float[] swapReady = new float[N];
         float[] enthalpy = new float[N];
@@ -157,9 +159,11 @@ public final class ColumnAssembler {
                         matIx[ci] = mat;
                         mass[ci] = seeded;
                         temp[ci] = cells.temperature()[si];
-                        velX[ci] = cells.velX()[si];
-                        velY[ci] = cells.velY()[si];
-                        velZ[ci] = cells.velZ()[si];
+                        // Extensive momentum p [kg·m/s] copied RAW (mirror of the enthalpy channel) —
+                        // crosses to the engine with NO velocity conversion (law §7 / §1.1).
+                        momX[ci] = cells.momX()[si];
+                        momY[ci] = cells.momY()[si];
+                        momZ[ci] = cells.momZ()[si];
                         p[ci]    = cells.p()[si];
                         swapReady[ci] = cells.swapReady()[si];
                         // Thermal truth is EXTENSIVE E [J] (law §7: store extensive, derive intensive).
@@ -177,7 +181,7 @@ public final class ColumnAssembler {
                 }
             }
         }
-        return new ColumnTask(cx, cz, matIx, mass, temp, velX, velY, velZ, p, swapReady, enthalpy);
+        return new ColumnTask(cx, cz, matIx, mass, temp, momX, momY, momZ, p, swapReady, enthalpy);
     }
 
     private ColumnAssembler() {}

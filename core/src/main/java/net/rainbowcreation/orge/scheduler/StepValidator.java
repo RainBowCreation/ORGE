@@ -361,6 +361,24 @@ public final class StepValidator {
     }
 
     /**
+     * Sanitizes an EXTENSIVE momentum channel p [kg·m/s] (law §7 / §1.1 persisted extensive set):
+     * non-finite values (NaN / ±Inf) are replaced by {@code fallback[i]} when {@code fallback} is
+     * non-null, or by 0 when {@code fallback} is null; finite values pass through UNCHANGED. Momentum
+     * is signed and unbounded (it has no domain clamp) and is INDEPENDENT of the §9 mass clamp — it is
+     * stored exactly as the engine emitted it (POLICY (i)), mirroring the enthalpy-E writeback. The
+     * sanitize body is IDENTICAL to {@link #cleanVelocity}; this delegates to it rather than duplicate a
+     * third drifting copy, while giving the momentum writeback a correctly-named entry point. Inputs are
+     * not mutated.
+     *
+     * @param p        raw engine output momentum channel
+     * @param fallback values to keep where {@code p} is non-finite, or {@code null} to default to 0
+     * @return a new sanitized array of the same length
+     */
+    public static float[] cleanMomentum(float[] p, float[] fallback) {
+        return cleanVelocity(p, fallback);
+    }
+
+    /**
      * Sanitizes a dynamic-pressure channel: non-finite values (NaN / ±Inf) are replaced by
      * {@code fallback[i]} when {@code fallback} is non-null, or by 0 when {@code fallback} is null.
      * Finite values are clamped to {@code >= 0} — unlike velocity, pressure is a non-negative gauge

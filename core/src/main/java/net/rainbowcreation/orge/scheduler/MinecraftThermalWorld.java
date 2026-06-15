@@ -702,16 +702,18 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     storedMaterial[i] = store.materialAt(cx, cz, sectionY, i);
                 }
             }
-            // Velocity + dynamic pressure + STORED absolute E: read per-cell stored values from the
-            // SectionStore when available; otherwise zero-fill (never-simulated / back-compat default).
+            // Extensive momentum + dynamic pressure + STORED absolute E: read per-cell stored values from
+            // the SectionStore when available; otherwise zero-fill (never-simulated / back-compat default).
             // Threading p back in is what lets depth-pressure ACCUMULATE across engine steps (the JNI
             // rebuilds a fresh World each call, so without persisting p it would reset to 0 every step).
+            // F2 (law §7 / §1.1): SectionCells.momX/Y/Z carry the raw STORED EXTENSIVE momentum p [kg·m/s],
+            // sourced loss-free (NO v=p/m down-conversion at this seam) exactly like the stored E channel.
             // S6 (law §6/§7): SectionCells.enthalpy carries the raw STORED extensive E [J] (loss-free to
             // the engine's eIn); the engine's TEMPERATURE channel (tIn diagnostic) carries a DERIVED,
             // CLAMPED T = h⁻¹(E/m) per cell — NEVER the raw E. Never-simulated cells: E = 0 (void/empty).
-            float[] velX = new float[SectionData.CELLS];
-            float[] velY = new float[SectionData.CELLS];
-            float[] velZ = new float[SectionData.CELLS];
+            float[] momX = new float[SectionData.CELLS];
+            float[] momY = new float[SectionData.CELLS];
+            float[] momZ = new float[SectionData.CELLS];
             float[] p    = new float[SectionData.CELLS];
             float[] swapReady = new float[SectionData.CELLS];
             float[] enthalpy = new float[SectionData.CELLS];
@@ -726,13 +728,13 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 temps = new float[SectionData.CELLS];
                 for (int i = 0; i < SectionData.CELLS; i++) {
                     float mi = mass[i];
-                    // Velocity is DERIVED from stored extensive momentum: v = p/mass (law §7 — raw v is
-                    // never stored). Guard mass>0 (else resting 0).
-                    if (mi > 0f) {
-                        velX[i] = sd.momXAt(i) / mi;
-                        velY[i] = sd.momYAt(i) / mi;
-                        velZ[i] = sd.momZAt(i) / mi;
-                    }
+                    // F2 (law §7 / §1.1): EXTENSIVE momentum p [kg·m/s] crosses RAW (mirror of the stored E
+                    // channel) — NO v=p/m down-conversion here, and NO mass guard. A resting/thinned-then-
+                    // refilled cell carries its stored p regardless of current mass; a resting massless cell
+                    // already has stored p == 0, so the unguarded copy is exact in both cases.
+                    momX[i] = sd.momXAt(i);
+                    momY[i] = sd.momYAt(i);
+                    momZ[i] = sd.momZAt(i);
                     p[i]    = sd.pAt(i);
                     swapReady[i] = sd.swapReadyAt(i);
                     // Raw stored absolute E [J] handed to the engine loss-free (NEVER as Kelvin).
@@ -751,7 +753,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 temps = AmbientSeeder.seed(cellMat::at, ambientK);
             }
             return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                    velX, velY, velZ, p, swapReady, enthalpy);
+                    momX, momY, momZ, p, swapReady, enthalpy);
         };
     }
 
@@ -790,29 +792,23 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             }
             float[] dstM = data.massArray();
             System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
-            // Momentum write-back (S6, law §7): store EXTENSIVE momentum p = m·vOut, NOT the raw engine
-            // velocity (which would be a velocity-ghost on reload). Sanitize non-finite v → 0 first, then
-            // multiply by the WRITTEN-BACK per-cell mass (cleanM) so p = m·v is consistent with stored
-            // mass. A massless cell ⇒ momentum 0 (m·v = 0) ⇒ no velocity-ghost when a cell is thinned.
-            // The section is already FULL from the E/mass array writes above, so momXArray() etc. allocate
-            // safely. Does NOT gate mass conservation.
-            // F2-S5-TODO: ColumnResult momentum channel renamed (velX→momX); writeback still treats it as
-            // velocity (v=p/m reconstruction) — full momentum-direct writeback is S4/S6.
-            float[] secVx = ColumnSectionCodec.sliceSectionChannel(result.momX(), sectionY);
-            float[] secVy = ColumnSectionCodec.sliceSectionChannel(result.momY(), sectionY);
-            float[] secVz = ColumnSectionCodec.sliceSectionChannel(result.momZ(), sectionY);
-            float[] cleanVx = StepValidator.cleanVelocity(secVx, null);
-            float[] cleanVy = StepValidator.cleanVelocity(secVy, null);
-            float[] cleanVz = StepValidator.cleanVelocity(secVz, null);
-            float[] momX = data.momXArray();
-            float[] momY = data.momYArray();
-            float[] momZ = data.momZArray();
-            for (int i = 0; i < SectionData.CELLS; i++) {
-                float m = cleanM[i];
-                momX[i] = m * cleanVx[i];
-                momY[i] = m * cleanVy[i];
-                momZ[i] = m * cleanVz[i];
-            }
+            // Momentum write-back (F2, law §7 / §1.1, POLICY (i)): store the engine's AUTHORITATIVE
+            // EXTENSIVE momentum p [kg·m/s] (result.momX/Y/Z = engine pxOut/pyOut/pzOut) UNCHANGED — the
+            // EXACT mirror of the enthalpy-E writeback above. Momentum is signed/unbounded, so it carries
+            // NO domain clamp; it is INDEPENDENT of the §9 mass clamp (NO cleanM·vOut rescale — that
+            // reconstruction WAS the law-#7 velocity-ghost). Only non-finite values are sanitized to 0
+            // (cleanMomentum, which delegates to the shared finite-or-0 sanitizer). The section is already
+            // FULL from the E/mass array writes above, so momXArray() etc. allocate safely. Does NOT gate
+            // mass conservation.
+            float[] secPx = ColumnSectionCodec.sliceSectionChannel(result.momX(), sectionY);
+            float[] secPy = ColumnSectionCodec.sliceSectionChannel(result.momY(), sectionY);
+            float[] secPz = ColumnSectionCodec.sliceSectionChannel(result.momZ(), sectionY);
+            float[] cleanPx = StepValidator.cleanMomentum(secPx, null);
+            float[] cleanPy = StepValidator.cleanMomentum(secPy, null);
+            float[] cleanPz = StepValidator.cleanMomentum(secPz, null);
+            System.arraycopy(cleanPx, 0, data.momXArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanPy, 0, data.momYArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanPz, 0, data.momZArray(), 0, SectionData.CELLS);
             // Dynamic-pressure write-back: slice the single p channel, sanitize non-finite AND clamp
             // negatives to 0 (p >= 0 — a free surface is p=0), then persist into the SectionData p array.
             // Persisting p is what makes depth-pressure survive across engine steps and save/load.
