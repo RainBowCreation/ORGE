@@ -55,6 +55,15 @@ class ResidentLutParityIT {
      * regenerated again 2026-06-10 for the issue-#8 enthalpy-cargo advection (DECODE derives T
      * from E_new = E_snap + Σṁ·h instead of the float mass-weighted T mix — last-ULP T shifts
      * on moving cells).
+     * Re-captured 2026-06-15 for the T10 .so rebuild: the golden was re-captured after the T4-T9
+     * RESOLVE evolution (swap cadence / ρ_eff convection / released-PE→heat / gas density+eviction
+     * fixes) shifted matIx[49672] (the only assertion that diverged). This is the documented
+     * "regenerate the determinism golden when RESOLVE changes" case (00-MASTER-RULES §STALE TESTS),
+     * NOT a wiring bug: the synthetic LUT here leaves the 5 new v4 §1.2 columns (ε / β / latentHeat /
+     * T_ref_gas / + the new schema field) at 0, so T10's activation of those columns is itself
+     * unaffected by — and contributes nothing to — this capture. Grand-mass conservation of the
+     * 8-step result was verified before accepting (3030.000000 in vs 3029.999898 out, Δ≈-1e-4 kg
+     * float noise; 12 occupied cells; temps [300.003, 1500.016] K; no NaN/Inf, no 0/6000K ghost).
      * The other two tests ({@code oldEpoch...}, {@code unknownEpoch...}) prove run-to-run determinism
      * independently, making this capture stable.
      */
