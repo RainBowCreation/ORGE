@@ -177,11 +177,12 @@ public final class NativeEngine implements OrgeEngine {
         } else {
             java.util.Arrays.fill(eIn, 0, total, 0f);
         }
-        // swapReadyIn: seed to 0 (NOT persisted to disk; the engine round-trips it WITHIN the call and
-        // re-establishes the cadence across calls per v4 §1.1 reset-on-mismatch). The scratch buffer may
-        // be reused, so zero exactly the [0,total) window we hand the native.
-        float[] swapReadyIn = scratch.swapReadyIn(total);
-        java.util.Arrays.fill(swapReadyIn, 0, total, 0f);
+        // swapReadyIn: sourced from the persisted Java channel (ColumnTask.swapReady, marshalled into
+        // Flat.swapReadyIn) — taken straight from Flat, exactly like vxIn = f.vxIn(). The engine reads it
+        // directly, round-trips it, and resets-on-mismatch per v4 §1.1. Java now PERSISTS this channel
+        // across stepWorld calls (T10c) so the §5.3 seconds-floor swap cadence can accumulate toward its
+        // ≥1 fire threshold instead of being re-zeroed each tick.
+        float[] swapReadyIn = f.swapReadyIn();
         // Eout/swapReadyOut: captured into scratch. ColumnResult.temperature (T-derived) still carries the
         // thermal state for the live write-back, so Eout is not yet consumed downstream — that is fine for
         // this subtask (Subtask 9 wires absolute-E persistence). Captured to satisfy the loss-free seam.
@@ -209,7 +210,7 @@ public final class NativeEngine implements OrgeEngine {
             System.arraycopy(ledgerOut, 3 * matCount, sealedE, 0, matCount);
         }
         return new RegionStepResult(
-                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, f.nCols()),
+                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, f.nCols()),
                 injected, sealedLoss, injectedE, sealedE);
     }
 

@@ -90,9 +90,11 @@ public final class ScratchPool {
     }
 
     /**
-     * Swap-cadence accumulator input channel ({@code swapReadyIn}, law #7 / §5.3). NOT persisted to
-     * disk; seeded to 0 each step (the engine re-establishes the cadence per v4 §1.1 reset-on-mismatch).
-     * The buffer is zero-filled by the caller because it may be reused and carry stale values.
+     * Swap-cadence accumulator input channel ({@code swapReadyIn}, law #7 / §5.3). As of T10c,
+     * {@link NativeEngine} no longer sources its swapReadyIn from this buffer — it takes the marshalled
+     * {@code Flat.swapReadyIn} (the PERSISTED {@link ColumnTask#swapReady} channel) straight through, so
+     * the §5.3 seconds-floor cadence accumulates across stepWorld calls. This buffer is kept (harmless)
+     * but may be unreferenced; do not assert any zero-seed-each-call behavior on it.
      */
     public float[] swapReadyIn(int n) {
         if (swapReadyIn.length < n) swapReadyIn = new float[n];

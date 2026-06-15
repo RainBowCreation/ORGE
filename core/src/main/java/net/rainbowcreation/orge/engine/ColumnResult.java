@@ -2,7 +2,14 @@ package net.rainbowcreation.orge.engine;
 
 /** Next-state of one column, same length/order as ColumnTask. */
 public record ColumnResult(char[] matIx, float[] mass, float[] temperature,
-                           float[] velX, float[] velY, float[] velZ, float[] p) {
+                           float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady) {
+
+    /** Back-compat constructor — swapReady channel zero-filled to CHUNK_N (T10c §5.3 cadence accumulator). */
+    public ColumnResult(char[] matIx, float[] mass, float[] temperature,
+                        float[] velX, float[] velY, float[] velZ, float[] p) {
+        this(matIx, mass, temperature, velX, velY, velZ, p,
+             new float[RegionMarshaller.CHUNK_N]);
+    }
 
     /** Back-compat constructor — pressure channel zero-filled to CHUNK_N. */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature,
