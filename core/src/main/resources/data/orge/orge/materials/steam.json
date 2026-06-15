@@ -9,8 +9,8 @@
   "default_temperature": 400,
   "emissivity": 0,
   "thermal_expansion": 0,
-  "latent_heat_min": 0,
-  "latent_heat_max": 2.256e6,
+  "latent_heat_min": 2.256e6,
+  "latent_heat_max": 0,
   "t_ref_gas": 373,
   "min_temp": 373,
   "min_target": "orge:water"

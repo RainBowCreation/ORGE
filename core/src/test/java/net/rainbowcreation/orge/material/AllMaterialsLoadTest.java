@@ -216,9 +216,11 @@ class AllMaterialsLoadTest {
         // stone: melt 4.0e5 on the max side
         assertEquals(0f,     stone.latentHeatMin(), 1e-6f, "stone L_min = 0");
         assertEquals(4.0e5f, stone.latentHeatMax(), Math.abs(4.0e5f) * 1e-4f + 1e-6f, "stone L_max (melt)");
-        // steam: condense 2.256e6 on the max side (per loaded datapack)
-        assertEquals(0f,       steam.latentHeatMin(), 1e-6f, "steam L_min = 0");
-        assertEquals(2.256e6f, steam.latentHeatMax(), Math.abs(2.256e6f) * 1e-4f + 1e-6f, "steam L_max (condense)");
+        // steam: condense 2.256e6 on the MIN side (steam's only transition is minTemp 373 -> water;
+        // latentHeatMin is keyed to the minTemp/minTarget transition per real_lut.hpp + sim_engine.hpp
+        // curve anchor — the engine applies the min plateau iff minTarget set AND latentHeatMin>0)
+        assertEquals(2.256e6f, steam.latentHeatMin(), Math.abs(2.256e6f) * 1e-4f + 1e-6f, "steam L_min (condense)");
+        assertEquals(0f,       steam.latentHeatMax(), 1e-6f, "steam L_max = 0 (no max transition)");
         // ice: melt 3.34e5 on the max side
         assertEquals(0f,      ice.latentHeatMin(), 1e-6f, "ice L_min = 0");
         assertEquals(3.34e5f, ice.latentHeatMax(), Math.abs(3.34e5f) * 1e-4f + 1e-6f, "ice L_max (melt)");
