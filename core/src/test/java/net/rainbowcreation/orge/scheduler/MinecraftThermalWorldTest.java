@@ -354,21 +354,27 @@ class MinecraftThermalWorldTest {
     }
 
     /**
-     * S6 (re-authored from the stale T15-E velocity bridge — law §7): writeBackColumn stores EXTENSIVE
-     * momentum {@code p = m·vOut}, NOT the raw engine velocity. With a finite mass the stored momentum is
-     * {@code m·v}; non-finite velocity sanitises to 0 first (so {@code m·0 = 0}); a massless cell stores
-     * momentum 0 ({@code m·v = 0}) no matter the velocity — no velocity-ghost on reload.
+     * F2-S5 (re-authored from the stale {@code m·vOut} bridge — law §1.1/§7, POLICY (i)): writeBackColumn
+     * stores the engine's AUTHORITATIVE EXTENSIVE momentum {@code result.momX/Y/Z} (= engine pxOut/pyOut/pzOut)
+     * UNCHANGED — the exact mirror of how enthalpy E is stored. It is NEVER rescaled by the §9 mass clamp
+     * (the old {@code p_stored = cleanM·vOut} reconstruction WAS the law-#7 velocity-ghost: when the validated
+     * output mass differed from the engine mass, the momentum was silently scaled by cleanM/m_engine ≠ 1).
+     * The ColumnResult momentum channel crosses the seam directly; only non-finite values sanitise to 0
+     * (cleanMomentum). A massless DRAINED cell carries the engine's momentum verbatim — for a real drained
+     * cell the engine emits 0, so it stores 0 (no velocity-ghost), but the writeback does NOT itself force
+     * 0-on-massless: a §9 clamp altering the mass leaves the engine momentum untouched.
      */
     @Test
-    void writeBackColumnStoresMomentumMassTimesVelocityNotRawVelocity(@TempDir Path dir) {
+    void writeBackColumnStoresEngineMomentumDirectlyNotRescaled(@TempDir Path dir) {
         SectionStoreManager mgr = loadedManager(dir);
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         world.setLastColumnLutForTest(recordLut()); // vacuum=0, air=1, water=2
 
         int sectionY = 4;
-        int velCell  = ColumnSectionCodec.colIdx(2, sectionY, 3, 4);   // finite mass + velocity
-        int nanCell  = ColumnSectionCodec.colIdx(5, sectionY, 6, 7);   // finite mass, non-finite velocity
-        int zeroMassCell = ColumnSectionCodec.colIdx(9, sectionY, 1, 2); // massless cell + velocity
+        int pCell      = ColumnSectionCodec.colIdx(2, sectionY, 3, 4);   // finite mass + engine momentum
+        int nanCell    = ColumnSectionCodec.colIdx(5, sectionY, 6, 7);   // non-finite engine momentum → 0
+        int clampCell  = ColumnSectionCodec.colIdx(8, sectionY, 8, 8);   // mass clamped to 0 by §9; p UNCHANGED
+        int drainCell  = ColumnSectionCodec.colIdx(9, sectionY, 1, 2);   // drained cell: engine p = 0
 
         char[] inMat = new char[RegionMarshaller.CHUNK_N];
         Arrays.fill(inMat, AIR_IX);
@@ -378,42 +384,55 @@ class MinecraftThermalWorldTest {
         ColumnTask task = new ColumnTask(0, 0, inMat, mass.clone(), temp);
         ThermalWorld.ColumnEntry entry = new ThermalWorld.ColumnEntry(DIM, 0, 0, task);
 
-        // Engine output: finite mass at velCell + nanCell, ZERO mass at zeroMassCell.
         char[] outMat = Arrays.copyOf(inMat, inMat.length);
         float[] outMass = new float[RegionMarshaller.CHUNK_N];
-        outMass[velCell]  = 4f;       // p = 4·v
-        outMass[nanCell]  = 10f;      // non-finite v sanitises to 0 ⇒ p = 0
-        outMass[zeroMassCell] = 0f;   // massless ⇒ p = 0 regardless of v
-        float[] outVx = new float[RegionMarshaller.CHUNK_N];
-        float[] outVy = new float[RegionMarshaller.CHUNK_N];
-        float[] outVz = new float[RegionMarshaller.CHUNK_N];
-        outVx[velCell] = 2.5f; outVy[velCell] = -1.2f; outVz[velCell] = 0.8f;
-        outVx[nanCell] = Float.NaN; outVy[nanCell] = Float.POSITIVE_INFINITY; outVz[nanCell] = Float.NEGATIVE_INFINITY;
-        outVx[zeroMassCell] = 99f; outVy[zeroMassCell] = -50f; outVz[zeroMassCell] = 12f;
-        ColumnResult result = new ColumnResult(outMat, outMass, temp.clone(), outVx, outVy, outVz);
+        outMass[pCell]     = 4f;
+        outMass[nanCell]   = 10f;
+        outMass[clampCell] = Float.POSITIVE_INFINITY; // §9 cleanMass sanitises mass → 0 (cleanM ≠ m_engine)
+        outMass[drainCell] = 0f;
+        // result.momX/Y/Z now carry EXTENSIVE engine momentum [kg·m/s] directly (NOT velocity).
+        float[] pxOut = new float[RegionMarshaller.CHUNK_N];
+        float[] pyOut = new float[RegionMarshaller.CHUNK_N];
+        float[] pzOut = new float[RegionMarshaller.CHUNK_N];
+        pxOut[pCell] = 10.0f; pyOut[pCell] = -4.8f; pzOut[pCell] = 3.2f;
+        pxOut[nanCell] = Float.NaN; pyOut[nanCell] = Float.POSITIVE_INFINITY; pzOut[nanCell] = Float.NEGATIVE_INFINITY;
+        // The mass-clamp cell carries a NON-ZERO engine momentum that MUST survive un-rescaled even though
+        // cleanMass alters its mass — this is the precise case the velocity-ghost bug corrupted.
+        pxOut[clampCell] = 77.0f; pyOut[clampCell] = -33.0f; pzOut[clampCell] = 11.0f;
+        pxOut[drainCell] = 0f; pyOut[drainCell] = 0f; pzOut[drainCell] = 0f;
+        ColumnResult result = new ColumnResult(outMat, outMass, temp.clone(), pxOut, pyOut, pzOut);
 
         world.writeBackColumn(entry, result);
 
-        int velSec  = 2 + 16 * 3 + 256 * 4;
-        int nanSec  = 5 + 16 * 6 + 256 * 7;
-        int zeroSec = 9 + 16 * 1 + 256 * 2;
+        int pSec     = 2 + 16 * 3 + 256 * 4;
+        int nanSec   = 5 + 16 * 6 + 256 * 7;
+        int clampSec = 8 + 16 * 8 + 256 * 8;
+        int drainSec = 9 + 16 * 1 + 256 * 2;
         SectionData data = mgr.store(DIM).get(new SubchunkKey(0, sectionY, 0));
         assertNotNull(data, "section must exist after write-back");
 
-        // p = m·v (extensive momentum), NOT raw velocity.
-        assertEquals(4f * 2.5f,  data.momXAt(velSec), 1e-4f, "momX = m·vX (extensive momentum)");
-        assertEquals(4f * -1.2f, data.momYAt(velSec), 1e-4f, "momY = m·vY");
-        assertEquals(4f * 0.8f,  data.momZAt(velSec), 1e-4f, "momZ = m·vZ");
+        // Engine momentum stored DIRECTLY (un-rescaled) — NOT m·vOut.
+        assertEquals(10.0f, data.momXAt(pSec), 1e-4f, "momX = engine pxOut stored directly (§1.1/§7)");
+        assertEquals(-4.8f, data.momYAt(pSec), 1e-4f, "momY = engine pyOut stored directly");
+        assertEquals(3.2f,  data.momZAt(pSec), 1e-4f, "momZ = engine pzOut stored directly");
 
-        assertEquals(0f, data.momXAt(nanSec), "NaN velX → 0 then ·mass = 0");
-        assertEquals(0f, data.momYAt(nanSec), "+Inf velY → 0");
-        assertEquals(0f, data.momZAt(nanSec), "-Inf velZ → 0");
+        // Non-finite engine momentum sanitises to 0 (mirrors the non-finite-E guard).
+        assertEquals(0f, data.momXAt(nanSec), "NaN px → 0");
+        assertEquals(0f, data.momYAt(nanSec), "+Inf py → 0");
+        assertEquals(0f, data.momZAt(nanSec), "-Inf pz → 0");
 
-        // The velocity-ghost guard: a massless cell stores ZERO momentum even with a large velocity
-        // (m·v = 0; ±0.0f in float both qualify — use a delta so signed-zero passes).
-        assertEquals(0f, data.momXAt(zeroSec), 0f, "massless cell ⇒ momentum 0 (m·v = 0), no velocity-ghost");
-        assertEquals(0f, data.momYAt(zeroSec), 0f, "massless cell ⇒ momentum 0");
-        assertEquals(0f, data.momZAt(zeroSec), 0f, "massless cell ⇒ momentum 0");
+        // POLICY (i) keystone: a §9 mass clamp DOES NOT rescale momentum. cleanMass sanitises this cell's
+        // mass to 0 (Inf → 0), yet the stored p equals the engine's pxOut verbatim. The OLD reconstruction
+        // p_stored = cleanM·vOut = 0·vOut would have stored 0 here — the law-#7 velocity-ghost. Storing the
+        // engine momentum directly (mirror of E) keeps it intact regardless of the mass clamp.
+        assertEquals(77.0f,  data.momXAt(clampSec), 1e-4f, "momentum UNCHANGED by mass clamp (no cleanM rescale)");
+        assertEquals(-33.0f, data.momYAt(clampSec), 1e-4f, "momentum UNCHANGED by mass clamp");
+        assertEquals(11.0f,  data.momZAt(clampSec), 1e-4f, "momentum UNCHANGED by mass clamp");
+
+        // A real drained cell: the engine emits p = 0, so 0 is stored — no velocity-ghost on reload.
+        assertEquals(0f, data.momXAt(drainSec), 0f, "drained cell stores engine p = 0");
+        assertEquals(0f, data.momYAt(drainSec), 0f, "drained cell stores engine p = 0");
+        assertEquals(0f, data.momZAt(drainSec), 0f, "drained cell stores engine p = 0");
     }
 
     /**
