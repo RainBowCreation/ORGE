@@ -15,6 +15,7 @@ import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
@@ -332,17 +333,29 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return;
         }
         SectionData data = store.get(entry.key());
-        // S2 compile bridge — S6 rewires feed/writeback. This dormant per-section path writes the
-        // engine's result into the (now extensive E) channel; the real eOut = m·h(Tout) encode is S6.
-        // TODO(perf, §8 follow-on): enthalpyArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllEnthalpies(float[]) that skips the fill would avoid the churn for first-touch sections.
-        float[] dst = data.enthalpyArray();
-        System.arraycopy(result.temperature(), 0, dst, 0, SectionData.CELLS);
         // Persist the engine's per-cell mass (§10): advection now MOVES mass between cells, so the
         // authoritative post-step mass is result.mass() — no longer the snapshot geometry mass.
         // Conduction cycles carry mass through unchanged (the scheduler passes the snapshot mass
         // back in result.mass()), so this stays the block-derived geometry mass when no flow ran.
+        // TODO(perf, §8 follow-on): enthalpyArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllEnthalpies(float[]) that skips the fill would avoid the churn for first-touch sections.
         float[] massDst = data.massArray();
         System.arraycopy(result.mass(), 0, massDst, 0, SectionData.CELLS);
+        // S6 (law §6/§7): this DORMANT per-section path's StepResult has no extensive-E channel — it
+        // carries only the engine's derived Tout. The live column path stores eOut directly; here we
+        // must ENCODE E = m·h(Tout) on the cell's enthalpy curve, NEVER store the raw T as E (a temp-
+        // ghost). Per-cell species = stored material when present, else the index-0 vacuum sentinel.
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        java.util.function.Function<Identifier, Material> lookup =
+                id -> mats.registry().get(id).orElse(null);
+        float[] tOut = result.temperature();
+        float[] dst = data.enthalpyArray();
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            Material cellM = lookup.apply(data.materialAt(i));
+            float mi = massDst[i];
+            // E = m·h(T); a massless / unresolvable cell carries no enthalpy (E = 0).
+            dst[i] = (cellM == null || mi <= 0f) ? 0f
+                    : (float) EnthalpyCurve.cellE(mi, cellM, lookup, tOut[i]);
+        }
         // writeBack force-promoted this section to FULL via the array accessors above. Collapse it
         // straight back to UNIFORM when the engine left every cell identical (a settled/flat section),
         // so FULL is not a one-way ratchet — observability (/orge get-live) and the on-disk form both
@@ -398,19 +411,17 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     }
 
     /**
-     * Temperatures for one section: the stored gradient if the section has been simulated,
-     * otherwise a per-cell seed (sources at their default_temperature, bulk at biome ambient).
-     * Never-simulated sections are seeded but NOT persisted here — the post-step write-back
-     * creates the section; if the step is dropped, next second re-seeds (idempotent).
+     * Clamp a DERIVED intensive temperature to the engine's {@code [0,6000]} derive boundary
+     * ({@link StepValidator#MIN_K}..{@link StepValidator#MAX_K}). Law §6/§7: this clamp lives ONLY at
+     * the derive boundary (the engine-feed tIn here, and the {@code /orge} display in S7) — NEVER on the
+     * stored extensive E (clamping E [J] to a Kelvin range would destroy the energy). A non-finite
+     * derive falls back to {@link StepValidator#MIN_K} (defensive; {@code deriveT} returns a finite K).
      */
-    private float[] sectionTemps(ServerLevel level, SectionStore store, SubchunkKey key,
-                                 GeometryAssembler.CellMaterials cellMat) {
-        if (store != null && store.hasSection(key)) {
-            // S2 compile bridge — S6 rewires feed. Returns the stored extensive E channel; the real
-            // feed derives Tin = h⁻¹(E/m) per cell before handing it to the engine (S6).
-            return store.get(key).enthalpyArray().clone();
+    static float clampDeriveBoundary(float t) {
+        if (!Float.isFinite(t) || t < StepValidator.MIN_K) {
+            return StepValidator.MIN_K;
         }
-        return AmbientSeeder.seed(cellMat::at, biomeAmbientK(level, key));
+        return Math.min(t, StepValidator.MAX_K);
     }
 
     /**
@@ -673,7 +684,6 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             GeometryAssembler.CellMaterials cellMat =
                     i -> LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry());
             GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
-            float[] temps = sectionTemps(level, store, key, cellMat);
             float[] mass = sectionMass(store, key, geo, lut);
             // Last cycle's recorded engine-output species (the CellMaterialTracker signature) feeds the
             // ColumnAssembler seed gate and the InjectionDrain incumbent lookup below. Identity itself is
@@ -695,21 +705,32 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     storedMaterial[i] = store.materialAt(cx, cz, sectionY, i);
                 }
             }
-            // Velocity + dynamic pressure: read per-cell stored values from the SectionStore when
-            // available; otherwise zero-fill (never-simulated / back-compat default). Threading p back
-            // in is what lets depth-pressure ACCUMULATE across engine steps (the JNI rebuilds a fresh
-            // World each call, so without persisting p it would reset to 0 every step).
+            // Velocity + dynamic pressure + STORED absolute E: read per-cell stored values from the
+            // SectionStore when available; otherwise zero-fill (never-simulated / back-compat default).
+            // Threading p back in is what lets depth-pressure ACCUMULATE across engine steps (the JNI
+            // rebuilds a fresh World each call, so without persisting p it would reset to 0 every step).
+            // S6 (law §6/§7): SectionCells.enthalpy carries the raw STORED extensive E [J] (loss-free to
+            // the engine's eIn); the engine's TEMPERATURE channel (tIn diagnostic) carries a DERIVED,
+            // CLAMPED T = h⁻¹(E/m) per cell — NEVER the raw E. Never-simulated cells: E = 0 (void/empty).
             float[] velX = new float[SectionData.CELLS];
             float[] velY = new float[SectionData.CELLS];
             float[] velZ = new float[SectionData.CELLS];
             float[] p    = new float[SectionData.CELLS];
             float[] swapReady = new float[SectionData.CELLS];
+            float[] enthalpy = new float[SectionData.CELLS];
+            // The engine tIn channel: for a stored section it is DERIVED from E below; for a never-
+            // simulated section it is the per-cell ambient/source seed.
+            float[] temps;
             if (store != null && store.hasSection(key)) {
                 SectionData sd = store.get(key);
+                java.util.function.Function<Identifier, Material> lookup =
+                        id -> mats.registry().get(id).orElse(null);
+                boolean hasMaterials = sd.hasMaterials();
+                temps = new float[SectionData.CELLS];
                 for (int i = 0; i < SectionData.CELLS; i++) {
-                    // S2 compile bridge — S6 rewires feed. Velocity is DERIVED from stored extensive
-                    // momentum: v = p/mass (law §7 — raw v is never stored). Guard mass>0 (else resting 0).
                     float mi = mass[i];
+                    // Velocity is DERIVED from stored extensive momentum: v = p/mass (law §7 — raw v is
+                    // never stored). Guard mass>0 (else resting 0).
                     if (mi > 0f) {
                         velX[i] = sd.momXAt(i) / mi;
                         velY[i] = sd.momYAt(i) / mi;
@@ -717,10 +738,23 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                     }
                     p[i]    = sd.pAt(i);
                     swapReady[i] = sd.swapReadyAt(i);
+                    // Raw stored absolute E [J] handed to the engine loss-free (NEVER as Kelvin).
+                    enthalpy[i] = sd.enthalpyAt(i);
+                    // Derive the engine's diagnostic tIn = h⁻¹(E/m), clamped to the [0,6000] derive
+                    // boundary. Per-cell species = stored material when this section carries a durable
+                    // layer, else the cell's first-touch block material. A massless / unresolvable cell
+                    // derives to ambient (no curve). This is the law-§6/§7 fix: the engine never receives
+                    // raw E in its Kelvin slot.
+                    Material cellM = hasMaterials ? lookup.apply(sd.materialAt(i)) : cellMat.at(i);
+                    float t = (cellM == null) ? ambientK
+                            : EnthalpyCurve.deriveT(sd.enthalpyAt(i), mi, cellM, lookup, ambientK);
+                    temps[i] = clampDeriveBoundary(t);
                 }
+            } else {
+                temps = AmbientSeeder.seed(cellMat::at, ambientK);
             }
             return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                    velX, velY, velZ, p, swapReady);
+                    velX, velY, velZ, p, swapReady, enthalpy);
         };
     }
 
@@ -735,37 +769,51 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         float[] inMass = entry.task().mass();
         for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
             SubchunkKey key = new SubchunkKey(entry.cx(), sectionY, entry.cz());
-            float[][] tm = ColumnSectionCodec.sliceSection(result.temperature(), result.mass(), sectionY);
-            float[] inT = ColumnSectionCodec.sliceSection(
-                    entry.task().temperature(), entry.task().mass(), sectionY)[0];
-            // Clamp identically to the per-section path: non-finite T → snapshot input (clamped [0,6000]);
-            // mass clamped to [0, fullMassBound] (the column's max defaultMass over its species).
-            float[] cleanT = StepValidator.clean(tm[0], inT);
-            float[] cleanM = StepValidator.cleanMass(tm[1], fullMassBound(entry.task()));
+            float[] outMass = ColumnSectionCodec.sliceSectionChannel(result.mass(), sectionY);
+            // Input temperature slice — carried into the reconstructed per-section StepTask below only as
+            // a diagnostic (the §10/§7 seams derive their own T from stored E); never stored as E.
+            float[] inT = ColumnSectionCodec.sliceSectionChannel(entry.task().temperature(), sectionY);
+            // Mass clamped to [0, fullMassBound] (the column's max defaultMass over its species). The T
+            // channel is NO LONGER the stored thermal truth (S6): stored E is. We slice the engine's
+            // AUTHORITATIVE energy below; the result.temperature() (legacy derived tOut) is not stored.
+            float[] cleanM = StepValidator.cleanMass(outMass, fullMassBound(entry.task()));
             char[] outMat = ColumnSectionCodec.sliceSectionMaterials(result.matIx(), sectionY);
             char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
 
             SectionData data = store.get(key);
-            // S2 compile bridge — S6 rewires writeback. Writes the engine result into the (now
-            // extensive) channels; the real eOut = m·h(Tout) and pOut = m·vOut encodes are S6.
-            float[] dstT = data.enthalpyArray();
-            System.arraycopy(cleanT, 0, dstT, 0, SectionData.CELLS);
+            // S6 (law §6/§7): store the engine's AUTHORITATIVE extensive energy eOut (the S5-threaded
+            // ColumnResult.enthalpy) UNCLAMPED. E is extensive [J]; the [0,6000] StepValidator clamp is a
+            // KELVIN range and would destroy mid-plateau energy (E ≫ 6000 J) — it must NEVER touch E.
+            // Only non-finite E is sanitized (defensive) to a safe 0; the magnitude is stored raw.
+            float[] secE = ColumnSectionCodec.sliceSectionChannel(result.enthalpy(), sectionY);
+            float[] dstE = data.enthalpyArray();
+            for (int i = 0; i < SectionData.CELLS; i++) {
+                float e = secE[i];
+                dstE[i] = Float.isFinite(e) ? e : 0f;   // sanitize non-finite only — NO magnitude clamp
+            }
             float[] dstM = data.massArray();
             System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
-            // Velocity write-back (Task 15): slice each channel, sanitize non-finite → 0 (no clamping
-            // — velocity is signed/unbounded), and persist into the SectionData momentum arrays.
-            // S2 compile bridge: stores the engine velocity into the momentum channel as-is; S6 encodes
-            // pOut = m·vOut. The section is already FULL from the E/mass array writes above, so
-            // momXArray() etc. allocate safely. Does NOT gate mass conservation.
+            // Momentum write-back (S6, law §7): store EXTENSIVE momentum p = m·vOut, NOT the raw engine
+            // velocity (which would be a velocity-ghost on reload). Sanitize non-finite v → 0 first, then
+            // multiply by the WRITTEN-BACK per-cell mass (cleanM) so p = m·v is consistent with stored
+            // mass. A massless cell ⇒ momentum 0 (m·v = 0) ⇒ no velocity-ghost when a cell is thinned.
+            // The section is already FULL from the E/mass array writes above, so momXArray() etc. allocate
+            // safely. Does NOT gate mass conservation.
             float[] secVx = ColumnSectionCodec.sliceSectionChannel(result.velX(), sectionY);
             float[] secVy = ColumnSectionCodec.sliceSectionChannel(result.velY(), sectionY);
             float[] secVz = ColumnSectionCodec.sliceSectionChannel(result.velZ(), sectionY);
             float[] cleanVx = StepValidator.cleanVelocity(secVx, null);
             float[] cleanVy = StepValidator.cleanVelocity(secVy, null);
             float[] cleanVz = StepValidator.cleanVelocity(secVz, null);
-            System.arraycopy(cleanVx, 0, data.momXArray(), 0, SectionData.CELLS);
-            System.arraycopy(cleanVy, 0, data.momYArray(), 0, SectionData.CELLS);
-            System.arraycopy(cleanVz, 0, data.momZArray(), 0, SectionData.CELLS);
+            float[] momX = data.momXArray();
+            float[] momY = data.momYArray();
+            float[] momZ = data.momZArray();
+            for (int i = 0; i < SectionData.CELLS; i++) {
+                float m = cleanM[i];
+                momX[i] = m * cleanVx[i];
+                momY[i] = m * cleanVy[i];
+                momZ[i] = m * cleanVz[i];
+            }
             // Dynamic-pressure write-back: slice the single p channel, sanitize non-finite AND clamp
             // negatives to 0 (p >= 0 — a free surface is p=0), then persist into the SectionData p array.
             // Persisting p is what makes depth-pressure survive across engine steps and save/load.

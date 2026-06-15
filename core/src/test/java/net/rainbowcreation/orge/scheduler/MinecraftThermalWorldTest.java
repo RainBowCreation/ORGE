@@ -6,7 +6,12 @@ import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
+import net.rainbowcreation.orge.engine.TestMaterials;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialRegistry;
+
+import java.util.function.Function;
 import net.rainbowcreation.orge.section.AmbientProvider;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
@@ -64,11 +69,41 @@ class MinecraftThermalWorldTest {
         return mgr;
     }
 
+    /** A chain-root material with cp=1 ⇒ {@code h(T)=cp·T=T}, so the dormant writeBack's ENCODE
+     *  {@code E=m·h(T)} reduces to {@code E=m·T} for clean assertions. */
+    private static final Identifier ORGE_UNIT = Identifier.fromNamespaceAndPath("orge", "unit_cp");
+
+    private static Material unitCp() {
+        return Material.builder(ORGE_UNIT)
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
+                .defaultMass(1000f).defaultTemperature(Float.NaN).viscosity(0f).build();
+    }
+
+    /** Register {@link #unitCp()} as the active LUT and stamp every cell of {@code key}'s section to it,
+     *  so the dormant {@link MinecraftThermalWorld#writeBack} ENCODE has a curve to derive E against
+     *  (E = m·cp·T = m·T). Returns the manager's store. */
+    private static void seedUnitCpSection(SectionStoreManager mgr, SubchunkKey key) {
+        net.rainbowcreation.orge.material.MaterialRegistry reg =
+                new net.rainbowcreation.orge.material.MaterialRegistry();
+        reg.put(unitCp());
+        net.rainbowcreation.orge.material.ActiveMaterials.swap(
+                new net.rainbowcreation.orge.material.ActiveMaterials.State(reg));
+        SectionData data = mgr.store(DIM).get(key);
+        for (int i = 0; i < SectionData.CELLS; i++) data.setMaterialAt(i, ORGE_UNIT);
+        mgr.store(DIM).put(key, data);
+    }
+
+    /**
+     * S6 (re-authored from the stale T15 T-as-E bridge): the DORMANT per-section {@link
+     * MinecraftThermalWorld#writeBack} now ENCODES {@code E = m·h(T)} from the engine's derived Tout
+     * (law §6 — never stores the raw T as E). With a cp=1 material E = m·T. Mass persistence is unchanged.
+     */
     @Test
-    void writeBackPersistsGeometryMassNotJustTemperature(@TempDir Path dir) {
+    void writeBackEncodesEnthalpyFromTemperatureAndPersistsMass(@TempDir Path dir) {
         SectionStoreManager mgr = loadedManager(dir);
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
+        seedUnitCpSection(mgr, key);
 
         float[] temps = new float[SectionData.CELLS];
         Arrays.fill(temps, 350f);
@@ -80,7 +115,7 @@ class MinecraftThermalWorldTest {
         world.writeBack(entry, new StepResult(temps, mass));
 
         SectionData data = mgr.store(DIM).get(key);
-        assertEquals(350f, data.enthalpyAt(0), 1e-4f, "temperature persisted");
+        assertEquals(1000f * 350f, data.enthalpyAt(0), 1e-1f, "E = m·cp·T encoded (NOT raw T-as-E)");
         assertEquals(1000f, data.massAt(0), 1e-4f, "engine mass must be persisted, not left at 0");
         assertEquals(1000f, data.massAt(SectionData.CELLS - 1), 1e-4f, "all cells carry their mass");
     }
@@ -90,6 +125,7 @@ class MinecraftThermalWorldTest {
         SectionStoreManager mgr = loadedManager(dir);
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
+        seedUnitCpSection(mgr, key);
 
         float[] temps = new float[SectionData.CELLS];
         Arrays.fill(temps, 300f);
@@ -104,7 +140,7 @@ class MinecraftThermalWorldTest {
         assertEquals(SectionData.Form.UNIFORM, data.form(),
                 "a section the engine flattened to a single value must collapse back to UNIFORM, "
                         + "not ratchet at FULL forever");
-        assertEquals(300f, data.enthalpyAt(0), 1e-4f, "uniform value preserved through demote");
+        assertEquals(1000f * 300f, data.enthalpyAt(0), 1e-1f, "uniform E = m·cp·T preserved through demote");
         assertEquals(1000f, data.massAt(0), 1e-4f, "uniform mass preserved through demote");
     }
 
@@ -113,6 +149,7 @@ class MinecraftThermalWorldTest {
         SectionStoreManager mgr = loadedManager(dir);
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
+        seedUnitCpSection(mgr, key);
 
         float[] temps = new float[SectionData.CELLS];
         Arrays.fill(temps, 300f);
@@ -127,8 +164,8 @@ class MinecraftThermalWorldTest {
         SectionData data = mgr.store(DIM).get(key);
         assertEquals(SectionData.Form.FULL, data.form(),
                 "a section holding a genuine gradient must stay FULL");
-        assertEquals(350f, data.enthalpyAt(0), 1e-4f);
-        assertEquals(300f, data.enthalpyAt(1), 1e-4f);
+        assertEquals(1000f * 350f, data.enthalpyAt(0), 1e-1f, "cell 0 E = m·cp·350");
+        assertEquals(1000f * 300f, data.enthalpyAt(1), 1e-1f, "cell 1 E = m·cp·300");
     }
 
     /** D is an input air cell the engine wetted (outMat[D]=water). The recorded signature must be
@@ -317,60 +354,156 @@ class MinecraftThermalWorldTest {
     }
 
     /**
-     * T15-E (Task 15): writeBackColumn must persist the engine's output velocity into the SectionStore
-     * so the next cycle's columnSource can read it back. Finite velocity survives; non-finite is
-     * sanitised to 0.
-     *
-     * <p>Also verifies T15-F: a NaN in the result velocity is sanitized to 0 (not persisted).</p>
+     * S6 (re-authored from the stale T15-E velocity bridge — law §7): writeBackColumn stores EXTENSIVE
+     * momentum {@code p = m·vOut}, NOT the raw engine velocity. With a finite mass the stored momentum is
+     * {@code m·v}; non-finite velocity sanitises to 0 first (so {@code m·0 = 0}); a massless cell stores
+     * momentum 0 ({@code m·v = 0}) no matter the velocity — no velocity-ghost on reload.
      */
     @Test
-    void writeBackColumnPersistsVelocityIntoSectionData(@TempDir Path dir) {
+    void writeBackColumnStoresMomentumMassTimesVelocityNotRawVelocity(@TempDir Path dir) {
         SectionStoreManager mgr = loadedManager(dir);
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         world.setLastColumnLutForTest(recordLut()); // vacuum=0, air=1, water=2
 
         int sectionY = 4;
-        // Pick two cells within section 4 (section-local sy∈[0,15]).
-        int velCell = ColumnSectionCodec.colIdx(2, sectionY, 3, 4);   // finite velocity
-        int nanCell = ColumnSectionCodec.colIdx(5, sectionY, 6, 7);   // NaN velocity
+        int velCell  = ColumnSectionCodec.colIdx(2, sectionY, 3, 4);   // finite mass + velocity
+        int nanCell  = ColumnSectionCodec.colIdx(5, sectionY, 6, 7);   // finite mass, non-finite velocity
+        int zeroMassCell = ColumnSectionCodec.colIdx(9, sectionY, 1, 2); // massless cell + velocity
 
-        // Build a minimal column task (all air, so write-back can proceed without a real engine).
         char[] inMat = new char[RegionMarshaller.CHUNK_N];
         Arrays.fill(inMat, AIR_IX);
         float[] mass = new float[RegionMarshaller.CHUNK_N];
         float[] temp = new float[RegionMarshaller.CHUNK_N];
         Arrays.fill(temp, 300f);
-        ColumnTask task = new ColumnTask(0, 0, inMat, mass, temp);
+        ColumnTask task = new ColumnTask(0, 0, inMat, mass.clone(), temp);
         ThermalWorld.ColumnEntry entry = new ThermalWorld.ColumnEntry(DIM, 0, 0, task);
 
-        // Build result: same species/mass/temp but with velocity set.
+        // Engine output: finite mass at velCell + nanCell, ZERO mass at zeroMassCell.
         char[] outMat = Arrays.copyOf(inMat, inMat.length);
+        float[] outMass = new float[RegionMarshaller.CHUNK_N];
+        outMass[velCell]  = 4f;       // p = 4·v
+        outMass[nanCell]  = 10f;      // non-finite v sanitises to 0 ⇒ p = 0
+        outMass[zeroMassCell] = 0f;   // massless ⇒ p = 0 regardless of v
         float[] outVx = new float[RegionMarshaller.CHUNK_N];
         float[] outVy = new float[RegionMarshaller.CHUNK_N];
         float[] outVz = new float[RegionMarshaller.CHUNK_N];
-        outVx[velCell] = 2.5f;
-        outVy[velCell] = -1.2f;
-        outVz[velCell] = 0.8f;
-        outVx[nanCell] = Float.NaN;        // must be sanitized → 0
-        outVy[nanCell] = Float.POSITIVE_INFINITY;
-        outVz[nanCell] = Float.NEGATIVE_INFINITY;
-        ColumnResult result = new ColumnResult(outMat, mass.clone(), temp.clone(), outVx, outVy, outVz);
+        outVx[velCell] = 2.5f; outVy[velCell] = -1.2f; outVz[velCell] = 0.8f;
+        outVx[nanCell] = Float.NaN; outVy[nanCell] = Float.POSITIVE_INFINITY; outVz[nanCell] = Float.NEGATIVE_INFINITY;
+        outVx[zeroMassCell] = 99f; outVy[zeroMassCell] = -50f; outVz[zeroMassCell] = 12f;
+        ColumnResult result = new ColumnResult(outMat, outMass, temp.clone(), outVx, outVy, outVz);
 
         world.writeBackColumn(entry, result);
 
-        // Verify section-local coordinates for velCell and nanCell.
-        int velSectionCell = 2 + 16 * 3 + 256 * 4;
-        int nanSectionCell = 5 + 16 * 6 + 256 * 7;
-        SubchunkKey key = new SubchunkKey(0, sectionY, 0);
-        SectionData data = mgr.store(DIM).get(key);
+        int velSec  = 2 + 16 * 3 + 256 * 4;
+        int nanSec  = 5 + 16 * 6 + 256 * 7;
+        int zeroSec = 9 + 16 * 1 + 256 * 2;
+        SectionData data = mgr.store(DIM).get(new SubchunkKey(0, sectionY, 0));
         assertNotNull(data, "section must exist after write-back");
 
-        assertEquals(2.5f,  data.momXAt(velSectionCell), 1e-5f, "velX persisted for finite cell");
-        assertEquals(-1.2f, data.momYAt(velSectionCell), 1e-5f, "velY persisted for finite cell");
-        assertEquals(0.8f,  data.momZAt(velSectionCell), 1e-5f, "velZ persisted for finite cell");
+        // p = m·v (extensive momentum), NOT raw velocity.
+        assertEquals(4f * 2.5f,  data.momXAt(velSec), 1e-4f, "momX = m·vX (extensive momentum)");
+        assertEquals(4f * -1.2f, data.momYAt(velSec), 1e-4f, "momY = m·vY");
+        assertEquals(4f * 0.8f,  data.momZAt(velSec), 1e-4f, "momZ = m·vZ");
 
-        assertEquals(0f, data.momXAt(nanSectionCell), "NaN velX sanitized to 0");
-        assertEquals(0f, data.momYAt(nanSectionCell), "+Inf velY sanitized to 0");
-        assertEquals(0f, data.momZAt(nanSectionCell), "-Inf velZ sanitized to 0");
+        assertEquals(0f, data.momXAt(nanSec), "NaN velX → 0 then ·mass = 0");
+        assertEquals(0f, data.momYAt(nanSec), "+Inf velY → 0");
+        assertEquals(0f, data.momZAt(nanSec), "-Inf velZ → 0");
+
+        // The velocity-ghost guard: a massless cell stores ZERO momentum even with a large velocity
+        // (m·v = 0; ±0.0f in float both qualify — use a delta so signed-zero passes).
+        assertEquals(0f, data.momXAt(zeroSec), 0f, "massless cell ⇒ momentum 0 (m·v = 0), no velocity-ghost");
+        assertEquals(0f, data.momYAt(zeroSec), 0f, "massless cell ⇒ momentum 0");
+        assertEquals(0f, data.momZAt(zeroSec), 0f, "massless cell ⇒ momentum 0");
+    }
+
+    /**
+     * S6 (a) — ENERGY across a latent plateau survives feed→writeback UNCLAMPED (law §6). The engine's
+     * authoritative {@code eOut} (ColumnResult.enthalpy) is stored straight into the extensive E channel
+     * with NO {@code [0,6000]} clamp. A mid-boil-plateau cell carries {@code E = m·(h(373)+L/2) ≫ 6000 J}
+     * — a stray Kelvin-range clamp on E would crush it to 6000 and destroy the latent slug; this test
+     * fails on that mistake and passes only when E is stored raw. Driven through {@code writeBackColumn}
+     * (a stub/echo engine output) to isolate the Java WRITEBACK transform S6 owns.
+     */
+    @Test
+    void writeBackColumnStoresEnthalpyUnclampedAcrossLatentPlateau(@TempDir Path dir) {
+        SectionStoreManager mgr = loadedManager(dir);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastColumnLutForTest(recordLut());
+
+        int sectionY = 4;
+        int cell = ColumnSectionCodec.colIdx(7, sectionY, 8, 9);
+        int secCell = 7 + 16 * 8 + 256 * 9;
+
+        // Mid-boil-plateau absolute E for water: E = m·(cp·T* + L/2), far above 6000 J.
+        final float mass = 1000f, cp = 4186f, tStar = 373.15f, L = 2.256e6f;
+        double midEta = (double) cp * tStar + (double) L / 2.0;       // ≈ 2.69e6 J/kg
+        float storedE = (float) ((double) mass * midEta);             // ≈ 2.69e9 J — must survive intact
+
+        char[] inMat = new char[RegionMarshaller.CHUNK_N];
+        Arrays.fill(inMat, AIR_IX);
+        inMat[cell] = WATER_IX;
+        float[] m = new float[RegionMarshaller.CHUNK_N];
+        m[cell] = mass;
+        float[] temp = new float[RegionMarshaller.CHUNK_N];
+        Arrays.fill(temp, 300f);
+        ColumnTask task = new ColumnTask(0, 0, inMat, m.clone(), temp);
+        ThermalWorld.ColumnEntry entry = new ThermalWorld.ColumnEntry(DIM, 0, 0, task);
+
+        // Engine ECHO output: same matIx/mass; eOut = storedE; tOut = a (legacy) derived diagnostic that
+        // we deliberately set far BELOW the plateau (285 K) to prove the stored value is eOut, not tOut.
+        char[] outMat = Arrays.copyOf(inMat, inMat.length);
+        float[] z = new float[RegionMarshaller.CHUNK_N];
+        float[] tOut = new float[RegionMarshaller.CHUNK_N];
+        Arrays.fill(tOut, 300f);
+        tOut[cell] = 285f;
+        float[] eOut = new float[RegionMarshaller.CHUNK_N];
+        eOut[cell] = storedE;
+        ColumnResult result = new ColumnResult(outMat, m.clone(), tOut,
+                z.clone(), z.clone(), z.clone(), z.clone(), new float[RegionMarshaller.CHUNK_N], eOut);
+
+        world.writeBackColumn(entry, result);
+
+        SectionData data = mgr.store(DIM).get(new SubchunkKey(0, sectionY, 0));
+        assertNotNull(data);
+        // The plateau E (≫ 6000) survives EXACTLY — no [0,6000] clamp, no T-as-E re-linearisation.
+        assertEquals(storedE, data.enthalpyAt(secCell), 1e-3f * storedE,
+                "stored E is the engine eOut UNCLAMPED (≈2.69e9 J); a [0,6000] clamp would crush it to 6000");
+        assertTrue(data.enthalpyAt(secCell) > 6000f * 1000f,
+                "E is far above the Kelvin clamp ceiling — proves no magnitude clamp was applied");
+        assertNotEquals(285f, data.enthalpyAt(secCell),
+                "stored value is eOut, NOT the legacy derived tOut (285 K) re-stored as E");
+    }
+
+    /**
+     * S6 (c) — FEED tIn is DERIVED + CLAMPED, never the raw E. The engine's diagnostic temperature slot
+     * for a mid-plateau cell carries the pinned plateau T (373 K), clamped to {@code [0,6000]} — NOT the
+     * raw stored E (≈2.69e9 J, which a Kelvin clamp would saturate to 6000). This is the exact transform
+     * {@code columnSource} applies per cell ({@code EnthalpyCurve.deriveT} → {@code clampDeriveBoundary}),
+     * tested directly because {@code columnSource} needs a live ServerLevel.
+     */
+    @Test
+    void feedTinIsDerivedAndClampedNotRawEnthalpy() {
+        Material water = TestMaterials.waterWithLatent();
+        MaterialRegistry reg = TestMaterials.registryOf(
+                java.util.List.of(TestMaterials.voidMat(), water, TestMaterials.steam(), TestMaterials.air()));
+        Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
+
+        final float mass = 1000f, cp = 4186f, tStar = 373.15f, L = 2.256e6f;
+        double midEta = (double) cp * tStar + (double) L / 2.0;
+        double storedE = (double) mass * midEta;                       // ≈ 2.69e9 J
+
+        float derived = EnthalpyCurve.deriveT(storedE, mass, water, lookup, 285f);
+        float tIn = MinecraftThermalWorld.clampDeriveBoundary(derived);
+
+        // The cell is mid-boil-plateau ⇒ derived T pins at the boil threshold 373.15 K.
+        assertEquals(tStar, tIn, 0.5f, "tIn is the DERIVED pinned plateau T (373 K), not raw E");
+        assertTrue(tIn < 6000f, "tIn is a sane Kelvin, far below the clamp ceiling");
+        assertNotEquals((float) storedE, tIn,
+                "tIn is NOT the raw stored E (≈2.69e9), which a Kelvin clamp would saturate to 6000");
+
+        // A genuinely-too-hot derive clamps to the [0,6000] derive boundary.
+        assertEquals(6000f, MinecraftThermalWorld.clampDeriveBoundary(9999f), 0f, "over-ceiling T clamps to 6000");
+        assertEquals(0f, MinecraftThermalWorld.clampDeriveBoundary(-5f), 0f, "below-floor T clamps to 0");
+        assertEquals(0f, MinecraftThermalWorld.clampDeriveBoundary(Float.NaN), 0f, "non-finite T clamps to floor");
     }
 }
