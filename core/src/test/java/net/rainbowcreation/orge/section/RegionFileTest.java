@@ -230,4 +230,58 @@ class RegionFileTest {
             assertArrayEquals(data, rf.read(11, 11), "256-sector blob must round-trip bit-identical");
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Test 11: Two large multi-sector slots — free/realloc must not overlap neighbor
+    // -------------------------------------------------------------------------
+
+    @Test
+    void twoLargeSlotsWrittenFreedRewrittenWithoutCorruption() throws IOException {
+        Path file = dir.resolve("r.10.0.orge");
+        byte[] big1 = blob(1_500_000, 1); // ~367 sectors
+        byte[] big2 = blob(1_800_000, 2); // ~440 sectors
+
+        try (RegionFile rf = new RegionFile(file)) {
+            rf.write(0, 0, big1);
+            rf.write(1, 1, big2);
+            assertArrayEquals(big1, rf.read(0, 0), "slot (0,0) should read back big1");
+            assertArrayEquals(big2, rf.read(1, 1), "slot (1,1) should read back big2");
+
+            byte[] big3 = blob(2_100_000, 3); // larger than big1's freed run
+            rf.delete(0, 0);
+            rf.write(0, 0, big3);
+
+            assertArrayEquals(big3, rf.read(0, 0), "slot (0,0) should read back the rewritten big3");
+            assertArrayEquals(big2, rf.read(1, 1), "slot (1,1) neighbor must be untouched by the realloc");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 12: Reopen rebuilds the free map from disk; a new alloc must not
+    // overlap the runs reconstructed from the persisted location table
+    // -------------------------------------------------------------------------
+
+    @Test
+    void reopenAfterCloseRebuildsFreeMapAndReadsBothLargeSlots() throws IOException {
+        Path file = dir.resolve("r.11.0.orge");
+        byte[] big1 = blob(1_500_000, 1); // ~367 sectors
+        byte[] big2 = blob(1_800_000, 2); // ~440 sectors
+
+        try (RegionFile rf = new RegionFile(file)) {
+            rf.write(2, 2, big1);
+            rf.write(3, 3, big2);
+        }
+
+        try (RegionFile rf = new RegionFile(file)) {
+            assertArrayEquals(big1, rf.read(2, 2), "slot (2,2) should read back big1 after reopen");
+            assertArrayEquals(big2, rf.read(3, 3), "slot (3,3) should read back big2 after reopen");
+
+            byte[] big3 = blob(900_000, 4); // new slot allocated against the rebuilt free map
+            rf.write(4, 4, big3);
+
+            assertArrayEquals(big1, rf.read(2, 2), "slot (2,2) must survive the new alloc (no overlap)");
+            assertArrayEquals(big2, rf.read(3, 3), "slot (3,3) must survive the new alloc (no overlap)");
+            assertArrayEquals(big3, rf.read(4, 4), "slot (4,4) should read back the newly written big3");
+        }
+    }
 }
