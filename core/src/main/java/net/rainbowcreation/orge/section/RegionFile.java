@@ -85,8 +85,10 @@ public final class RegionFile implements Closeable {
     public RegionFile(Path file) throws IOException {
         raf = new RandomAccessFile(file.toFile(), "rw");
 
-        if (raf.length() < 2L * SECTOR_BYTES) {
-            // FRESH file: header sector 0 (magic + version) + zeroed location-table sector 1.
+        if (raf.length() == 0L) {
+            // FRESH (brand-new / zero-length) file: header sector 0 (magic + version) +
+            // zeroed location-table sector 1. Only a TRULY EMPTY file is created — any existing
+            // bytes (even a short old-format file < 2 sectors) must fall through to validation.
             raf.setLength(2L * SECTOR_BYTES);
             raf.seek(0);
             raf.writeInt(MAGIC);
@@ -94,14 +96,35 @@ public final class RegionFile implements Closeable {
             // bytes 8..(2*SECTOR_BYTES-1) remain zero from setLength — header reserved + empty table.
             fileMagic = MAGIC;
         } else {
-            // EXISTING file. Pad to a whole-sector boundary if a partial trailing sector exists.
+            // EXISTING, non-empty file. Validate the ORGB header BEFORE touching anything else:
+            // NO migration of pre-format or wrong-version files — fail loud and tell the user to
+            // start a fresh world. A file too short to even carry the 8-byte magic+version header
+            // cannot be valid → reject with the missing-magic message.
+            if (raf.length() < 8L) {
+                raf.close();
+                throw new IOException("not an ORGE region file (missing/!=ORGB magic): " + file
+                        + " — pre-format .orge files are unsupported; delete world/orge and start a fresh world");
+            }
+            raf.seek(0);
+            int magic = raf.readInt();
+            if (magic != MAGIC) {
+                raf.close();
+                throw new IOException("not an ORGE region file (missing/!=ORGB magic): " + file
+                        + " — pre-format .orge files are unsupported; delete world/orge and start a fresh world");
+            }
+            int version = raf.readInt();
+            if (version != VERSION) {
+                raf.close();
+                throw new IOException("unsupported ORGE region version " + version
+                        + ", expected " + VERSION + ": " + file + " — start a fresh world");
+            }
+            fileMagic = magic;
+
+            // Header validated. Pad to a whole-sector boundary if a partial trailing sector exists.
             long len = raf.length();
             if (len % SECTOR_BYTES != 0) {
                 raf.setLength(len + (SECTOR_BYTES - (len % SECTOR_BYTES)));
             }
-            // Read the magic (SUBTASK 4 adds the reject throw; here we only wire the read).
-            raf.seek(0);
-            fileMagic = raf.readInt();
         }
 
         totalSectors = (int) (raf.length() / SECTOR_BYTES);

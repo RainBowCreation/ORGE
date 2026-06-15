@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -282,6 +283,72 @@ class RegionFileTest {
             assertArrayEquals(big1, rf.read(2, 2), "slot (2,2) must survive the new alloc (no overlap)");
             assertArrayEquals(big2, rf.read(3, 3), "slot (3,3) must survive the new alloc (no overlap)");
             assertArrayEquals(big3, rf.read(4, 4), "slot (4,4) should read back the newly written big3");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 13: An OLD pre-ORGB-format .orge file is rejected with a clear message
+    // (no migration — tell the user to start a fresh world)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void preMagicFileRejectedWithClearMessage() throws IOException {
+        Path file = dir.resolve("old.0.0.orge");
+        // Write one 4096-byte sector whose first int is an old-style location entry
+        // (sectorOffset 2, count 1 → (2<<8)|1), so byte0..3 != MAGIC.
+        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "rw")) {
+            raf.setLength(4096);
+            raf.seek(0);
+            raf.writeInt((2 << 8) | 1);
+        }
+
+        IOException ex = assertThrows(IOException.class, () -> new RegionFile(file),
+                "an old pre-ORGB .orge file must be rejected");
+        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(msg.contains("magic") || msg.contains("fresh world"),
+                "reject message must mention 'magic' or 'fresh world': " + ex.getMessage());
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 14: A correctly-magicked file with a WRONG version is rejected
+    // -------------------------------------------------------------------------
+
+    @Test
+    void unsupportedVersionRejected() throws IOException {
+        Path file = dir.resolve("ver.0.0.orge");
+        // Sector 0: MAGIC @0, wrong version 999 @4; sector 1 zeroed location table.
+        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "rw")) {
+            raf.setLength(2L * 4096);
+            raf.seek(0);
+            raf.writeInt(RegionFile.MAGIC);
+            raf.writeInt(999);
+        }
+
+        IOException ex = assertThrows(IOException.class, () -> new RegionFile(file),
+                "a file with the wrong ORGE version must be rejected");
+        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(java.util.Locale.ROOT);
+        assertTrue(msg.contains("version"),
+                "reject message must mention 'version': " + ex.getMessage());
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 15: A fresh file is created WITH the magic+version and round-trips on reopen
+    // (proves the reject does not break the create+reopen cycle)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void freshFileCreatedWithMagicAndRoundTrips() throws IOException {
+        Path file = dir.resolve("fresh.0.0.orge");
+        byte[] data = blob(1000, 1);
+
+        try (RegionFile rf = new RegionFile(file)) {
+            rf.write(5, 5, data);
+        }
+
+        // Reopen must NOT throw — the magic+version were written by the fresh-create branch.
+        try (RegionFile rf = new RegionFile(file)) {
+            assertArrayEquals(data, rf.read(5, 5),
+                    "fresh file must round-trip after reopen (magic was persisted)");
         }
     }
 }
