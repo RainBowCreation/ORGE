@@ -78,7 +78,7 @@ Schema: `cp [J/kgK] · k [W/mK] · M [kg/mol] · minMass · defaultMass · maxMa
 ### §1.3 Frozen manifest (CI-diffed; INV-3)
 **Persisted fields:** §1.1's seven (+ the `P` tick-boundary copy).
 **Knobs:** `ω` SOR factor [1.0–1.9] · `κ` dynamic-pressure stiffness [Pa·s/sweep], bound `κ ≤ ρ̄·dx²/dt`,
-applied **once per tick (first sweep only)** · `N_relax` sweeps/tick [1–8] · `vel_damp` [0–2 s⁻¹] ·
+applied **once per tick (first sweep only)** · `N_relax` sweeps/tick [1–32] (clamped, default 4) · `vel_damp` [0–2 s⁻¹] ·
 `ε_mass` = 1e-6 kg · `k_c` = 3 (cohesion, cross-species swaps only) · `t_swap_min` = 0.5 s ·
 `α_eos` gas-EOS relaxation gain (0–1] · `T_sky` = 270 K · `T_ref,global` = 288 K (ρ_eff only) ·
 per-gas `T_ref,gas` (LUT column). **Joint stability constraint** `ω·(1+α_eos) < 2` — the gas relaxation's
@@ -105,14 +105,35 @@ Air rest: (1.2/0.029)·8.314·288 ≈ 99.1 kPa ⇒ gauge 0. Steam rest at 373 K:
 `[LAW-AMEND-v42-A2 / owner T4]` — to be implemented at **hetero-gas (different-species) faces on the EOS
 anchor** in T4 (same-gas faces stay gauge-cancelled); INV-AL needs an air|steam absolute-P variant once it
 lands.
+> **GW-1 note — `[T4-OPEN cross-gas-abs-P]` / ST7 force-frame escalation is MOOTED for the force frame-mix.**
+> Once every face reads the **single relaxed `P`** (GW-1), there is no per-gas gauge frame to reconcile *in
+> the force* — the one `P` field carries the cross-gas ΔP directly. So the force never mixes two gas frames.
+> **HOWEVER, resting hetero air|steam absolute-P equilibrium remains DEFERRED:** INV-ATMOS / INV-AL is
+> **air-only**, and GW-1 does **not** solve a resting air|steam interface (the relaxation source still uses
+> each gas's own gauge anchor). Do NOT over-claim a resting two-gas interface as solved.
 Compressed air at the in-game-observed 835 kg/cell: **p_eos ≈ 69 MPa** — the missing pushback.
 `p_eos` is **never SUMMED with `P` as a second pressure for the same cell** — exactly one pressure number
 acts per cell; it enters the force only through the §3.1 relaxation that sets `P`, and a *gas* cell's own
-boundary-face ghost uses its EOS anchor in place of `P` (see A-8) `[LAW-AMEND-v42-A1]` *(review: the v4.0
+boundary face uses the **anchored relaxed `P`** (`liqf`, the hydrostatic half-cell ghost — identical to a
+liquid boundary face), per GW-1 (the per-cell EOS gauge anchor in the force is retired) `[LAW-AMEND-v42-A1]`
+*(review: the v4.0
 "(+ gas p_eos)" face read was a drift-test-(a) double-count; deleted)*.
-A gas cell's relaxed `P` is a **force-dead diagnostic** — every gas face uses its EOS anchor, not `P`; the
-relaxed `P` is computed and persisted but never read by the force, retained as a tracked diagnostic
-`[LAW-AMEND-v42-A8]`.
+~~A gas cell's relaxed `P` is a **force-dead diagnostic** — every gas face uses its EOS anchor, not `P`; the
+relaxed `P` is computed and persisted but never read by the force, retained as a tracked diagnostic~~
+`[LAW-AMEND-v42-A8]` **SUPERSEDED-by-GW-1 (ratified 2026-06-15).** Replaced by:
+A gas cell's force is driven by the **single relaxed `P`** (LAW #1/#2), identically to a liquid: every face
+reads `P` (the hydrostatically-anchored relaxed field), and the live gas EOS enters **only** as the §3.1
+relaxation **source** (`α_eos·(p_eos,i − P_i)`) that drives `P` toward the gauge EOS. The standalone per-cell
+gauge **face anchor is retired** — there is exactly one pressure representation per cell. Because `P` is
+iteratively relaxed and persisted (LAW #1), the cell-to-cell pressure coupling is **implicit**: it carries the
+EOS pushback without an explicit acoustic-CFL ceiling, which is the standard low-Mach / pressure-projection
+integration. The real EOS is unchanged — a 700×-compressed pocket still relaxes `P` to its ~69 MPa and pushes
+back; only the *time integration* of the coupling changes (implicit, not explicit). At a **gas|vacuum**
+boundary the force reads the relaxed field's **hydrostatic anchor** (not raw absolute `p_abs`), so a resting
+atmosphere does not rail into the vacuum (the ST7 failure mode of driving from raw absolute pressure)
+`[LAW-AMEND-v42-A8 → GW-1]`. (GW-1 LANDED, engine commit fc62565: INV-GAS sealed pocket improved from
+2.51× rest to 1.219×, 0.49% closed-form error; conservation exact; liquids byte-identical. The tall-column
+INV-ATMOS gate is NOT thereby satisfied — see §4/§11.)
 
 ### §2.2 Incompressibles (max == default): no EOS branch exists *(fixes B-11)*
 `p_eos ≡ 0`; the compression branch is **removed**, not divided-by-zero. Their pressure is carried entirely
@@ -168,6 +189,17 @@ P_i ← (1−ω)·P_i + ω·target_i        [− κ·divU_i, first sweep of the 
   Mitigations in order: `N_relax` sweeps/tick (linear cost; the T2 plan's "several iterations" precedent —
   distinct from v3-§9.3-FORK-4's *full-step sub-cycling* ban, which stands); SOR `ω ≈ 1.5–1.8`;
   **banked:** per-chunk geometric multigrid (true O(H)) if deep oceans miss the perf gate.
+  - **`N_relax`: legal [1–32] (clamped), default 4** `[GW-2, ratified 2026-06-15; engine commit 60e5a8c]`.
+    For gas-dominated tall columns the relaxation may be run to higher sweep counts to damp long-wavelength
+    acoustic transients; the smoother stays **1-hop red–black, GPU-native** (the canonical GPU stencil) —
+    **NOT multigrid** (coarse-grid aggregation reintroduces the non-local column-sum the law's A+B debt
+    exists to delete, and serialises poorly on GPU). Cost scales linearly in sweeps; tune for *accuracy*,
+    not stability (stability is GW-1's implicit `P`).
+  - **Multigrid reconcile (GW-2):** per-chunk geometric multigrid **STAYS BANKED** as a last-resort *perf*
+    lever for deep oceans, but GW-2's higher sweep cap is the **PREFERRED** lever for the gas column —
+    multigrid's coarse-grid aggregation reintroduces the non-local column-sum the A+B debt deletes and
+    serialises poorly on GPU, whereas the [1–32] red–black sweeps stay 1-hop GPU-native. The two do not
+    contradict: raise sweeps first; multigrid only if a deep-ocean perf gate is still missed.
 - **Dataflow (normative — review found the v4.0 wording reproduced weighted Jacobi):** within a sweep the
   **black half-sweep MUST read the red half-sweep's freshly written values** (in-place per-color writes are
   race-free: a 3D-parity cell's 6-face stencil touches only the opposite color). A read-old/write-new
@@ -426,6 +458,7 @@ energy exactly; the prior "drain next RESOLVE" transient-overshoot exemption is 
 | INV-P2 | walled [1000|500], open tops: P fixed point ≈ [4172|3339] Pa, levels to [750|750], no upward leak, 1500.0000 kg exact |
 | INV-GAS | air pocket sealed under 2 m water: m stabilizes at **1.20 ± 0.05×** rest (= 1 + ρgh/P0); P ≈ overburden *(review: ≤2× was 4× too loose)* |
 | INV-AL | relaxed stratified rest atmosphere + pool: surface air `‖u‖ < 0.01·dx/dt` for 5000 ticks; no monotonic heating of static cells + an air\|steam interface variant: two resting gases at true equilibrium read NO spurious gradient (cross-gas absolute-P, A-2(i)) |
+| INV-ATMOS | **CURRENTLY DEFERRED / GW-OPEN — NOT satisfied** (engine commit 3ce9d45). Gated by `atmos_probe`. **Stability:** seed UNIFORM 1.2, run ≥ 5000 ticks at dt=0.5 — no cell oscillates >1% tick-to-tick at settle; the bottom does not exceed a bounded multiple of rest density; the top does not drain below the gas floor. **Well-balanced kept stable:** seed BAROMETRIC, run ≥ 2000 ticks — every cell stays within ε of its seeded/permanent-hold mass. **Realistic readout:** at settle `/orge` reads ≈ 1 ATM absolute at sea level, dropping ≈ 12 Pa/block. **Conservation:** per-species air mass exact every tick — this sub-clause ALREADY HOLDS. GW-1 (fc62565) + GW-2 (60e5a8c) LANDED and are necessary improvements but NOT sufficient: the 200-tall acoustic air column does not yet converge — a separate EOS-anchor→non-hydrostatic-P→residual-y-drive ratchet keeps the bottom densifying (out of GW-1/GW-2 scope; cure = a gas drive-velocity limiter / boundary-ghost fix / deferred θ y-rest-target restructure). Do NOT mark satisfied until the column converges. |
 | INV-UNIVERSAL | the core mechanic contains NO `switch(state)` / `if(isGas/isLiquid/…)` branch; state behavior comes only from material data (τ_y, χ, viscosity, min/max), never the species name — a state-branch in the core is a regression (acceptance test for every task). *(law #0 / P-0)* |
 | INV-NOSUBMIN | no cell rests at `0 < m < min(species)` from any path (flow, relabel, empty-refill); relabel forbidden when `m < min(target)`, empty-refill donor-side gated. *(A-10)* |
 | INV-NOOVERMAX | no cell rests at `m > max(species)`; the water→ice (lower-max) freeze evicts its surplus same-pass under both bounds, or defers. Twin of INV-NOSUBMIN: `min ≤ m ≤ max ∨ m = 0`. *(A-12)* |
