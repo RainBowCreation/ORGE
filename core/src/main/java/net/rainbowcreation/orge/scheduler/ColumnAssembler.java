@@ -3,9 +3,12 @@ package net.rainbowcreation.orge.scheduler;
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.section.MaterialPalette;
+
+import java.util.function.Function;
 
 /** Builds one full-height engine column (CHUNK_N cells, idx = x + 16*y + 6144*z) from the 24 vanilla
  *  sections of a chunk column.
@@ -115,6 +118,9 @@ public final class ColumnAssembler {
         float[] p    = new float[N];
         float[] swapReady = new float[N];
         float[] enthalpy = new float[N];
+        // EnthalpyCurve lookup (law §6/§7): returns null for an absent/unresolvable id, matching the
+        // contract every derive/encode site already uses (id -> registry.get(id).orElse(null)).
+        Function<Identifier, Material> lookup = id -> registry.get(id).orElse(null);
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
             for (int z = 0; z < 16; z++) {
@@ -156,7 +162,17 @@ public final class ColumnAssembler {
                         velZ[ci] = cells.velZ()[si];
                         p[ci]    = cells.p()[si];
                         swapReady[ci] = cells.swapReady()[si];
-                        enthalpy[ci] = cells.enthalpy()[si];
+                        // Thermal truth is EXTENSIVE E [J] (law §7: store extensive, derive intensive).
+                        // An authoritative stored E is passed through UNCHANGED. But a seed/ambient cell
+                        // (never simulated, or freshly placed) carries E == 0; left as 0 the engine would
+                        // derive T = 0 K. ENCODE E = m·h(T_seed) ONCE here (law §6) from the SEEDED mass +
+                        // seed temperature — the correct initial condition, NOT a forbidden re-encode (we
+                        // only encode when stored E is unset; a massless/unresolvable cell stays 0).
+                        float inE = cells.enthalpy()[si];
+                        enthalpy[ci] = (inE != 0f)
+                                ? inE
+                                : (m == null || seeded <= 0f) ? 0f
+                                  : (float) EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
                     }
                 }
             }

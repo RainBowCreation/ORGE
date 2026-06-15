@@ -4,6 +4,7 @@ import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.TestMaterials;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.section.MaterialPalette;
@@ -239,8 +240,61 @@ class ColumnAssemblerTest {
         ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
         int wi = colIdx(1, 4, 2, 3);
         assertEquals(4242.5f, t.enthalpy()[wi], 1e-4,
-                "SectionCells enthalpy carried to engine-order ColumnTask.enthalpy index, exact");
-        // a neighbouring cell stays 0 (no fabrication / no axis offset bug)
-        assertEquals(0f, t.enthalpy()[colIdx(0, 0, 0, 0)], 1e-6);
+                "SectionCells enthalpy carried to engine-order ColumnTask.enthalpy index, exact (nonzero "
+                        + "stored E is authoritative, passed through unchanged)");
+        // A neighbouring air cell has NO stored E (incoming 0): law §6/§7 the assembler now ENCODES
+        // E = m·h(T_seed) from its seeded mass + seed temp (else it would derive T = 0 K). It is the
+        // distinct cell's E that must be carried verbatim, not a global all-zero enthalpy field.
+        java.util.function.Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
+        float airE = (float) EnthalpyCurve.cellE(1.2f, TestMaterials.air(), lookup, 300f);
+        assertEquals(airE, t.enthalpy()[colIdx(0, 0, 0, 0)], 1e-2,
+                "seed/ambient air cell (stored E == 0) encodes E = m·h(T_seed), not 0");
+    }
+
+    /** T2-regression guard (law §6/§7): a seed/ambient cell with NO stored E (enthalpy 0) must have its
+     *  E ENCODED ONCE from its seeded mass + seed temperature — NOT passed through as 0 (which would
+     *  derive T = 0 K downstream). A cell carrying an authoritative nonzero E is passed through UNCHANGED
+     *  (never re-encoded — that would re-introduce the cp·T lossiness Task 2 removed). */
+    @Test
+    void seedCellWithoutStoredE_encodesEFromMassAndSeedTemp_authoritativeEPassesThrough() {
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        Material water = TestMaterials.water();
+        java.util.function.Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
+
+        // cellA (1,2,3): a SEED water cell — incoming enthalpy 0, mass 1000 kg, temp 285 K.
+        //   Expect E ENCODED = cellE(1000, water, lookup, 285), strictly > 0.
+        // cellB (5,6,7): an AUTHORITATIVE water cell — incoming enthalpy 7777.0 (nonzero), passed through.
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            char[] prior = new char[4096];          // void (0) -> seed gate engages for new water labels
+            float[] enth = new float[4096];
+            java.util.Arrays.fill(mat, (char) 2);   // air
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 300f);
+            if (sectionY == 4) {
+                int a = 1 + 16 * 2 + 256 * 3;       // seed water (mass already 1000, enthalpy 0)
+                mat[a] = 1; mass[a] = 1000f; temp[a] = 285f; enth[a] = 0f;
+                int b = 5 + 16 * 6 + 256 * 7;       // authoritative water (nonzero stored E)
+                mat[b] = 1; mass[b] = 1000f; temp[b] = 285f; enth[b] = 7777.0f;
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, prior, new Identifier[4096],
+                    new float[4096], new float[4096], new float[4096], new float[4096], new float[4096], enth);
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+
+        int ia = colIdx(1, 4, 2, 3);
+        float expectE = (float) EnthalpyCurve.cellE(1000f, water, lookup, 285f);
+        assertTrue(expectE > 0f, "water at 285 K has positive E (sanity)");
+        assertEquals(expectE, t.enthalpy()[ia], 1e-3,
+                "seed cell (stored E == 0) encodes E = m·h(T_seed), NOT 0 (else T derives to 0 K)");
+        assertTrue(t.enthalpy()[ia] > 0f, "seed E must be strictly positive");
+
+        int ib = colIdx(5, 4, 6, 7);
+        assertEquals(7777.0f, t.enthalpy()[ib], 1e-4,
+                "authoritative nonzero stored E is passed through UNCHANGED (not re-encoded)");
     }
 }
