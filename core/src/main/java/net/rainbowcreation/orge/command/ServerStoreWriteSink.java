@@ -1,11 +1,16 @@
 package net.rainbowcreation.orge.command;
 
 import net.minecraft.resources.Identifier;
+import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
+import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.WakeSink;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
+
+import java.util.function.Function;
 
 /**
  * Server-authoritative writes into the live {@link SectionStore}. Each write reads the section
@@ -46,7 +51,16 @@ public final class ServerStoreWriteSink implements ThermalWriteSink {
             return;
         }
         SectionData data = store.get(key);
-        data.setTemperature(cell, kelvin);
+        // Convert the kelvin edit to stored extensive E at the write boundary (law §7 — T is never
+        // stored). E = mass·h(T) via the cell's species curve; an unresolvable species or massless cell
+        // stores 0 J (no enthalpy to carry). S7 finalizes this display-edit derive.
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        Function<Identifier, Material> lookup = id -> mats.registry().get(id).orElse(null);
+        Material material = lookup.apply(data.materialAt(cell));
+        float massKg = data.massAt(cell);
+        float e = (material == null || massKg <= 0f)
+                ? 0f : (float) EnthalpyCurve.cellE(massKg, material, lookup, kelvin);
+        data.setEnthalpy(cell, e);
         store.put(key, data);
         if (wake != null) wake.wakeThermalSection(dimension, key); // a temp edit re-runs conduction
     }

@@ -173,11 +173,11 @@ public final class SectionCodec {
     public static void writeSection(DataOutputStream out, SectionData s) throws IOException {
         if (s.form() == SectionData.Form.UNIFORM) {
             out.writeByte(FORM_UNIFORM);
-            out.writeFloat(s.uniformTemperature());
+            out.writeFloat(s.uniformEnthalpy());
             out.writeFloat(s.uniformMass());
         } else {
             out.writeByte(FORM_FULL);
-            byte[] tComp = deflate(floatsToBytes(s.temperatureArray()));
+            byte[] tComp = deflate(floatsToBytes(s.enthalpyArray()));
             out.writeInt(tComp.length);
             out.write(tComp);
             byte[] mComp = deflate(floatsToBytes(s.massArray()));
@@ -199,15 +199,15 @@ public final class SectionCodec {
             out.writeByte(0);
         }
         // v3 velocity block.
-        if (s.hasVelocity()) {
+        if (s.hasMomentum()) {
             out.writeByte(1);
-            byte[] vxComp = deflate(floatsToBytes(s.velXArray()));
+            byte[] vxComp = deflate(floatsToBytes(s.momXArray()));
             out.writeInt(vxComp.length);
             out.write(vxComp);
-            byte[] vyComp = deflate(floatsToBytes(s.velYArray()));
+            byte[] vyComp = deflate(floatsToBytes(s.momYArray()));
             out.writeInt(vyComp.length);
             out.write(vyComp);
-            byte[] vzComp = deflate(floatsToBytes(s.velZArray()));
+            byte[] vzComp = deflate(floatsToBytes(s.momZArray()));
             out.writeInt(vzComp.length);
             out.write(vzComp);
         } else {
@@ -320,9 +320,9 @@ public final class SectionCodec {
                 if (vzLen < 0) throw new IOException("corrupt section: negative compressed length " + vzLen);
                 float[] vz = bytesToFloats(inflate(in.readNBytes(vzLen), SectionData.CELLS * 4));
 
-                System.arraycopy(vx, 0, section.velXArray(), 0, SectionData.CELLS);
-                System.arraycopy(vy, 0, section.velYArray(), 0, SectionData.CELLS);
-                System.arraycopy(vz, 0, section.velZArray(), 0, SectionData.CELLS);
+                System.arraycopy(vx, 0, section.momXArray(), 0, SectionData.CELLS);
+                System.arraycopy(vy, 0, section.momYArray(), 0, SectionData.CELLS);
+                System.arraycopy(vz, 0, section.momZArray(), 0, SectionData.CELLS);
             }
         }
         if (withPressure) {

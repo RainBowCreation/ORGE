@@ -285,7 +285,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         if (store != null && store.isLoaded(cx, cz)) {
             SectionData d = store.get(key);
             if (d != null) {
-                stored = "mass=" + d.massAt(sectionCell) + ",temp=" + d.temperatureAt(sectionCell);
+                stored = "mass=" + d.massAt(sectionCell) + ",E=" + d.enthalpyAt(sectionCell);
             }
         }
         String decision;
@@ -332,8 +332,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return;
         }
         SectionData data = store.get(entry.key());
-        // TODO(perf, §8 follow-on): temperatureArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllTemperatures(float[]) that skips the fill would avoid the churn for first-touch sections.
-        float[] dst = data.temperatureArray();
+        // S2 compile bridge — S6 rewires feed/writeback. This dormant per-section path writes the
+        // engine's result into the (now extensive E) channel; the real eOut = m·h(Tout) encode is S6.
+        // TODO(perf, §8 follow-on): enthalpyArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllEnthalpies(float[]) that skips the fill would avoid the churn for first-touch sections.
+        float[] dst = data.enthalpyArray();
         System.arraycopy(result.temperature(), 0, dst, 0, SectionData.CELLS);
         // Persist the engine's per-cell mass (§10): advection now MOVES mass between cells, so the
         // authoritative post-step mass is result.mass() — no longer the snapshot geometry mass.
@@ -404,7 +406,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private float[] sectionTemps(ServerLevel level, SectionStore store, SubchunkKey key,
                                  GeometryAssembler.CellMaterials cellMat) {
         if (store != null && store.hasSection(key)) {
-            return store.get(key).temperatureArray().clone();
+            // S2 compile bridge — S6 rewires feed. Returns the stored extensive E channel; the real
+            // feed derives Tin = h⁻¹(E/m) per cell before handing it to the engine (S6).
+            return store.get(key).enthalpyArray().clone();
         }
         return AmbientSeeder.seed(cellMat::at, biomeAmbientK(level, key));
     }
@@ -703,9 +707,14 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             if (store != null && store.hasSection(key)) {
                 SectionData sd = store.get(key);
                 for (int i = 0; i < SectionData.CELLS; i++) {
-                    velX[i] = sd.velXAt(i);
-                    velY[i] = sd.velYAt(i);
-                    velZ[i] = sd.velZAt(i);
+                    // S2 compile bridge — S6 rewires feed. Velocity is DERIVED from stored extensive
+                    // momentum: v = p/mass (law §7 — raw v is never stored). Guard mass>0 (else resting 0).
+                    float mi = mass[i];
+                    if (mi > 0f) {
+                        velX[i] = sd.momXAt(i) / mi;
+                        velY[i] = sd.momYAt(i) / mi;
+                        velZ[i] = sd.momZAt(i) / mi;
+                    }
                     p[i]    = sd.pAt(i);
                     swapReady[i] = sd.swapReadyAt(i);
                 }
@@ -737,23 +746,26 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
 
             SectionData data = store.get(key);
-            float[] dstT = data.temperatureArray();
+            // S2 compile bridge — S6 rewires writeback. Writes the engine result into the (now
+            // extensive) channels; the real eOut = m·h(Tout) and pOut = m·vOut encodes are S6.
+            float[] dstT = data.enthalpyArray();
             System.arraycopy(cleanT, 0, dstT, 0, SectionData.CELLS);
             float[] dstM = data.massArray();
             System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
             // Velocity write-back (Task 15): slice each channel, sanitize non-finite → 0 (no clamping
-            // — velocity is signed/unbounded), and persist into the SectionData velocity arrays.
-            // The section is already FULL from the temp/mass array writes above, so velXArray() etc.
-            // allocate safely. Velocity does NOT gate mass conservation.
+            // — velocity is signed/unbounded), and persist into the SectionData momentum arrays.
+            // S2 compile bridge: stores the engine velocity into the momentum channel as-is; S6 encodes
+            // pOut = m·vOut. The section is already FULL from the E/mass array writes above, so
+            // momXArray() etc. allocate safely. Does NOT gate mass conservation.
             float[] secVx = ColumnSectionCodec.sliceSectionChannel(result.velX(), sectionY);
             float[] secVy = ColumnSectionCodec.sliceSectionChannel(result.velY(), sectionY);
             float[] secVz = ColumnSectionCodec.sliceSectionChannel(result.velZ(), sectionY);
             float[] cleanVx = StepValidator.cleanVelocity(secVx, null);
             float[] cleanVy = StepValidator.cleanVelocity(secVy, null);
             float[] cleanVz = StepValidator.cleanVelocity(secVz, null);
-            System.arraycopy(cleanVx, 0, data.velXArray(), 0, SectionData.CELLS);
-            System.arraycopy(cleanVy, 0, data.velYArray(), 0, SectionData.CELLS);
-            System.arraycopy(cleanVz, 0, data.velZArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanVx, 0, data.momXArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanVy, 0, data.momYArray(), 0, SectionData.CELLS);
+            System.arraycopy(cleanVz, 0, data.momZArray(), 0, SectionData.CELLS);
             // Dynamic-pressure write-back: slice the single p channel, sanitize non-finite AND clamp
             // negatives to 0 (p >= 0 — a free surface is p=0), then persist into the SectionData p array.
             // Persisting p is what makes depth-pressure survive across engine steps and save/load.

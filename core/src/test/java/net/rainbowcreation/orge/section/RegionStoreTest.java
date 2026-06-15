@@ -29,7 +29,7 @@ class RegionStoreTest {
         // FULL section: start uniform then add a gradient so form == FULL
         SectionData full = SectionData.uniform(300.0f, 500.0f);
         for (int i = 0; i < SectionData.CELLS; i++) {
-            full.setTemperature(i, 300.0f + i * 0.001f);
+            full.setEnthalpy(i, 300.0f + i * 0.001f);
         }
         assertEquals(SectionData.Form.FULL, full.form());
         map.put(0, full);

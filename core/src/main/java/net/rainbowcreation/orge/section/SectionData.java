@@ -6,17 +6,23 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Per-cell thermal metadata for one section (DESIGN.md §5).
+ * Per-cell EXTENSIVE state for one section (DESIGN.md §5; law §7).
  *
- * <p>Each cell stores <b>only</b> {@code temperature} (K) and {@code mass} (kg);
- * material identity is derived from the block via the first-touch
- * {@code BlockMaterialRule}, never stored here. In memory this is two parallel {@code float[4096]} arrays. {@code mass}
- * is treated as fluid level from day one (1000 kg ≈ a full 1 m³ water block) so the
- * Phase-2 fluid pass needs no storage rework.</p>
+ * <p>Each cell stores only conserved <b>extensive</b> quantities plus its material and pressure:
+ * <b>enthalpy {@code E} [J]</b>, <b>momentum {@code (px,py,pz)} [kg·m/s]</b>, {@code mass} [kg],
+ * material identity (palette), dynamic pressure {@code P}, and the {@code swapReady} bookkeeping
+ * accumulator. The intensive quantities are <b>derived at the boundary, never stored here</b>:
+ * temperature {@code T = h⁻¹(E/m)} via the
+ * {@link net.rainbowcreation.orge.material.EnthalpyCurve} and velocity {@code v = p/mass}. A stored
+ * raw {@code v} or raw {@code T} is the velocity-ghost / temp-ghost drift (law §7) — forbidden.
+ * Extensive storage is what makes advection structurally conservative and keeps thinned cells
+ * bounded ({@code E→0} and {@code p→0} as {@code mass→0}).</p>
  *
- * <p>On disk a section serializes as {@code UNIFORM} (one T + one mass — the common
- * case far from any heat source) or {@code FULL} (compressed 4096-arrays once a
- * gradient forms). See {@link RegionStore}.</p>
+ * <p>In memory the per-cell channels are parallel {@code float[4096]} arrays. On disk a section
+ * serializes as {@code UNIFORM} (one E + one mass — the common case far from any heat source) or
+ * {@code FULL} (compressed 4096-arrays once a gradient forms). See {@link RegionStore}. The derive
+ * to {@code T}/{@code v} (which needs the Material LUT, not held here) lives at every caller
+ * boundary, not in this class.</p>
  */
 public final class SectionData {
 
@@ -27,45 +33,45 @@ public final class SectionData {
     public static final float DEFAULT_AMBIENT_K = 285.0f;
 
     public enum Form {
-        /** One temperature + one mass for the whole section. */
+        /** One enthalpy + one mass for the whole section. */
         UNIFORM,
         /** Full per-cell arrays. */
         FULL
     }
 
     private Form form;
-    private float uniformTemperature;
+    private float uniformEnthalpy;
     private float uniformMass;
-    private float[] temperature; // null while UNIFORM
-    private float[] mass;        // null while UNIFORM
+    private float[] enthalpy; // E [J]; null while UNIFORM
+    private float[] mass;     // null while UNIFORM
     private MaterialPalette materials; // null until the first per-cell material write
-    private float[] velX; // null until first velocity write or array request
-    private float[] velY;
-    private float[] velZ;
+    private float[] momX; // momentum px [kg·m/s]; null until first momentum write or array request
+    private float[] momY; // momentum py
+    private float[] momZ; // momentum pz
     private float[] p;    // dynamic pressure (Pa-ish gauge, >=0); null until first pressure write/array request
     private float[] swapReady; // §5.3 swap-cadence accumulator (law #7 bookkeeping, dimensionless >=0); null until first write/array request; IN-MEMORY ONLY, NOT serialized
 
-    private SectionData(Form form, float uniformTemperature, float uniformMass,
-                        float[] temperature, float[] mass) {
+    private SectionData(Form form, float uniformEnthalpy, float uniformMass,
+                        float[] enthalpy, float[] mass) {
         this.form = form;
-        this.uniformTemperature = uniformTemperature;
+        this.uniformEnthalpy = uniformEnthalpy;
         this.uniformMass = uniformMass;
-        this.temperature = temperature;
+        this.enthalpy = enthalpy;
         this.mass = mass;
     }
 
-    /** A never-simulated section: implicitly uniform ambient T and material default mass. */
-    public static SectionData uniform(float temperatureK, float massKg) {
-        return new SectionData(Form.UNIFORM, temperatureK, massKg, null, null);
+    /** A never-simulated section: implicitly uniform enthalpy and material default mass. */
+    public static SectionData uniform(float enthalpyJ, float massKg) {
+        return new SectionData(Form.UNIFORM, enthalpyJ, massKg, null, null);
     }
 
     public Form form() {
         return form;
     }
 
-    /** Temperature of cell {@code i} (0..4095), expanding from UNIFORM transparently. */
-    public float temperatureAt(int i) {
-        return form == Form.UNIFORM ? uniformTemperature : temperature[i];
+    /** Enthalpy E [J] of cell {@code i} (0..4095), expanding from UNIFORM transparently. */
+    public float enthalpyAt(int i) {
+        return form == Form.UNIFORM ? uniformEnthalpy : enthalpy[i];
     }
 
     public float massAt(int i) {
@@ -80,20 +86,20 @@ public final class SectionData {
      * Constructs a {@code FULL} section by adopting the two supplied arrays directly
      * (no copy — the codec hands over freshly-read arrays).
      *
-     * @param temperature length-{@value CELLS} temperature array (K)
-     * @param mass        length-{@value CELLS} mass array (kg)
+     * @param enthalpy length-{@value CELLS} enthalpy array (E [J])
+     * @param mass     length-{@value CELLS} mass array (kg)
      * @throws IllegalArgumentException if either array has a length other than {@value CELLS}
      */
-    public static SectionData full(float[] temperature, float[] mass) {
-        if (temperature.length != CELLS) {
+    public static SectionData full(float[] enthalpy, float[] mass) {
+        if (enthalpy.length != CELLS) {
             throw new IllegalArgumentException(
-                    "temperature array length must be " + CELLS + ", got " + temperature.length);
+                    "enthalpy array length must be " + CELLS + ", got " + enthalpy.length);
         }
         if (mass.length != CELLS) {
             throw new IllegalArgumentException(
                     "mass array length must be " + CELLS + ", got " + mass.length);
         }
-        return new SectionData(Form.FULL, 0f, 0f, temperature, mass);
+        return new SectionData(Form.FULL, 0f, 0f, enthalpy, mass);
     }
 
     // -------------------------------------------------------------------------
@@ -101,12 +107,12 @@ public final class SectionData {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the uniform temperature value. Only meaningful when {@link #form()} is
+     * Returns the uniform enthalpy value (E [J]). Only meaningful when {@link #form()} is
      * {@link Form#UNIFORM}; a section constructed as {@code FULL} (via {@link #full})
      * returns {@code 0}.
      */
-    public float uniformTemperature() {
-        return uniformTemperature;
+    public float uniformEnthalpy() {
+        return uniformEnthalpy;
     }
 
     /**
@@ -130,22 +136,22 @@ public final class SectionData {
         if (form == Form.FULL) {
             return;
         }
-        temperature = new float[CELLS];
+        enthalpy = new float[CELLS];
         mass = new float[CELLS];
-        Arrays.fill(temperature, uniformTemperature);
+        Arrays.fill(enthalpy, uniformEnthalpy);
         Arrays.fill(mass, uniformMass);
         form = Form.FULL;
     }
 
     /**
-     * Sets the temperature (K) of cell {@code i}, promoting to {@code FULL} if needed.
+     * Sets the enthalpy E [J] of cell {@code i}, promoting to {@code FULL} if needed.
      *
      * @param i cell index (0..{@value CELLS}-1)
-     * @param v temperature in Kelvin
+     * @param v enthalpy in Joules
      */
-    public void setTemperature(int i, float v) {
+    public void setEnthalpy(int i, float v) {
         promote();
-        temperature[i] = v;
+        enthalpy[i] = v;
     }
 
     /**
@@ -164,16 +170,16 @@ public final class SectionData {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the <em>live</em> temperature array (length {@value CELLS}).
+     * Returns the <em>live</em> enthalpy array (length {@value CELLS}).
      *
      * <p><b>Contract:</b> the returned reference is the actual backing store —
-     * any writes by the caller are immediately visible via {@link #temperatureAt(int)}.
+     * any writes by the caller are immediately visible via {@link #enthalpyAt(int)}.
      * If the section is currently {@code UNIFORM} it is force-promoted to {@code FULL}
      * so that the caller always receives a real array.</p>
      */
-    public float[] temperatureArray() {
+    public float[] enthalpyArray() {
         promote();
-        return temperature;
+        return enthalpy;
     }
 
     /**
@@ -190,75 +196,76 @@ public final class SectionData {
     }
 
     // -------------------------------------------------------------------------
-    // Velocity channels (independent lazy allocation, default 0)
+    // Momentum channels (independent lazy allocation, default 0 = resting)
+    // Extensive p [kg·m/s]; velocity v = p/mass is derived at the boundary (law §7).
     // -------------------------------------------------------------------------
 
     /**
-     * Allocates all three velocity arrays (zero-filled by JVM default) if not yet present.
-     * Does NOT promote temp/mass — call {@link #promote()} first when that is required.
+     * Allocates all three momentum arrays (zero-filled by JVM default) if not yet present.
+     * Does NOT promote E/mass — call {@link #promote()} first when that is required.
      */
-    private void ensureVelocity() {
-        if (velX == null) {
-            velX = new float[CELLS];
-            velY = new float[CELLS];
-            velZ = new float[CELLS];
+    private void ensureMomentum() {
+        if (momX == null) {
+            momX = new float[CELLS];
+            momY = new float[CELLS];
+            momZ = new float[CELLS];
         }
     }
 
-    /** X-component of cell {@code i}'s velocity (m/s). Returns {@code 0} until first write. */
-    public float velXAt(int i) { return velX == null ? 0f : velX[i]; }
+    /** X-component of cell {@code i}'s momentum (kg·m/s). Returns {@code 0} until first write. */
+    public float momXAt(int i) { return momX == null ? 0f : momX[i]; }
 
-    /** Y-component of cell {@code i}'s velocity (m/s). Returns {@code 0} until first write. */
-    public float velYAt(int i) { return velY == null ? 0f : velY[i]; }
+    /** Y-component of cell {@code i}'s momentum (kg·m/s). Returns {@code 0} until first write. */
+    public float momYAt(int i) { return momY == null ? 0f : momY[i]; }
 
-    /** Z-component of cell {@code i}'s velocity (m/s). Returns {@code 0} until first write. */
-    public float velZAt(int i) { return velZ == null ? 0f : velZ[i]; }
+    /** Z-component of cell {@code i}'s momentum (kg·m/s). Returns {@code 0} until first write. */
+    public float momZAt(int i) { return momZ == null ? 0f : momZ[i]; }
 
     /**
-     * Sets the velocity of cell {@code i}, promoting this section to {@code FULL} (so that
-     * temp/mass arrays are materialized alongside the velocity channels).
+     * Sets the momentum of cell {@code i}, promoting this section to {@code FULL} (so that
+     * E/mass arrays are materialized alongside the momentum channels).
      *
      * @param i  cell index (0..{@value CELLS}-1)
-     * @param vx X velocity (m/s)
-     * @param vy Y velocity (m/s)
-     * @param vz Z velocity (m/s)
+     * @param px X momentum (kg·m/s)
+     * @param py Y momentum (kg·m/s)
+     * @param pz Z momentum (kg·m/s)
      */
-    public void setVelocity(int i, float vx, float vy, float vz) {
+    public void setMomentum(int i, float px, float py, float pz) {
         promote();
-        ensureVelocity();
-        velX[i] = vx;
-        velY[i] = vy;
-        velZ[i] = vz;
+        ensureMomentum();
+        momX[i] = px;
+        momY[i] = py;
+        momZ[i] = pz;
     }
 
     /**
-     * Returns the <em>live</em> velX array (length {@value CELLS}), allocating it (and velY/velZ)
-     * if needed. Also promotes temp/mass to {@code FULL}.
+     * Returns the <em>live</em> momX array (length {@value CELLS}), allocating it (and momY/momZ)
+     * if needed. Also promotes E/mass to {@code FULL}.
      */
-    public float[] velXArray() {
+    public float[] momXArray() {
         promote();
-        ensureVelocity();
-        return velX;
+        ensureMomentum();
+        return momX;
     }
 
     /**
-     * Returns the <em>live</em> velY array (length {@value CELLS}), allocating it (and velX/velZ)
-     * if needed. Also promotes temp/mass to {@code FULL}.
+     * Returns the <em>live</em> momY array (length {@value CELLS}), allocating it (and momX/momZ)
+     * if needed. Also promotes E/mass to {@code FULL}.
      */
-    public float[] velYArray() {
+    public float[] momYArray() {
         promote();
-        ensureVelocity();
-        return velY;
+        ensureMomentum();
+        return momY;
     }
 
     /**
-     * Returns the <em>live</em> velZ array (length {@value CELLS}), allocating it (and velX/velY)
-     * if needed. Also promotes temp/mass to {@code FULL}.
+     * Returns the <em>live</em> momZ array (length {@value CELLS}), allocating it (and momX/momY)
+     * if needed. Also promotes E/mass to {@code FULL}.
      */
-    public float[] velZArray() {
+    public float[] momZArray() {
         promote();
-        ensureVelocity();
-        return velZ;
+        ensureMomentum();
+        return momZ;
     }
 
     // -------------------------------------------------------------------------
@@ -267,7 +274,7 @@ public final class SectionData {
 
     /**
      * Allocates the single pressure array (zero-filled by JVM default) if not yet present.
-     * Independent of velocity (a section may carry p without v, and vice versa).
+     * Independent of momentum (a section may carry p without momentum, and vice versa).
      */
     private void ensurePressure() {
         if (p == null) {
@@ -280,7 +287,7 @@ public final class SectionData {
 
     /**
      * Sets the dynamic pressure of cell {@code i}, promoting this section to {@code FULL} (so that
-     * temp/mass arrays are materialized alongside the pressure channel).
+     * E/mass arrays are materialized alongside the pressure channel).
      *
      * @param i  cell index (0..{@value CELLS}-1)
      * @param pv dynamic pressure (Pa-ish gauge, >=0)
@@ -293,7 +300,7 @@ public final class SectionData {
 
     /**
      * Returns the <em>live</em> pressure array (length {@value CELLS}), allocating it if needed.
-     * Also promotes temp/mass to {@code FULL}.
+     * Also promotes E/mass to {@code FULL}.
      */
     public float[] pArray() {
         promote();
@@ -308,7 +315,7 @@ public final class SectionData {
 
     /**
      * Allocates the single swapReady array (zero-filled by JVM default) if not yet present.
-     * Independent of velocity and pressure (a section may carry swapReady without v/p, and vice versa).
+     * Independent of momentum and pressure (a section may carry swapReady without momentum/p, and vice versa).
      */
     private void ensureSwapReady() {
         if (swapReady == null) {
@@ -321,7 +328,7 @@ public final class SectionData {
 
     /**
      * Sets the swap-cadence accumulator of cell {@code i}, promoting this section to {@code FULL} (so that
-     * temp/mass arrays are materialized alongside the swapReady channel).
+     * E/mass arrays are materialized alongside the swapReady channel).
      *
      * @param i cell index (0..{@value CELLS}-1)
      * @param v swap-cadence accumulator (dimensionless, >=0)
@@ -334,7 +341,7 @@ public final class SectionData {
 
     /**
      * Returns the <em>live</em> swapReady array (length {@value CELLS}), allocating it if needed.
-     * Also promotes temp/mass to {@code FULL}.
+     * Also promotes E/mass to {@code FULL}.
      */
     public float[] swapReadyArray() {
         promote();
@@ -348,7 +355,7 @@ public final class SectionData {
 
     /**
      * Attempts to collapse a {@code FULL} section back to {@code UNIFORM} when every
-     * cell holds the same temperature and mass.
+     * cell holds the same enthalpy and mass (and all bookkeeping channels are absent/zero).
      *
      * <p>Uses exact {@code float ==} comparison — demotion only fires when the engine
      * genuinely left all cells identical (e.g. after a full-section reset).</p>
@@ -360,17 +367,18 @@ public final class SectionData {
         if (form == Form.UNIFORM) {
             return true;
         }
-        float t0 = temperature[0];
+        float e0 = enthalpy[0];
         float m0 = mass[0];
         for (int i = 1; i < CELLS; i++) {
-            if (temperature[i] != t0 || mass[i] != m0) {
+            if (enthalpy[i] != e0 || mass[i] != m0) {
                 return false;
             }
         }
-        // Only demote if velocity is absent or all-zero (X, Y and Z).
-        if (velX != null) {
+        // Only demote if momentum is absent or all-zero (X, Y and Z) — a nonzero momentum is the
+        // velocity-ghost guard: a moving cell must stay FULL so its momentum survives the collapse.
+        if (momX != null) {
             for (int i = 0; i < CELLS; i++) {
-                if (velX[i] != 0f || velY[i] != 0f || velZ[i] != 0f) {
+                if (momX[i] != 0f || momY[i] != 0f || momZ[i] != 0f) {
                     return false;
                 }
             }
@@ -392,13 +400,13 @@ public final class SectionData {
                 }
             }
         }
-        uniformTemperature = t0;
+        uniformEnthalpy = e0;
         uniformMass = m0;
-        temperature = null;
+        enthalpy = null;
         mass = null;
-        velX = null;
-        velY = null;
-        velZ = null;
+        momX = null;
+        momY = null;
+        momZ = null;
         p = null;
         swapReady = null;
         form = Form.UNIFORM;
@@ -414,9 +422,9 @@ public final class SectionData {
         return materials != null;
     }
 
-    /** Whether this section has non-default (non-null) velocity arrays. Used by the codec. */
-    public boolean hasVelocity() {
-        return velX != null;
+    /** Whether this section has non-default (non-null) momentum arrays. Used by the codec. */
+    public boolean hasMomentum() {
+        return momX != null;
     }
 
     /** Whether this section has a non-default (non-null) pressure array. Used by the codec. */
@@ -440,7 +448,7 @@ public final class SectionData {
 
     /**
      * Sets the material id of cell {@code i} (0..{@value CELLS}-1), lazily allocating the material
-     * layer on first call. Also promotes temp/mass to {@code FULL} so all three per-cell layers stay
+     * layer on first call. Also promotes E/mass to {@code FULL} so all three per-cell layers stay
      * aligned for the codec.
      */
     public void setMaterialAt(int i, Identifier id) {
@@ -474,7 +482,7 @@ public final class SectionData {
     // -------------------------------------------------------------------------
 
     /**
-     * Returns {@code true} iff this section and {@code o} have the same temperature
+     * Returns {@code true} iff this section and {@code o} have the same enthalpy
      * and mass in every cell (including the UNIFORM-vs-FULL cross-comparison).
      *
      * <p>Uses {@link Float#compare(float, float)} for exact equality (no epsilon).
@@ -485,7 +493,7 @@ public final class SectionData {
      */
     public boolean equalsValue(SectionData o) {
         for (int i = 0; i < CELLS; i++) {
-            if (Float.compare(this.temperatureAt(i), o.temperatureAt(i)) != 0) {
+            if (Float.compare(this.enthalpyAt(i), o.enthalpyAt(i)) != 0) {
                 return false;
             }
             if (Float.compare(this.massAt(i), o.massAt(i)) != 0) {

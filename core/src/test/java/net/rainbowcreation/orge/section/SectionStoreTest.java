@@ -37,7 +37,7 @@ class SectionStoreTest {
         SectionData s = store.get(key);
 
         // Correct ambient values from AMB
-        assertEquals(300f, s.temperatureAt(0), "ambient temperature must match AmbientProvider");
+        assertEquals(300f, s.enthalpyAt(0), "ambient temperature must match AmbientProvider");
         assertEquals(1.2f, s.massAt(0),         "ambient mass must match AmbientProvider");
         assertEquals(SectionData.Form.UNIFORM, s.form(), "ambient section must be UNIFORM");
 
@@ -83,8 +83,8 @@ class SectionStoreTest {
         SubchunkKey key = new SubchunkKey(0, 0, 0);
         // Build a FULL section so we exercise full serialization too
         SectionData expected = SectionData.uniform(500f, 1000f);
-        expected.setTemperature(10, 600f);   // forces FULL form
-        assertEquals(SectionData.Form.FULL, expected.form(), "section must be FULL after setTemperature");
+        expected.setEnthalpy(10, 600f);   // forces FULL form
+        assertEquals(SectionData.Form.FULL, expected.form(), "section must be FULL after setEnthalpy");
 
         store.put(key, expected);
         store.unloadColumn(0, 0);
@@ -144,7 +144,7 @@ class SectionStoreTest {
         SectionData sec00 = SectionData.uniform(400f, 800f);
         // Make a FULL section for column (10,10) to exercise FULL serialization
         SectionData sec10 = SectionData.uniform(350f, 500f);
-        sec10.setTemperature(5, 999f);  // forces FULL form
+        sec10.setEnthalpy(5, 999f);  // forces FULL form
         assertEquals(SectionData.Form.FULL, sec10.form());
 
         store.put(key00, sec00);

@@ -80,7 +80,7 @@ class MinecraftThermalWorldTest {
         world.writeBack(entry, new StepResult(temps, mass));
 
         SectionData data = mgr.store(DIM).get(key);
-        assertEquals(350f, data.temperatureAt(0), 1e-4f, "temperature persisted");
+        assertEquals(350f, data.enthalpyAt(0), 1e-4f, "temperature persisted");
         assertEquals(1000f, data.massAt(0), 1e-4f, "engine mass must be persisted, not left at 0");
         assertEquals(1000f, data.massAt(SectionData.CELLS - 1), 1e-4f, "all cells carry their mass");
     }
@@ -104,7 +104,7 @@ class MinecraftThermalWorldTest {
         assertEquals(SectionData.Form.UNIFORM, data.form(),
                 "a section the engine flattened to a single value must collapse back to UNIFORM, "
                         + "not ratchet at FULL forever");
-        assertEquals(300f, data.temperatureAt(0), 1e-4f, "uniform value preserved through demote");
+        assertEquals(300f, data.enthalpyAt(0), 1e-4f, "uniform value preserved through demote");
         assertEquals(1000f, data.massAt(0), 1e-4f, "uniform mass preserved through demote");
     }
 
@@ -127,8 +127,8 @@ class MinecraftThermalWorldTest {
         SectionData data = mgr.store(DIM).get(key);
         assertEquals(SectionData.Form.FULL, data.form(),
                 "a section holding a genuine gradient must stay FULL");
-        assertEquals(350f, data.temperatureAt(0), 1e-4f);
-        assertEquals(300f, data.temperatureAt(1), 1e-4f);
+        assertEquals(350f, data.enthalpyAt(0), 1e-4f);
+        assertEquals(300f, data.enthalpyAt(1), 1e-4f);
     }
 
     /** D is an input air cell the engine wetted (outMat[D]=water). The recorded signature must be
@@ -365,12 +365,12 @@ class MinecraftThermalWorldTest {
         SectionData data = mgr.store(DIM).get(key);
         assertNotNull(data, "section must exist after write-back");
 
-        assertEquals(2.5f,  data.velXAt(velSectionCell), 1e-5f, "velX persisted for finite cell");
-        assertEquals(-1.2f, data.velYAt(velSectionCell), 1e-5f, "velY persisted for finite cell");
-        assertEquals(0.8f,  data.velZAt(velSectionCell), 1e-5f, "velZ persisted for finite cell");
+        assertEquals(2.5f,  data.momXAt(velSectionCell), 1e-5f, "velX persisted for finite cell");
+        assertEquals(-1.2f, data.momYAt(velSectionCell), 1e-5f, "velY persisted for finite cell");
+        assertEquals(0.8f,  data.momZAt(velSectionCell), 1e-5f, "velZ persisted for finite cell");
 
-        assertEquals(0f, data.velXAt(nanSectionCell), "NaN velX sanitized to 0");
-        assertEquals(0f, data.velYAt(nanSectionCell), "+Inf velY sanitized to 0");
-        assertEquals(0f, data.velZAt(nanSectionCell), "-Inf velZ sanitized to 0");
+        assertEquals(0f, data.momXAt(nanSectionCell), "NaN velX sanitized to 0");
+        assertEquals(0f, data.momYAt(nanSectionCell), "+Inf velY sanitized to 0");
+        assertEquals(0f, data.momZAt(nanSectionCell), "-Inf velZ sanitized to 0");
     }
 }

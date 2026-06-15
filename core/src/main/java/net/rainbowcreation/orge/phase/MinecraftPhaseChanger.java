@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.scheduler.ThermalWorld;
@@ -76,16 +77,23 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         }
         SectionData data = store.get(key);
 
-        // Read temps + mass without forcing a UNIFORM→FULL promotion (the *At accessors work for
-        // both forms). Mass gates the phase rule so drained/empty cells never transition (Bug B).
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        final java.util.function.Function<Identifier, Material> lookup =
+                id -> mats.registry().get(id).orElse(null);
+
+        // Read mass + derive T from stored extensive E (law §7 — T is never stored). Derive needs the
+        // cell's species curve, so it runs at this boundary. Mass gates the phase rule so drained/empty
+        // cells never transition (Bug B); a massless / unresolvable cell derives to ambient (no curve).
         float[] temps = new float[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
-            temps[i] = data.temperatureAt(i);
             mass[i] = data.massAt(i);
+            Material cellM = lookup.apply(data.materialAt(i));
+            temps[i] = cellM == null ? SectionData.DEFAULT_AMBIENT_K
+                    : EnthalpyCurve.deriveT(data.enthalpyAt(i), mass[i], cellM, lookup,
+                            SectionData.DEFAULT_AMBIENT_K);
         }
 
-        ActiveMaterials.State mats = ActiveMaterials.current();
         final LevelChunkSection sec = section;
         // Pair each cell with the species the engine says it BECAME this step (matOut), not the live
         // block: the native molar-sort swaps fluids vertically (lava sinks under water) and the
@@ -135,7 +143,14 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         // Conditional re-pin: hold surviving source cells at their default_temperature (engine-audit C).
         if (!resets.isEmpty()) {
             for (SourcePinPlanner.Reset r : resets) {
-                data.setTemperature(r.cellIndex(), r.temperatureK());
+                // Re-pin stores the Dirichlet temperature as extensive E (law §7 — T is never stored).
+                // E = mass·h(T) via the cell's species curve; an unresolvable / massless cell stores 0 J.
+                int ci = r.cellIndex();
+                Material cellM = lookup.apply(data.materialAt(ci));
+                float massKg = data.massAt(ci);
+                float e = (cellM == null || massKg <= 0f)
+                        ? 0f : (float) EnthalpyCurve.cellE(massKg, cellM, lookup, r.temperatureK());
+                data.setEnthalpy(ci, e);
             }
             store.put(key, data);
         }

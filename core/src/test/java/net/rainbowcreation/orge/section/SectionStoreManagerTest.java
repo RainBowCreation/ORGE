@@ -48,7 +48,7 @@ class SectionStoreManagerTest {
         } finally {
             second.onLevelUnload(OVERWORLD); // release region file handles
         }
-        assertEquals(500.0f, reloaded.temperatureAt(0), 0.0f, "temperature persisted");
+        assertEquals(500.0f, reloaded.enthalpyAt(0), 0.0f, "temperature persisted");
         assertEquals(1000.0f, reloaded.massAt(0), 0.0f, "mass persisted");
     }
 
@@ -60,7 +60,7 @@ class SectionStoreManagerTest {
         m.onChunkLoad(OVERWORLD, 0, 0);
 
         SectionData ambient = m.store(OVERWORLD).get(new SubchunkKey(7, 3, 9));
-        assertEquals(300.0f, ambient.temperatureAt(0), 0.0f, "ambient temperature");
+        assertEquals(300.0f, ambient.enthalpyAt(0), 0.0f, "ambient temperature");
     }
 
     /** Hooks for a never-loaded dimension must be silent no-ops, never throwing. */
@@ -89,6 +89,6 @@ class SectionStoreManagerTest {
         m.onLevelLoad(OVERWORLD, dir, AMBIENT_300); // must NOT replace the live store
 
         assertEquals(store, m.store(OVERWORLD), "store identity preserved on re-load");
-        assertEquals(400.0f, m.store(OVERWORLD).get(new SubchunkKey(0, 0, 0)).temperatureAt(0), 0.0f);
+        assertEquals(400.0f, m.store(OVERWORLD).get(new SubchunkKey(0, 0, 0)).enthalpyAt(0), 0.0f);
     }
 }

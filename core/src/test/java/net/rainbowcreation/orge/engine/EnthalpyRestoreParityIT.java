@@ -112,9 +112,9 @@ class EnthalpyRestoreParityIT {
         for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
             float[][] tm = ColumnSectionCodec.sliceSection(cleanT, cleanM, sectionY);
             SectionData d = SectionData.full(tm[0], tm[1]);
-            System.arraycopy(ColumnSectionCodec.sliceSectionChannel(vx, sectionY), 0, d.velXArray(), 0, SEC);
-            System.arraycopy(ColumnSectionCodec.sliceSectionChannel(vy, sectionY), 0, d.velYArray(), 0, SEC);
-            System.arraycopy(ColumnSectionCodec.sliceSectionChannel(vz, sectionY), 0, d.velZArray(), 0, SEC);
+            System.arraycopy(ColumnSectionCodec.sliceSectionChannel(vx, sectionY), 0, d.momXArray(), 0, SEC);
+            System.arraycopy(ColumnSectionCodec.sliceSectionChannel(vy, sectionY), 0, d.momYArray(), 0, SEC);
+            System.arraycopy(ColumnSectionCodec.sliceSectionChannel(vz, sectionY), 0, d.momZArray(), 0, SEC);
             System.arraycopy(ColumnSectionCodec.sliceSectionChannel(p, sectionY), 0, d.pArray(), 0, SEC);
             char[] outSec = ColumnSectionCodec.sliceSectionMaterials(outMat, sectionY);
             char[] inSec = ColumnSectionCodec.sliceSectionMaterials(inMat, sectionY);
@@ -149,11 +149,11 @@ class EnthalpyRestoreParityIT {
                 char eff = effectiveSpecies(outSec, inSec, i);
                 prior[i] = eff;          // last cycle's recorded engine-output species (seed gate)
                 firstTouch[i] = eff;     // block first-touch fallback when no stored layer
-                t[i] = d.temperatureAt(i);
+                t[i] = d.enthalpyAt(i);
                 m[i] = d.massAt(i);
-                svx[i] = d.velXAt(i);
-                svy[i] = d.velYAt(i);
-                svz[i] = d.velZAt(i);
+                svx[i] = d.momXAt(i);
+                svy[i] = d.momYAt(i);
+                svz[i] = d.momZAt(i);
                 sp[i] = d.pAt(i);
                 stored[i] = hasMats ? d.materialAt(i) : null;
             }
@@ -381,7 +381,7 @@ class EnthalpyRestoreParityIT {
         final int sectionY = (102 - 64) / 16;        // = 2
         final int sy = 102 - 64 - sectionY * 16;     // = 6
         final int si = 8 + 16 * sy + 256 * 8;        // x=8, z=8
-        float storedT = reloaded.get(sectionY).temperatureAt(si);
+        float storedT = reloaded.get(sectionY).enthalpyAt(si);
         float storedM = reloaded.get(sectionY).massAt(si);
         assertTrue(storedT > BOIL_TSTAR + 1f,
                 "the disk stores the linearized E-encoding T (≈642.6 K), not the pinned plateau T* — "
