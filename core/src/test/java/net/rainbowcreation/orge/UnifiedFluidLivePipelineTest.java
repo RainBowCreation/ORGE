@@ -94,6 +94,8 @@ class UnifiedFluidLivePipelineTest {
         final float[][] velX = new float[24][SEC];
         final float[][] velY = new float[24][SEC];
         final float[][] velZ = new float[24][SEC];
+        // Swap-cadence accumulator (law #7 / v4 §5.3) — persisted across cycles like velocity.
+        final float[][] swapReady = new float[24][SEC];
 
         FakeColumn(int cx, int cz) {
             this.cx = cx;
@@ -135,7 +137,8 @@ class UnifiedFluidLivePipelineTest {
                 return new ColumnAssembler.SectionCells(
                         mat[s].clone(), mass[s].clone(), temp[s].clone(), prior[s].clone(),
                         new net.minecraft.resources.Identifier[SEC],
-                        velX[s].clone(), velY[s].clone(), velZ[s].clone());
+                        velX[s].clone(), velY[s].clone(), velZ[s].clone(),
+                        new float[SEC], swapReady[s].clone());
             };
         }
 
@@ -155,6 +158,7 @@ class UnifiedFluidLivePipelineTest {
                             velX[s][si] = r.velX()[ci];
                             velY[s][si] = r.velY()[ci];
                             velZ[s][si] = r.velZ()[ci];
+                            swapReady[s][si] = r.swapReady()[ci];
                         }
                     }
             }
