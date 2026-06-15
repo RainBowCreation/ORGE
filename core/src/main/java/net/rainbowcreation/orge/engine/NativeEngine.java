@@ -159,7 +159,7 @@ public final class NativeEngine implements OrgeEngine {
 
         // T2 S5 absolute-E feed (law §6 — E is THE energy truth carrier, T is a derived diagnostic).
         // eIn now flows straight from the S4-threaded stored-E channel (ColumnTask.enthalpy →
-        // RegionMarshaller.Flat.eIn), exactly like vxIn = f.vxIn() and swapReadyIn = f.swapReadyIn():
+        // RegionMarshaller.Flat.eIn), exactly like vxIn = f.pxIn() and swapReadyIn = f.swapReadyIn():
         // the engine receives the STORED ABSOLUTE E [J] unmodified — loss-free across the JNI seam.
         // This DELETES the old mass·cp·T reconstruction, a single-slope linearisation that LOST energy
         // across a latent-heat plateau (a boiling cell pinned at 373 K absorbing ~2.256 MJ/kg carries E
@@ -167,7 +167,7 @@ public final class NativeEngine implements OrgeEngine {
         // truth and reconstructs nothing (orge_jni.cpp: "C->E[i] = eIn[i]; NEVER reconstruct E from T").
         float[] eIn = f.eIn();
         // swapReadyIn: sourced from the persisted Java channel (ColumnTask.swapReady, marshalled into
-        // Flat.swapReadyIn) — taken straight from Flat, exactly like vxIn = f.vxIn(). The engine reads it
+        // Flat.swapReadyIn) — taken straight from Flat, exactly like vxIn = f.pxIn(). The engine reads it
         // directly, round-trips it, and resets-on-mismatch per v4 §1.1. Java now PERSISTS this channel
         // across stepWorld calls (T10c) so the §5.3 seconds-floor swap cadence can accumulate toward its
         // ≥1 fire threshold instead of being re-zeroed each tick.
