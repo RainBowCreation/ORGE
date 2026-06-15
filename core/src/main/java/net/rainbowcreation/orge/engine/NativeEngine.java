@@ -84,17 +84,13 @@ public final class NativeEngine implements OrgeEngine {
             float[] eOut, float[] swapReadyOut);
 
     private final java.util.Map<Integer, Integer> epochMatCount = new java.util.concurrent.ConcurrentHashMap<>();
-    // T10.8: per-epoch heat-capacity (cp) by matIx, used to reconstruct the absolute-E channel
-    // (Ein = mass·cp·T) at the JNI boundary. This is the single-slope reconstruction the C++ USED to
-    // do internally; Java now supplies it so the round-trip stays bit-identical to today for off-plateau
-    // cells (true cross-tick absolute-E persistence is the Subtask 9 disk decision). Keyed like
-    // epochMatCount so a stale/evicted epoch yields no cp array (Ein falls back to 0 = massless).
-    private final java.util.Map<Integer, float[]> epochHeatCap = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Override
     public void registerMaterials(int lutEpoch, List<Material> table) {
         if (table.isEmpty()) return;
         LutArrays L = LutArrays.pack(table);
+        // The heatCap LUT column still flows to the engine here (its own enthalpy curve §8.1 consumes it);
+        // T2 S5 deletes ONLY the Java-side cp·T reconstruction cache, not this registration column.
         orgeRegisterMaterials(lutEpoch, L.matCount(),
                 L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
                 L.defaultMass(), L.yieldStress(),
@@ -102,7 +98,6 @@ public final class NativeEngine implements OrgeEngine {
                 L.emissivity(), L.thermalExpansion(),
                 L.latentHeatMin(), L.latentHeatMax(), L.tRefGas());
         epochMatCount.put(lutEpoch, table.size());
-        epochHeatCap.put(lutEpoch, L.heatCap());
     }
 
     @Override
@@ -156,36 +151,24 @@ public final class NativeEngine implements OrgeEngine {
         float[] vzOut = scratch.velZOut(total);
         float[] pOut  = scratch.pOut(total);
 
-        // T10.8 absolute-E + swap-cadence channels (engine a2a51cd ABI).
-        // Ein: reconstruct ABSOLUTE E from the temperature the disk/live world still persists,
-        // Ein = mass·cp·T (the single-slope reconstruction the C++ used to do internally; Java now
-        // supplies it). This keeps the round-trip bit-identical to today for off-plateau cells AND
-        // loss-free within the tick for any cell the engine moves. Cross-tick mid-plateau persistence
-        // is the Subtask 9 disk decision. cp comes from the per-epoch heatCap cache; a void / 0-cp
-        // cell (or unknown epoch ⇒ null cp) yields Ein=0, matching the engine's massless fallback.
-        float[] eIn = scratch.eIn(total);
-        float[] cp = epochHeatCap.get(lutEpoch);
-        char[] matIxFlat = f.matIx();
-        float[] massFlat = f.mass();
-        float[] tInFlat = f.tIn();
-        if (cp != null) {
-            for (int i = 0; i < total; i++) {
-                int mi = matIxFlat[i];
-                float c = (mi < cp.length) ? cp[mi] : 0f;
-                eIn[i] = massFlat[i] * c * tInFlat[i];
-            }
-        } else {
-            java.util.Arrays.fill(eIn, 0, total, 0f);
-        }
+        // T2 S5 absolute-E feed (law §6 — E is THE energy truth carrier, T is a derived diagnostic).
+        // eIn now flows straight from the S4-threaded stored-E channel (ColumnTask.enthalpy →
+        // RegionMarshaller.Flat.eIn), exactly like vxIn = f.vxIn() and swapReadyIn = f.swapReadyIn():
+        // the engine receives the STORED ABSOLUTE E [J] unmodified — loss-free across the JNI seam.
+        // This DELETES the old mass·cp·T reconstruction, a single-slope linearisation that LOST energy
+        // across a latent-heat plateau (a boiling cell pinned at 373 K absorbing ~2.256 MJ/kg carries E
+        // far above m·cp·373; cp·T would silently collapse it onto a band edge). The engine treats E as
+        // truth and reconstructs nothing (orge_jni.cpp: "C->E[i] = eIn[i]; NEVER reconstruct E from T").
+        float[] eIn = f.eIn();
         // swapReadyIn: sourced from the persisted Java channel (ColumnTask.swapReady, marshalled into
         // Flat.swapReadyIn) — taken straight from Flat, exactly like vxIn = f.vxIn(). The engine reads it
         // directly, round-trips it, and resets-on-mismatch per v4 §1.1. Java now PERSISTS this channel
         // across stepWorld calls (T10c) so the §5.3 seconds-floor swap cadence can accumulate toward its
         // ≥1 fire threshold instead of being re-zeroed each tick.
         float[] swapReadyIn = f.swapReadyIn();
-        // Eout/swapReadyOut: captured into scratch. ColumnResult.temperature (T-derived) still carries the
-        // thermal state for the live write-back, so Eout is not yet consumed downstream — that is fine for
-        // this subtask (Subtask 9 wires absolute-E persistence). Captured to satisfy the loss-free seam.
+        // Eout: the engine's AUTHORITATIVE post-step absolute E [J] (law §6). T2 S5 threads it back through
+        // the 10-arg slice into ColumnResult.enthalpy so S6 can write the stored-E channel back to the world
+        // (the T channel remains the derived-Kelvin diagnostic). swapReadyOut: persisted §5.3 accumulator.
         float[] eOut = scratch.eOut(total);
         float[] swapReadyOut = scratch.swapReadyOut(total);
 
@@ -210,7 +193,7 @@ public final class NativeEngine implements OrgeEngine {
             System.arraycopy(ledgerOut, 3 * matCount, sealedE, 0, matCount);
         }
         return new RegionStepResult(
-                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, f.nCols()),
+                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, eOut, f.nCols()),
                 injected, sealedLoss, injectedE, sealedE);
     }
 
