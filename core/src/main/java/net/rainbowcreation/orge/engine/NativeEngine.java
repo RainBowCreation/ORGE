@@ -31,15 +31,19 @@ public final class NativeEngine implements OrgeEngine {
      * (each {@link RegionMarshaller#CHUNK_N} cells), run conduction and/or advection per {@code passes},
      * and read next-state back into {@code tOut}/{@code massOut}/{@code matOut} (length {@code nCols·CHUNK_N}).
      *
-     * <p><b>Law §8 fixed-schema LUT (issue #2; {@code orge_jni.cpp} must match exactly):</b> eight
-     * physics floats — {@code cond} (thermal_conductivity), {@code heatCap}, {@code molar},
+     * <p><b>v4 §1.2 / law §8 17-column LUT (issue #2; {@code orge_jni.cpp} must match exactly):</b>
+     * eight base physics floats — {@code cond} (thermal_conductivity), {@code heatCap}, {@code molar},
      * {@code minMass}, {@code maxMass}, {@code visc} (+∞ = frozen/immovable), {@code defaultMass}
-     * (EOS rest density m₀), {@code yieldStress} (threshold axis, 0 for fluids) — plus the phase
-     * quadruple {@code minTemp}/{@code maxTemp} and {@code minTarget}/{@code maxTarget} (the target
-     * material's globally-stable {@code matIx}, {@code 0xFFFF} = no target). The phase quadruple is
-     * engine-resident so a future DECODE relabels locally. Immovability is {@code visc == +∞}, not a flag.</p>
+     * (EOS rest density m₀), {@code yieldStress} (threshold axis, 0 for fluids) — the phase quadruple
+     * {@code minTemp}/{@code maxTemp} and {@code minTarget}/{@code maxTarget} (the target material's
+     * globally-stable {@code matIx}, {@code 0xFFFF} = no target) — and the five v4 §1.2 columns APPENDED
+     * at the end: {@code emissivity} (ε, radiation §8.3), {@code thermalExpansion} (β, convection ρ_eff),
+     * {@code latentHeatMin}/{@code latentHeatMax} (latent heat of the min/max transition, §8.1), and
+     * {@code tRefGas} (per-gas EOS reference T, §2.1). The phase quadruple is engine-resident so a future
+     * DECODE relabels locally. Immovability is {@code visc == +∞}, not a flag.</p>
      *
-     * <p>Param order MUST match {@code orge_jni.cpp}. Returns the native compute time in milliseconds.</p>
+     * <p>Param order MUST match {@code orge_jni.cpp} (the 5 new arrays come last). Returns the native
+     * compute time in milliseconds.</p>
      *
      * <p>The trailing injection channel ({@code injCount}, the five {@code inj*} arrays, and
      * {@code ledgerOut}) is the placement displace-and-inject path. It is passed EMPTY
@@ -52,7 +56,9 @@ public final class NativeEngine implements OrgeEngine {
             float[] minMass, float[] maxMass, float[] visc,
             float[] defaultMass, float[] yieldStress,
             float[] minTemp, float[] maxTemp,
-            int[] minTarget, int[] maxTarget);
+            int[] minTarget, int[] maxTarget,
+            float[] emissivity, float[] thermalExpansion,
+            float[] latentHeatMin, float[] latentHeatMax, float[] tRefGas);
 
     private static native double orgeStepWorld(
             int lutEpoch,
@@ -76,7 +82,9 @@ public final class NativeEngine implements OrgeEngine {
         orgeRegisterMaterials(lutEpoch, L.matCount(),
                 L.cond(), L.heatCap(), L.molar(), L.minMass(), L.maxMass(), L.visc(),
                 L.defaultMass(), L.yieldStress(),
-                L.minTemp(), L.maxTemp(), L.minTarget(), L.maxTarget());
+                L.minTemp(), L.maxTemp(), L.minTarget(), L.maxTarget(),
+                L.emissivity(), L.thermalExpansion(),
+                L.latentHeatMin(), L.latentHeatMax(), L.tRefGas());
         epochMatCount.put(lutEpoch, table.size());
     }
 

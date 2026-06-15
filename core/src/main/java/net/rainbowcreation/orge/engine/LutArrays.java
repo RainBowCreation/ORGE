@@ -11,11 +11,14 @@ import java.util.Map;
  * Flat per-material LUT carrying EXACTLY the law §8 fixed schema, packed for the JNI registration
  * (the whole-region production path). One array per field, indexed by LUT slot.
  *
- * <p><b>Law §8 schema</b> — eight physics floats plus the phase quadruple:
- * {@code cond, heatCap, molar, minMass, maxMass, visc, defaultMass, yieldStress} (floats) and
- * {@code minTemp, maxTemp} (float thresholds) with {@code minTarget, maxTarget} (the target
- * material's globally-stable {@code matIx}, resolved from its id). The phase quadruple is kept IN
- * the engine LUT (not Java) so a future DECODE relabels locally, keeping enthalpy {@code E}.</p>
+ * <p><b>v4 §1.2 / law §8 17-column schema</b> — the eight base physics floats
+ * {@code cond, heatCap, molar, minMass, maxMass, visc, defaultMass, yieldStress}, the five v4 §1.2
+ * radiation/EOS/latent floats {@code emissivity (ε), thermalExpansion (β), latentHeatMin,
+ * latentHeatMax, tRefGas} (appended after {@code maxTarget} so the JNI call order — controlled in
+ * {@code NativeEngine} — places them at the end), and the phase quadruple {@code minTemp, maxTemp}
+ * (float thresholds) with {@code minTarget, maxTarget} (the target material's globally-stable
+ * {@code matIx}, resolved from its id). The phase quadruple is kept IN the engine LUT (not Java) so a
+ * future DECODE relabels locally, keeping enthalpy {@code E}.</p>
  *
  * <p>There is NO movability flag: immovability falls out of {@code visc == +∞} (spec invariant 1).
  * An absent viscosity is already {@link Float#POSITIVE_INFINITY} (frozen) on the {@link Material},
@@ -31,7 +34,10 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
                         float[] minMass, float[] maxMass, float[] visc,
                         float[] defaultMass, float[] yieldStress,
                         float[] minTemp, float[] maxTemp,
-                        int[] minTarget, int[] maxTarget, int matCount) {
+                        int[] minTarget, int[] maxTarget,
+                        float[] emissivity, float[] thermalExpansion,
+                        float[] latentHeatMin, float[] latentHeatMax, float[] tRefGas,
+                        int matCount) {
 
     /** No phase transition on that side: matches the engine {@code MAT_NO_TARGET} sentinel (0xFFFF). */
     public static final int NO_TARGET = 0xFFFF;
@@ -50,6 +56,8 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
         float[] defaultMass = new float[m], yieldStress = new float[m];
         float[] minTemp = new float[m], maxTemp = new float[m];
         int[] minTarget = new int[m], maxTarget = new int[m];
+        float[] emissivity = new float[m], thermalExpansion = new float[m];
+        float[] latentHeatMin = new float[m], latentHeatMax = new float[m], tRefGas = new float[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
@@ -66,9 +74,16 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
             maxTemp[i] = mat.maxTemp();
             minTarget[i] = slotOf(idToSlot, mat.minTarget());
             maxTarget[i] = slotOf(idToSlot, mat.maxTarget());
+            // v4 §1.2 radiation/EOS/latent columns; all absent => 0 on the Material.
+            emissivity[i] = mat.emissivity();
+            thermalExpansion[i] = mat.thermalExpansion();
+            latentHeatMin[i] = mat.latentHeatMin();
+            latentHeatMax[i] = mat.latentHeatMax();
+            tRefGas[i] = mat.tRefGas();
         }
         return new LutArrays(cond, heatCap, molar, minMass, maxMass, visc, defaultMass, yieldStress,
-                minTemp, maxTemp, minTarget, maxTarget, m);
+                minTemp, maxTemp, minTarget, maxTarget,
+                emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas, m);
     }
 
     /** Resolve a phase-target id to its LUT slot ({@code matIx}); null / unknown ⇒ {@link #NO_TARGET}. */

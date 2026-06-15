@@ -33,6 +33,19 @@ class LutPackTest {
                 .build();
     }
 
+    /**
+     * Material with the 5 v4 §1.2 columns all set to DISTINCT non-zero values, so a swapped pack
+     * (e.g. emissivity↔β) is caught. Other required fields are arbitrary.
+     */
+    private static Material radiative() {
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "radiative"))
+                .thermalConductivity(1f).heatCapacity(1f).molarMass(1f)
+                .defaultMass(1f).defaultTemperature(Float.NaN).viscosity(0f)
+                .emissivity(0.96f).thermalExpansion(2.1e-4f)
+                .latentHeatMin(3.34e5f).latentHeatMax(2.256e6f).tRefGas(288f)
+                .build();
+    }
+
     private static Material ice() {
         return Material.builder(Identifier.fromNamespaceAndPath("orge", "ice"))
                 .thermalConductivity(2.2f).heatCapacity(2090f).molarMass(0.018f)
@@ -58,9 +71,12 @@ class LutPackTest {
     void recordCarriesExactlyTheLaw8Schema() {
         RecordComponent[] comps = LutArrays.class.getRecordComponents();
         Set<String> names = Arrays.stream(comps).map(RecordComponent::getName).collect(Collectors.toSet());
-        // Exactly the eight physics floats + the phase quadruple + matCount.
+        // The full 17-column v4 §1.2 schema: eight base physics floats + the 5 new physics floats
+        // (emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas) + the phase quadruple
+        // (minTemp, maxTemp floats; minTarget, maxTarget int matIx) + matCount.
         assertEquals(Set.of("cond", "heatCap", "molar", "minMass", "maxMass", "visc", "defaultMass",
-                        "yieldStress", "minTemp", "maxTemp", "minTarget", "maxTarget", "matCount"), names);
+                        "yieldStress", "emissivity", "thermalExpansion", "latentHeatMin", "latentHeatMax",
+                        "tRefGas", "minTemp", "maxTemp", "minTarget", "maxTarget", "matCount"), names);
         // The dropped flag/legacy arrays must not exist.
         for (String banned : List.of("fluid", "gas", "air", "fullMass", "minFlow")) {
             assertFalse(names.contains(banned), "LutArrays must not carry '" + banned + "'");
@@ -68,9 +84,37 @@ class LutPackTest {
         long floats = Arrays.stream(comps).filter(c -> c.getType() == float[].class).count();
         long intArrays = Arrays.stream(comps).filter(c -> c.getType() == int[].class).count();
         long ints = Arrays.stream(comps).filter(c -> c.getType() == int.class).count();
-        assertEquals(10, floats, "eight physics floats + minTemp + maxTemp");
+        assertEquals(15, floats, "eight base physics floats + 5 new (ε,β,Lmin,Lmax,Tref) + minTemp + maxTemp");
         assertEquals(2, intArrays, "minTarget + maxTarget (resolved matIx)");
         assertEquals(1, ints, "matCount");
+    }
+
+    @Test
+    void packEmitsTheFiveV42PhysicsColumnsWithoutSwapping() {
+        // Distinct non-zero values so a transposed pack (e.g. ε↔β) fails this assertion.
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, radiative()));
+        assertEquals(0.96f,    L.emissivity()[1],       1e-6f, "emissivity ε");
+        assertEquals(2.1e-4f,  L.thermalExpansion()[1], 1e-9f, "thermalExpansion β");
+        assertEquals(3.34e5f,  L.latentHeatMin()[1],    1f,    "latentHeatMin");
+        assertEquals(2.256e6f, L.latentHeatMax()[1],    1f,    "latentHeatMax");
+        assertEquals(288f,     L.tRefGas()[1],          1e-3f, "tRefGas");
+        // Lengths equal matCount.
+        assertEquals(L.matCount(), L.emissivity().length);
+        assertEquals(L.matCount(), L.thermalExpansion().length);
+        assertEquals(L.matCount(), L.latentHeatMin().length);
+        assertEquals(L.matCount(), L.latentHeatMax().length);
+        assertEquals(L.matCount(), L.tRefGas().length);
+    }
+
+    @Test
+    void absentV42ColumnsPackAsZero() {
+        // frozen() declares none of the 5 new columns => all default to 0 on the Material.
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, frozen()));
+        assertEquals(0f, L.emissivity()[1],       0f, "absent ε => 0");
+        assertEquals(0f, L.thermalExpansion()[1], 0f, "absent β => 0");
+        assertEquals(0f, L.latentHeatMin()[1],    0f, "absent Lmin => 0");
+        assertEquals(0f, L.latentHeatMax()[1],    0f, "absent Lmax => 0");
+        assertEquals(0f, L.tRefGas()[1],          0f, "absent Tref => 0");
     }
 
     @Test
