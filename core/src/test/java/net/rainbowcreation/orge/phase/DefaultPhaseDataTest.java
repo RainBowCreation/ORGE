@@ -47,16 +47,16 @@ class DefaultPhaseDataTest {
     void steamMaterialCondensesBackToWater() {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material steam = reg.get(orge("steam")).orElseThrow();
-        assertEquals(373.15f, steam.minTemp(), 0.01f);
-        assertEquals(orge("water"), steam.minTarget(), "steam condenses back to the orge:water MATERIAL below 373.15 K");
+        assertEquals(373f, steam.minTemp(), 0.01f);
+        assertEquals(orge("water"), steam.minTarget(), "steam condenses back to the orge:water MATERIAL below 373 K (integer engine threshold)");
     }
 
     @Test
     void iceMaterialMeltsBackToWater() {
         MaterialRegistry reg = loadDefaultPack().registry();
         Material ice = reg.get(orge("ice")).orElseThrow();
-        assertEquals(273.15f, ice.maxTemp(), 0.01f);
-        assertEquals(orge("water"), ice.maxTarget(), "ice melts to the orge:water MATERIAL above 273.15 K");
+        assertEquals(273f, ice.maxTemp(), 0.01f);
+        assertEquals(orge("water"), ice.maxTarget(), "ice melts to the orge:water MATERIAL above 273 K (integer engine threshold)");
     }
 
     @Test

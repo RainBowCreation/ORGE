@@ -1,7 +1,15 @@
 {
   "thermal_conductivity": 2.5,
-  "heat_capacity": 840,
-  "molar_mass": 0.060,
-  "default_mass": 2500,
-  "default_temperature": 290
+  "heat_capacity": 800,
+  "molar_mass": 0.065,
+  "min_mass": 2700,
+  "default_mass": 2700,
+  "max_mass": 2700,
+  "default_temperature": 290,
+  "emissivity": 0.90,
+  "thermal_expansion": 2e-5,
+  "latent_heat_min": 0,
+  "latent_heat_max": 4.0e5,
+  "max_temp": 1450,
+  "max_target": "orge:lava"
 }

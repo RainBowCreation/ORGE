@@ -1,13 +1,17 @@
 {
   "thermal_conductivity": 1.5,
-  "heat_capacity": 1450,
-  "molar_mass": 0.060,
-  "default_mass": 3100,
+  "heat_capacity": 1150,
+  "molar_mass": 0.065,
+  "min_mass": 330,
+  "default_mass": 2650,
+  "max_mass": 2650,
+  "viscosity": 500,
   "default_temperature": 1400,
-  "viscosity": 100,
-  "min_mass": 400,
-  "max_mass": 3100,
-  "min_temp": 1000,
+  "emissivity": 0.95,
+  "thermal_expansion": 5e-5,
+  "latent_heat_min": 4.0e5,
+  "latent_heat_max": 0,
+  "min_temp": 1275,
   "min_target": "orge:stone",
-  "pinned": true
+  "representative_block": "minecraft:lava"
 }

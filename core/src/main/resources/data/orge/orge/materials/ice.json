@@ -1,10 +1,16 @@
 {
   "thermal_conductivity": 2.2,
-  "heat_capacity": 2050,
+  "heat_capacity": 2108,
   "molar_mass": 0.018,
+  "min_mass": 917,
   "default_mass": 917,
+  "max_mass": 917,
   "default_temperature": 270,
-  "max_temp": 273.15,
+  "emissivity": 0.97,
+  "thermal_expansion": 5e-5,
+  "latent_heat_min": 0,
+  "latent_heat_max": 3.34e5,
+  "max_temp": 273,
   "max_target": "orge:water",
   "representative_block": "minecraft:ice"
 }

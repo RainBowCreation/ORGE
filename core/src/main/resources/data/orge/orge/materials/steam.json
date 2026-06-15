@@ -1,12 +1,17 @@
 {
   "thermal_conductivity": 0.025,
   "heat_capacity": 2080,
-  "molar_mass": 0.001,
+  "molar_mass": 0.018,
+  "min_mass": 0.06,
   "default_mass": 0.6,
+  "max_mass": 1000,
+  "viscosity": 1.3e-5,
   "default_temperature": 400,
-  "viscosity": 0.0001,
-  "min_mass": 0.6,
-  "max_mass": 0.6,
-  "min_temp": 373.15,
+  "emissivity": 0,
+  "thermal_expansion": 0,
+  "latent_heat_min": 0,
+  "latent_heat_max": 2.256e6,
+  "t_ref_gas": 373,
+  "min_temp": 373,
   "min_target": "orge:water"
 }

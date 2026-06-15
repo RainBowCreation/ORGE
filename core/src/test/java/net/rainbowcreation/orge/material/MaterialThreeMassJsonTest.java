@@ -43,15 +43,19 @@ class MaterialThreeMassJsonTest {
     void lavaHasFloorAndCap() throws Exception {
         Material l = load("lava");
         assertTrue(l.movable(), "lava JSON has viscosity -> movable");
-        assertEquals(400f, l.minMass(), 1e-4f);
-        assertEquals(3100f, l.maxMass(), 1e-4f);
+        // v4 §1.2 / engine_b_real_lut.hpp line 38: lava 330/2650/2650 (basaltic melt,
+        // lighter than its 2700 stone solid). Migrated from the old 400/3100 placeholders.
+        assertEquals(330f, l.minMass(), 1e-4f);
+        assertEquals(2650f, l.maxMass(), 1e-4f);
     }
 
     @Test
     void steamFloorAndCapEqualToDefaultMass() throws Exception {
         Material s = load("steam");
         assertTrue(s.minMass() > 0f, "positive floor");
-        assertEquals(0.6f, s.maxMass(), 1e-4f, "max_mass == default_mass this slice");
+        // v4 §1.2 / engine_b_real_lut.hpp line 44: steam has a REAL gas band 0.06/0.6/1000
+        // (a boiled 1000 kg water cell is in-band). max_mass is now 1000, not default_mass.
+        assertEquals(1000f, s.maxMass(), 1e-4f, "steam compression cap (wide gas band)");
         assertEquals(0.6f, s.defaultMass(), 1e-4f);
         assertTrue(s.movable(), "steam JSON now carries a finite viscosity -> movable gas");
     }

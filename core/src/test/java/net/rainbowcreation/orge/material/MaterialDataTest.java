@@ -153,10 +153,10 @@ class MaterialDataTest {
         assertEquals(Identifier.parse("orge:steam"),
                 water.maxTarget(),
                 "water.maxTarget should be orge:steam");
-        assertEquals(273.15f, water.minTemp(), 0.01f,
-                "water.minTemp should be 273.15 K");
-        assertEquals(373.15f, water.maxTemp(), 0.01f,
-                "water.maxTemp should be 373.15 K");
+        assertEquals(273f, water.minTemp(), 0.01f,
+                "water.minTemp should be the integer engine threshold 273 K (engine_b_real_lut.hpp line 50)");
+        assertEquals(373f, water.maxTemp(), 0.01f,
+                "water.maxTemp should be the integer engine threshold 373 K (engine_b_real_lut.hpp line 51)");
 
         // lava.json extra fields
         Material lava = registry.get(id("orge:lava")).get();
