@@ -52,11 +52,20 @@ public final class ColumnAssembler {
      *        or all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *    <li>{@code p} — per-cell dynamic pressure (Pa-ish gauge, >=0) from the SectionStore, or
      *        all-zero for never-simulated / back-compat callers. Length 4096.</li>
+     *    <li>{@code swapReady} — per-cell swap-cadence accumulator (law #7 / §5.3 bookkeeping,
+     *        dimensionless >=0); all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
-                               float[] velX, float[] velY, float[] velZ, float[] p) {
-        /** Back-compat: velocity supplied, zero pressure. */
+                               float[] velX, float[] velY, float[] velZ, float[] p, float[] swapReady) {
+        /** Back-compat: pressure supplied, zero swap-cadence accumulator. */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                            Identifier[] storedMaterial,
+                            float[] velX, float[] velY, float[] velZ, float[] p) {
+            this(matIx, mass, temperature, priorSpecies, storedMaterial,
+                 velX, velY, velZ, p, new float[matIx.length]);
+        }
+        /** Back-compat: velocity supplied, zero pressure, zero swap-cadence accumulator. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
                             float[] velX, float[] velY, float[] velZ) {
@@ -94,6 +103,7 @@ public final class ColumnAssembler {
         float[] velY = new float[N];
         float[] velZ = new float[N];
         float[] p    = new float[N];
+        float[] swapReady = new float[N];
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
             for (int z = 0; z < 16; z++) {
@@ -134,11 +144,12 @@ public final class ColumnAssembler {
                         velY[ci] = cells.velY()[si];
                         velZ[ci] = cells.velZ()[si];
                         p[ci]    = cells.p()[si];
+                        swapReady[ci] = cells.swapReady()[si];
                     }
                 }
             }
         }
-        return new ColumnTask(cx, cz, matIx, mass, temp, velX, velY, velZ, p);
+        return new ColumnTask(cx, cz, matIx, mass, temp, velX, velY, velZ, p, swapReady);
     }
 
     private ColumnAssembler() {}
