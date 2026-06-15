@@ -141,11 +141,17 @@ public final class NativeEngine implements OrgeEngine {
             ledgerOut = new float[4 * matCount];
         }
 
-        // Velocity + dynamic-pressure in from flatten; out from pool.
-        float[] vxIn  = f.pxIn();   // F2-S5-TODO: Flat momentum channel renamed; full feed-in rework is S5/S6
+        // F2 momentum ABI (law §7): the momentum slots carry EXTENSIVE momentum p [kg·m/s] directly,
+        // sourced straight from Flat.pxIn()/pyIn()/pzIn() (= ColumnTask.momX/momY/momZ). No v→p
+        // reconstruction here and none in the JNI seam — the engine loads p absolutely (mirror of the
+        // absolute-E channel below). The local var names stay vxIn/vyIn/vzIn only to match the ABI-stable
+        // positional slots of orgeStepWorld; their CONTENT is momentum, not velocity.
+        float[] vxIn  = f.pxIn();
         float[] vyIn  = f.pyIn();
         float[] vzIn  = f.pzIn();
         float[] pIn   = f.pIn();
+        // OUT slots also carry EXTENSIVE momentum p [kg·m/s] (the JNI writes C->px/py/pz directly, no p/m).
+        // These thread into RegionMarshaller.slice's momentum positions → ColumnResult.momX/momY/momZ.
         float[] vxOut = scratch.velXOut(total);
         float[] vyOut = scratch.velYOut(total);
         float[] vzOut = scratch.velZOut(total);
