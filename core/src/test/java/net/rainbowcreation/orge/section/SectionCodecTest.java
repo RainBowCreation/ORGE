@@ -132,11 +132,61 @@ class SectionCodecTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void badVersionThrowsIOException() throws IOException {
-        // Craft a blob with an unsupported version (v1, v2, and v3 are valid; 99 is not).
-        byte[] blob = new byte[]{99, 0, 0};
-        assertThrows(IOException.class, () -> SectionCodec.readColumn(blob),
-                "Unsupported version must throw IOException");
+    void badVersionThrowsIOException() {
+        // ONLY v5 is valid now (law §7 schema change: raw T/v → extensive E/momentum; no migration).
+        // v1, v3, v4 (older raw-T/v blobs) and 99 (garbage / future) ALL throw.
+        for (byte bad : new byte[]{1, 3, 4, 99}) {
+            byte[] blob = new byte[]{bad, 0, 0};
+            IOException ex = assertThrows(IOException.class, () -> SectionCodec.readColumn(blob),
+                    "version " + bad + " must throw IOException");
+            assertTrue(ex.getMessage().contains("fresh world"),
+                    "reject message must tell the user to start a fresh world, was: " + ex.getMessage());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Test 6b: v5 save→load conservation — E/momentum/mass/material/pressure exact
+    // -------------------------------------------------------------------------
+
+    @Test
+    void v5RoundTripsEnthalpyMomentumPressureExactly() throws IOException {
+        float[] e = new float[SectionData.CELLS];
+        float[] m = new float[SectionData.CELLS];
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            e[i] = 1000f + i * 0.5f;                 // distinct per-cell enthalpy E [J]
+            m[i] = (i % 3 == 0) ? 1000f : 250f + i;  // distinct per-cell mass
+        }
+        SectionData s = SectionData.full(e, m);
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            s.setMomentum(i, i * 0.25f, -i * 0.5f, i * 0.75f); // distinct momentum px,py,pz
+            s.setPressure(i, i * 1.5f);                          // distinct pressure
+        }
+        net.minecraft.resources.Identifier stone =
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "stone");
+        net.minecraft.resources.Identifier water =
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "water");
+        s.setMaterialAt(0, stone);
+        s.setMaterialAt(1, water);
+        s.setMaterialAt(4095, stone);
+
+        Map<Integer, SectionData> column = new TreeMap<>();
+        column.put(7, s);
+        byte[] blob = SectionCodec.writeColumn(column);
+        assertEquals(5, blob[0], "blob must carry the v5 version byte");
+
+        NavigableMap<Integer, SectionData> back = SectionCodec.readColumn(blob);
+        SectionData r = back.get(7);
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            assertEquals(e[i], r.enthalpyAt(i), "E[" + i + "] bit-identical");
+            assertEquals(m[i], r.massAt(i), "mass[" + i + "] bit-identical");
+            assertEquals(i * 0.25f, r.momXAt(i), "px[" + i + "] bit-identical");
+            assertEquals(-i * 0.5f, r.momYAt(i), "py[" + i + "] bit-identical");
+            assertEquals(i * 0.75f, r.momZAt(i), "pz[" + i + "] bit-identical");
+            assertEquals(i * 1.5f, r.pAt(i), "p[" + i + "] bit-identical");
+        }
+        assertEquals(stone, r.materialAt(0), "material[0] bit-identical");
+        assertEquals(water, r.materialAt(1), "material[1] bit-identical");
+        assertEquals(stone, r.materialAt(4095), "material[4095] bit-identical");
     }
 
     // -------------------------------------------------------------------------

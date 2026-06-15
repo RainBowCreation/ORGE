@@ -22,10 +22,13 @@ class SectionCodecMaterialTest {
         assertEquals(MaterialPalette.VACUUM_ID, r.materialAt(1));
     }
 
-    @Test void readsLegacyV1AsMaterialUnknown() throws Exception {
-        // Hand-build a v1 blob (version byte 1, one UNIFORM section, no material layer).
+    @Test void rejectsLegacyV1() {
+        // v1 blobs stored raw temperature with no material/momentum/pressure layers. Under the law §7
+        // schema (v5) there is NO migration — a v1 blob must be rejected, not loaded. (T2 S3.)
         byte[] v1 = LegacyV1.uniformColumn(3, 290f, 1000f); // test helper writing the OLD format
-        NavigableMap<Integer, SectionData> back = SectionCodec.readColumn(v1);
-        assertFalse(back.get(3).hasMaterials()); // material-unknown: reconstruct from block later
+        java.io.IOException ex = assertThrows(java.io.IOException.class,
+                () -> SectionCodec.readColumn(v1), "v1 blob must be rejected (no migration)");
+        assertTrue(ex.getMessage().contains("fresh world"),
+                "reject message must tell the user to start a fresh world, was: " + ex.getMessage());
     }
 }

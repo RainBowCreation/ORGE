@@ -21,7 +21,7 @@ import java.util.zip.Inflater;
 public final class SectionCodec {
 
     /** Wire format version for column blobs. */
-    public static final byte FORMAT_VERSION = 4;
+    public static final byte FORMAT_VERSION = 5;
 
     private static final byte FORM_UNIFORM = 0;
     private static final byte FORM_FULL    = 1;
@@ -136,37 +136,38 @@ public final class SectionCodec {
     /**
      * Writes one {@link SectionData} to {@code out}.
      *
-     * <p>Wire format (v3):
+     * <p>Wire format (v5; law §7 extensive state — persisted enthalpy E [J] and momentum
+     * p⃗ [kg·m/s], NOT raw temperature/velocity):
      * <pre>
      * byte  form       ; 0 = UNIFORM, 1 = FULL
      * -- UNIFORM:
-     * float temperature
+     * float enthalpy E [J]
      * float mass
      * -- FULL:
-     * int   tLen ; compressed temperature array length
+     * int   tLen ; compressed enthalpy E [J] array length
      * byte[tLen]
      * int   mLen ; compressed mass array length
      * byte[mLen]
-     * -- material block (v2+; absent in legacy v1 blobs):
+     * -- material block (v5 always emits the flag byte):
      * byte  hasMaterials ; 0 = none, 1 = present
      * -- if hasMaterials == 1:
      * short paletteCount
      * UTF[paletteCount]  ; palette ids (slot 0 = orge:vacuum)
      * int   iLen         ; compressed char[4096] index array length
      * byte[iLen]
-     * -- velocity block (v3+; absent in v1/v2 blobs):
-     * byte  hasVelocity  ; 0 = none (all cells 0), 1 = present
-     * -- if hasVelocity == 1:
-     * int   vxLen ; compressed float[4096] velX array length
-     * byte[vxLen]
-     * int   vyLen ; compressed float[4096] velY array length
-     * byte[vyLen]
-     * int   vzLen ; compressed float[4096] velZ array length
-     * byte[vzLen]
-     * -- pressure block (v4+; absent in v1/v2/v3 blobs; INDEPENDENT of the velocity flag):
+     * -- momentum block (v5; the flag byte is always emitted):
+     * byte  hasMomentum  ; 0 = none (all cells 0), 1 = present
+     * -- if hasMomentum == 1:
+     * int   pxLen ; compressed float[4096] momX array length [kg·m/s]
+     * byte[pxLen]
+     * int   pyLen ; compressed float[4096] momY array length [kg·m/s]
+     * byte[pyLen]
+     * int   pzLen ; compressed float[4096] momZ array length [kg·m/s]
+     * byte[pzLen]
+     * -- pressure block (v5; INDEPENDENT of the momentum flag; flag byte always emitted):
      * byte  hasPressure  ; 0 = none (all cells 0), 1 = present
      * -- if hasPressure == 1:
-     * int   pLen ; compressed float[4096] p array length
+     * int   pLen ; compressed float[4096] P [Pa] array length
      * byte[pLen]
      * </pre></p>
      */
@@ -184,7 +185,7 @@ public final class SectionCodec {
             out.writeInt(mComp.length);
             out.write(mComp);
         }
-        // v2+ material block (uniform for format uniformity; UNIFORM sections never carry materials).
+        // material block (uniform for format uniformity; UNIFORM sections never carry materials).
         if (s.hasMaterials()) {
             out.writeByte(1);
             MaterialPalette mp = s.materials();
@@ -198,7 +199,7 @@ public final class SectionCodec {
         } else {
             out.writeByte(0);
         }
-        // v3 velocity block.
+        // momentum block (extensive p⃗ = m·u, [kg·m/s]; law §7).
         if (s.hasMomentum()) {
             out.writeByte(1);
             byte[] vxComp = deflate(floatsToBytes(s.momXArray()));
@@ -213,8 +214,8 @@ public final class SectionCodec {
         } else {
             out.writeByte(0);
         }
-        // v4 pressure block (independent gate; written AFTER velocity so order is
-        // materials -> velocity -> pressure).
+        // pressure block (independent gate; written AFTER momentum so order is
+        // materials -> momentum -> pressure).
         if (s.hasPressure()) {
             out.writeByte(1);
             byte[] pComp = deflate(floatsToBytes(s.pArray()));
@@ -226,49 +227,13 @@ public final class SectionCodec {
     }
 
     /**
-     * Reads one {@link SectionData} from {@code in} (full v4 format: materials + velocity + pressure).
+     * Reads one {@link SectionData} from {@code in} (v5 format: enthalpy/mass + the always-present
+     * material, momentum, and pressure flag blocks). The per-block flag byte (0 = all-zero channel,
+     * 1 = present) still gates each block's payload — that is NOT version gating, it lives within v5.
      *
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     public static SectionData readSection(DataInputStream in) throws IOException {
-        return readSection(in, true, true, true);
-    }
-
-    /**
-     * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
-     * block. v1 blobs carry no material block ({@code withMaterials == false}); v2 blobs do.
-     * Velocity/pressure are NOT read — used by legacy callers.
-     *
-     * @throws IOException if the form byte is unrecognised or data is corrupt
-     */
-    static SectionData readSection(DataInputStream in, boolean withMaterials) throws IOException {
-        return readSection(in, withMaterials, false, false);
-    }
-
-    /**
-     * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
-     * block and v3 velocity block. Pressure is NOT read — used by legacy v3 callers.
-     *
-     * @param withMaterials whether to read the v2+ material block
-     * @param withVelocity  whether to read the v3+ velocity block
-     * @throws IOException  if the form byte is unrecognised or data is corrupt
-     */
-    static SectionData readSection(DataInputStream in, boolean withMaterials, boolean withVelocity)
-            throws IOException {
-        return readSection(in, withMaterials, withVelocity, false);
-    }
-
-    /**
-     * Reads one {@link SectionData} from {@code in}, optionally including the trailing v2 material
-     * block, v3 velocity block, and v4 pressure block.
-     *
-     * @param withMaterials whether to read the v2+ material block
-     * @param withVelocity  whether to read the v3+ velocity block
-     * @param withPressure  whether to read the v4+ pressure block
-     * @throws IOException  if the form byte is unrecognised or data is corrupt
-     */
-    static SectionData readSection(DataInputStream in, boolean withMaterials, boolean withVelocity,
-                                   boolean withPressure) throws IOException {
         byte form = in.readByte();
         SectionData section;
         if (form == FORM_UNIFORM) {
@@ -290,7 +255,7 @@ public final class SectionCodec {
         } else {
             throw new IOException("unknown section form: " + (form & 0xFF));
         }
-        if (withMaterials) {
+        {
             byte hasMaterials = in.readByte();
             if (hasMaterials == 1) {
                 int paletteCount = in.readShort() & 0xFFFF;
@@ -305,9 +270,9 @@ public final class SectionCodec {
                 section.adoptMaterials(new MaterialPalette(paletteList, indices));
             }
         }
-        if (withVelocity) {
-            byte hasVelocity = in.readByte();
-            if (hasVelocity == 1) {
+        {
+            byte hasMomentum = in.readByte();
+            if (hasMomentum == 1) {
                 int vxLen = in.readInt();
                 if (vxLen < 0) throw new IOException("corrupt section: negative compressed length " + vxLen);
                 float[] vx = bytesToFloats(inflate(in.readNBytes(vxLen), SectionData.CELLS * 4));
@@ -325,7 +290,7 @@ public final class SectionCodec {
                 System.arraycopy(vz, 0, section.momZArray(), 0, SectionData.CELLS);
             }
         }
-        if (withPressure) {
+        {
             byte hasPressure = in.readByte();
             if (hasPressure == 1) {
                 int pLen = in.readInt();
@@ -346,8 +311,9 @@ public final class SectionCodec {
      *
      * <p>Wire format:
      * <pre>
-     * byte  version       ; FORMAT_VERSION (4); legacy v1 (no material/velocity/pressure), v2 (no
-     *                     ; velocity/pressure) and v3 (no pressure) blobs are also accepted on read
+     * byte  version       ; FORMAT_VERSION (5). ONLY v5 is accepted on read; older blobs
+     *                     ; (v1–v4, which stored raw temperature/velocity) are REJECTED — there
+     *                     ; is no migration (law §7 schema change: raw T/v → extensive E/momentum).
      * short sectionCount
      * repeat sectionCount (sorted by sectionY ascending):
      *   int   sectionY
@@ -381,17 +347,17 @@ public final class SectionCodec {
     public static NavigableMap<Integer, SectionData> readColumn(byte[] blob) throws IOException {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(blob));
         int version = in.readByte() & 0xFF;
-        if (version < 1 || version > FORMAT_VERSION) {
-            throw new IOException("unsupported column format version: " + version);
+        if (version != FORMAT_VERSION) {
+            throw new IOException("unsupported ORGE column format version " + version
+                    + " (expected " + FORMAT_VERSION + "); the on-disk state schema changed"
+                    + " (raw temperature/velocity → extensive enthalpy/momentum, law §7) — there is"
+                    + " no migration: delete world/orge and start a fresh world.");
         }
-        boolean withMaterials = version >= 2;
-        boolean withVelocity  = version >= 3;
-        boolean withPressure  = version >= 4;
         int count = in.readShort() & 0xFFFF;
         TreeMap<Integer, SectionData> result = new TreeMap<>();
         for (int i = 0; i < count; i++) {
             int sectionY = in.readInt();
-            SectionData section = readSection(in, withMaterials, withVelocity, withPressure);
+            SectionData section = readSection(in);
             result.put(sectionY, section);
         }
         return result;
