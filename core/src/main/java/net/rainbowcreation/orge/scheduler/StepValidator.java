@@ -19,6 +19,20 @@ public final class StepValidator {
     private StepValidator() {}
 
     /**
+     * Clamp a DERIVED intensive temperature [K] to the {@code [MIN_K, MAX_K]} derive boundary. Law §6/§7:
+     * the clamp lives ONLY at a derive/display boundary (the engine-feed {@code tIn} and the {@code /orge}
+     * display), NEVER on stored extensive E — clamping E [J] to a Kelvin range would destroy energy. A
+     * non-finite or sub-zero derive falls back to {@link #MIN_K} (defensive; {@code deriveT} returns finite K).
+     * Shared (DRY) by {@code MinecraftThermalWorld.clampDeriveBoundary} (engine feed) and the command display.
+     */
+    public static float clampDerivedKelvin(float t) {
+        if (!Float.isFinite(t) || t < MIN_K) {
+            return MIN_K;
+        }
+        return Math.min(t, MAX_K);
+    }
+
+    /**
      * Which materials are TRACKED, CONSERVED advection species in the §9 ledger: any MOVABLE material
      * ({@link Material#movable()} — finite viscosity). Under the unified model there is no liquid/gas/air
      * distinction — water, air, steam and every other movable species are summed and conserved alike;

@@ -418,10 +418,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      * derive falls back to {@link StepValidator#MIN_K} (defensive; {@code deriveT} returns a finite K).
      */
     static float clampDeriveBoundary(float t) {
-        if (!Float.isFinite(t) || t < StepValidator.MIN_K) {
-            return StepValidator.MIN_K;
-        }
-        return Math.min(t, StepValidator.MAX_K);
+        return StepValidator.clampDerivedKelvin(t); // shared derive-boundary clamp (DRY; see S7 /orge display)
     }
 
     /**

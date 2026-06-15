@@ -95,6 +95,101 @@ class ServerStoreSeamTest {
         assertEquals(1000f, v.massAt(7), 0.001f);
     }
 
+    /** Give a cell a resolvable species + mass with a specific stored E (J) directly. */
+    private void seedCellWithE(SectionStoreManager mgr, SubchunkKey key, int cell,
+                              Identifier matId, float massKg, float enthalpyJ) {
+        SectionStore store = mgr.store(DIM);
+        SectionData data = store.get(key);
+        data.setMass(cell, massKg);
+        data.setMaterialAt(cell, matId);
+        data.setEnthalpy(cell, enthalpyJ);
+        store.put(key, data);
+    }
+
+    /** Law §7 display-derive round-trip: {@code /orge set} 350 K then {@code /orge get} reads ~350 K,
+     *  proving T is encoded to E on write and re-derived from E on read (never stored). */
+    @Test
+    void setTempThenGetDerivesSameKelvin(@TempDir Path dir) {
+        SectionStoreManager mgr = managerWithLoadedColumn(dir);
+        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        seedWaterCell(mgr, key, 11); // resolvable orge:water + 1000 kg
+        sink.writeTemp(DIM, key, 11, 350f);
+
+        SectionView v = src.section(DIM, key).orElseThrow();
+        assertEquals(350f, v.tempAt(11), 0.05f,
+                "off-plateau round-trip: write encodes kelvin->E, read derives E->kelvin");
+    }
+
+    /** A cell whose stored E sits mid-latent-plateau shows the PINNED plateau T (~373 K), not a runaway
+     *  E/(m·cp) value — proving the display derive uses the enthalpy curve's plateau. The [0,6000] clamp
+     *  is not even exercised here (373 is in range). */
+    @Test
+    void getOnMidPlateauCellShowsPinnedT(@TempDir Path dir) {
+        // Use a latent-bearing water so the boil plateau exists (TestMaterials.water() has no latent heat).
+        MaterialRegistry reg = new MaterialRegistry();
+        reg.put(TestMaterials.waterWithLatent());
+        reg.put(TestMaterials.steam());
+        ActiveMaterials.swap(new ActiveMaterials.State(reg));
+
+        SectionStoreManager mgr = managerWithLoadedColumn(dir);
+        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        float massKg = 1000f;
+        var matLookup = (java.util.function.Function<Identifier, net.rainbowcreation.orge.material.Material>)
+                id -> reg.get(id).orElse(null);
+        net.rainbowcreation.orge.material.Material water = matLookup.apply(WATER);
+        // Mid boil-plateau: E = m·(h(373.15) + L/2), pinned at 373.15 K.
+        double hStar = net.rainbowcreation.orge.material.EnthalpyCurve.hOf(water, matLookup, 373.15f);
+        double midEta = hStar + water.latentHeatMax() / 2.0;
+        float midE = (float) (massKg * midEta);
+        seedCellWithE(mgr, key, 13, WATER, massKg, midE);
+
+        SectionView v = src.section(DIM, key).orElseThrow();
+        assertEquals(373.15f, v.tempAt(13), 0.5f,
+                "mid-plateau E shows pinned plateau T, not E/(m·cp) runaway");
+    }
+
+    /** An absurd stored E shows the CLAMPED [0,6000] display boundary, not a nonsense 1e8 K — the display
+     *  clamp defends the UI without ever touching the stored E. */
+    @Test
+    void getOnCorruptHugeEClampsDisplayT(@TempDir Path dir) {
+        SectionStoreManager mgr = managerWithLoadedColumn(dir);
+        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        // 1e12 J on 1 kg of water -> raw derive ~1e8/4186 K; clamp pins it to 6000.
+        seedCellWithE(mgr, key, 17, WATER, 1f, 1e12f);
+
+        SectionView v = src.section(DIM, key).orElseThrow();
+        assertEquals(6000f, v.tempAt(17), 0.001f,
+                "corrupt huge E shows the clamped 6000 K display boundary");
+    }
+
+    /** A void / massless / unresolved-species cell shows the ambient fallback (no NaN/inf). */
+    @Test
+    void getOnMasslessOrUnresolvedShowsAmbient(@TempDir Path dir) {
+        SectionStoreManager mgr = managerWithLoadedColumn(dir);
+        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        // Massless water cell: no enthalpy -> ambient fallback.
+        seedCellWithE(mgr, key, 19, WATER, 0f, 0f);
+        // Unresolved species (never installed in the table) -> ambient fallback.
+        Identifier unknown = Identifier.fromNamespaceAndPath("orge", "unobtainium");
+        seedCellWithE(mgr, key, 21, unknown, 1000f, 1e6f);
+
+        SectionView v = src.section(DIM, key).orElseThrow();
+        float massless = v.tempAt(19);
+        float unresolved = v.tempAt(21);
+        assertEquals(SectionData.DEFAULT_AMBIENT_K, massless, 0.001f, "massless cell -> ambient");
+        assertEquals(SectionData.DEFAULT_AMBIENT_K, unresolved, 0.001f, "unresolved species -> ambient");
+        assertTrue(Float.isFinite(massless) && Float.isFinite(unresolved), "no NaN/inf");
+    }
+
     @Test
     void isLoadedReflectsColumnState(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);

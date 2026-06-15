@@ -4,6 +4,7 @@ import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.scheduler.StepValidator;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -39,16 +40,21 @@ public final class ServerStoreReadSource implements ThermalReadSource {
 
     private record View(SectionData data, boolean ambient) implements SectionView {
         @Override public float tempAt(int cell) {
-            // Derive T from stored extensive E at the read boundary (law §7 — T is never stored).
-            // S7 finalizes this display derive (fallback / curve-lookup wiring).
+            // Law §6/§7: T is NEVER stored — derive it from stored extensive E on the cell's enthalpy
+            // curve (h⁻¹(E/m), with latent plateaus). The DERIVED display T is clamped to the engine's
+            // [0,6000] derive boundary (the same shared StepValidator.clampDerivedKelvin used by the
+            // engine-feed clampDeriveBoundary) — this defends the UI from a corrupt/extreme stored E
+            // showing a nonsense T; a normal cell's derived T is already in range. The clamp lives ONLY
+            // here at the display boundary — the stored E is never touched.
             ActiveMaterials.State mats = ActiveMaterials.current();
             Function<Identifier, Material> lookup = id -> mats.registry().get(id).orElse(null);
             Material material = lookup.apply(data.materialAt(cell));
             if (material == null) {
                 return SectionData.DEFAULT_AMBIENT_K; // no resolvable species ⇒ no enthalpy curve
             }
-            return EnthalpyCurve.deriveT(data.enthalpyAt(cell), data.massAt(cell), material, lookup,
+            float t = EnthalpyCurve.deriveT(data.enthalpyAt(cell), data.massAt(cell), material, lookup,
                     SectionData.DEFAULT_AMBIENT_K);
+            return StepValidator.clampDerivedKelvin(t);
         }
         @Override public float massAt(int cell) { return data.massAt(cell); }
         @Override public SectionData.Form form() { return data.form(); }
