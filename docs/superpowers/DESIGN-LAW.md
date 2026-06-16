@@ -9,22 +9,42 @@ law (#0), the free-surface boundary-face ghost + density-difference face correct
 no-penetration clamps (#4), `yieldStress` as a force threshold (#8), and the two-sided mass-legality law
 `min ≤ m ≤ max ∨ m = 0` (#9). Proposal + recorded decisions:
 `DESIGN-LAW-AMENDMENTS-PROPOSED-2026-06-11.md`; pre-amendment text in git history.
+**Amended 2026-06-16 (v4.3 — ABSOLUTE NO-BRANCH): the user ordered every gas/liquid/solid classification
+purged from the law AND the spec.** Root cause of a 3-week regression loop: this file said *"gas means
+`χ > 0.999`"* (#8) and *"the one sanctioned material-class term … ε=0 for gases"* (#0/#6); the spec copied
+it as "Gas classification: χ > 0.999"; the engine implemented `is_gas`/`GAS_CHI_MIN`; the audit (code-vs-spec)
+blessed it. #0 is rewritten below as the absolute no-branch rule — **no classification step exists anywhere**;
+every float is a continuous weight/limit and every regime falls out by branchless saturating math. Forbidden
+symbols: `is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS/PR_LIQUID/PR_SOLID`, any
+`switch(state)`, any `if` on a material category or a threshold of a material-derived value.
 
 ---
 
 ## The law
 
-0. **One universal cell law — never branch by state.** Every cell obeys the *same* mechanic; "solid",
-   "liquid", "gas", "vacuum" are not separate systems but the same matter-cell carrying different
-   **material data**: vacuum = `mass 0` (void material, `min = max = 0`); gas = low `min/default/max`,
-   high `χ`, `τ_y = 0`; liquid = `χ = 0`, `τ_y = 0`; sand/granular = **finite** `τ_y`; solid/terrain =
-   `viscosity = ∞` / `τ_y = ∞` (never yields). All behavior — pooling, barometric stratification, holding,
-   slumping — is **emergent** from the one law + gravity + the EOS + the `min ≤ m ≤ max` legality (#9),
-   never from per-state code paths. The core mechanic MUST NOT `switch(state)` / `if (isGas) … else if
-   (isLiquid) …`; state-specific behavior comes ONLY from a material's own numbers (`τ_y, χ, viscosity,
-   min/max`), never its *name*. Any apparent need to branch by state means the material parameterization is
-   incomplete — fix the data, not the law. (The one sanctioned material-class term is radiation's `ε = 0`
-   for gases, #6.)
+0. **One universal cell law — ZERO branches, ever.** Every cell obeys ONE formula. "solid", "liquid",
+   "gas", "vacuum" are **not** systems, states, categories, or classes — they are only *names humans use*
+   for regions of a continuous material-parameter space: vacuum ≈ `mass 0` (`min = max = 0`); a gas-like
+   cell ≈ low `min/default/max` with a wide compression band (`χ` near 1), `τ_y = 0`; a liquid-like cell ≈
+   no compression band (`max = default` ⇒ `χ = 0`), `τ_y = 0`; sand ≈ **finite** `τ_y`; terrain ≈
+   `viscosity → ∞` / `τ_y → ∞`. These names NEVER appear in the engine as a test. All behavior — pooling,
+   stratification, holding, slumping, compression — is **emergent** from the one formula + gravity + the EOS
+   + `min ≤ m ≤ max` (#9).
+
+   **The absolute rule (no exceptions, no "sanctioned" cases):** the engine MUST NOT contain ANY branch that
+   selects behavior by what a cell *is*. Forbidden — not only the obvious `switch(state)` / `if (isGas)` /
+   `if (isLiquid)`, but EVERY disguised form: `if (χ > c)`, `if (maxMass == minMass)`, `if (viscosity == ∞)`,
+   `if (τ_y > 0)`, or **computing any value and then using it to decide "this cell is a solid/liquid/gas" and
+   forking on it.** There is no classification step anywhere — not in the kernel, not in a helper, not as a
+   cached flag. Each material float (`χ, μ, τ_y, min, default, max, M, ε, β`) enters the single formula as a
+   **continuous weight or limit**, so every degenerate case (solid, vacuum, incompressible, frozen) **falls
+   out as a limit** of that one formula, reached ONLY by branchless saturating math — `min`, `max`, `clamp`,
+   `abs`, multiplicative weights (`χ·x`, `(1−χ)·x`), and regularized division (e.g. `a/(b+ε)` so `b = 0`
+   needs no `if`). Permitted vocabulary: branchless saturating arithmetic. Forbidden: any `if` / `?:` /
+   `switch` whose condition is a material category, a material *name*, or a threshold on a material-derived
+   quantity. If a rule seems to *need* such a branch, the **formula** is wrong — rewrite it so the limit
+   emerges; never add the branch. Even radiation's `ε = 0` is just data: the flux `ε_eff·σ·(T⁴−T⁴)` is **0**
+   at `ε = 0` by arithmetic — there is no gas test (#6).
 
 1. **Pressure = ONE number per cell** — a single scalar `P`. Never two terms, never split by direction.
    Depth lives *inside* `P` (a deep cell carries a big `P`, a surface cell a small `P`). `P` is the only
@@ -75,8 +95,10 @@ no-penetration clamps (#4), `yieldStress` as a force threshold (#8), and the two
    bounded by the **discrete maximum principle, enforced conservatively** (the offending FACE fluxes are
    scaled symmetrically — never a one-sided clip, which would create/destroy energy). Same shape as the
    force: carried extensive quantities per cell, isotropic antisymmetric 6-face fluxes. No separate
-   conduction pass; the radiation face-condition (gases have `ε = 0`) is the one sanctioned
-   material-class-conditional term.
+   conduction pass. `ε_eff` is a **continuous function of the two faces' `ε` data** (and the deposition
+   split is `ε`-weighted), so at `ε = 0` the radiative flux is **0 by arithmetic** — "gases don't radiate"
+   emerges from the number, NOT from a gas test. (The `|ΔT| > 300 K` film-boiling gate is itself a threshold
+   branch and must become a branchless smooth ramp — tracked under #0.)
 
 7. **State — store EXTENSIVE, derive INTENSIVE.** Each cell stores only conserved extensive quantities plus
    its material and pressure: `matIx, mass, momentum (px,py,pz), enthalpy E, P` — plus two persisted
@@ -90,21 +112,25 @@ no-penetration clamps (#4), `yieldStress` as a force threshold (#8), and the two
    thermalConductivity, molarMass, minMass, maxMass, viscosity, defaultMass (= EOS rest density m₀),
    yieldStress, emissivity, thermalExpansion, latentHeatMin, latentHeatMax`, plus the phase quadruple
    `minTemp→minTarget`, `maxTemp→maxTarget`, plus a per-gas `T_ref` — **kept in the engine LUT** (not
-   Java) so DECODE relabels locally. Compressibility class: `χ = (maxMass − defaultMass)/(maxMass −
-   minMass)`, with the guard `χ ≡ 0` whenever `maxMass == minMass`; gas means `χ > 0.999`. `molarMass`'s
-   consumer is the gas EOS (#9). `viscosity` is the rate / movability axis (`+INF` = frozen);
+   Java) so DECODE relabels locally. Compressibility weight: `χ = (maxMass − defaultMass)/(maxMass −
+   minMass + ε_χ)` — a **continuous weight in [0,1]**, computed with a regularized denominator so
+   `maxMass == minMass` yields `χ = 0` **with no `if`-guard** (the numerator `maxMass − defaultMass` is also
+   0 in every `max == default` case, so χ→0 falls out). **`χ` is NEVER compared to a threshold and NEVER
+   used to classify** — there is no "gas means χ > c". It enters formulas ONLY as a continuous multiplier
+   (`χ·…`, `(1−χ)·…`). `molarMass` is the EOS input (#9). `viscosity` is the rate / movability axis (`+INF` = frozen);
    `yieldStress` is the threshold axis — a **force threshold [N]** (`0` for fluids, finite for granular,
    `+INF` for solids; the move gate compares net face force against `max(τ_y,i, τ_y,j)`, N vs N).
 
 9. **Mass moves, never vanishes.** Inside the domain mass only *moves* — conservative antisymmetric flux
    (donor-budget + receiver-room clamps) or a permutation swap. The only source/sink is the caller's
    place/break at the boundary, separately ledgered. A pushed cell with **no escape** is a **no-op**
-   (mass stays). A **gas** genuinely compresses and pushes back via its live EOS
-   `p_eos = (m/M)·R·T/V − P₀` (gauge; `P₀` = its rest-state pressure at its `T_ref`) — a 700× compressed
-   pocket resists with real megapascals. An **incompressible** cell (`max == default`) does not compress;
-   its relief is its pressure `P` rising through the relaxation (`P` is the constraint force). Mass is
-   never deleted in either case. A `no_escape` detection seam fires on that case (empty body for now) for
-   future handling; the default is do-nothing, never destroy.
+   (mass stays). **Every** cell carries the same EOS pushback weighted continuously by `χ`:
+   `χ · p_eos`, `p_eos = (m/M)·R·T/V − P₀` (gauge; `P₀` = rest-state pressure at `T_ref`). At `χ ≈ 1` a 700×
+   compressed pocket resists with real megapascals; at `max == default` ⇒ `χ = 0` the compression term is
+   **0 by the multiplier** (no "incompressible" branch) and the cell's relief is its pressure `P` rising
+   through the relaxation (`P` is the constraint force). Same formula, both ends of `χ`; mass is never
+   deleted. A `no_escape` detection seam fires on that case (empty body for now) for future handling; the
+   default is do-nothing, never destroy.
 
    **Every cell is mass-legal: `min ≤ m ≤ max` or `m = 0`** — never a sub-min or over-max cell, *from any
    path*, not even for one tick. Enforced at every flow, relabel, and eviction site: flow's cohesion/room
@@ -120,8 +146,13 @@ no-penetration clamps (#4), `yieldStress` as a force threshold (#8), and the two
 ## Drift test (mechanical — no debate)
 
 Any spec, plan, or code that introduces **(a) a second pressure number**, **(b) a force rule that
-differs by direction**, or **(c) a stored temperature treated as source-of-truth (instead of derived from
-the enthalpy curve) or a separate conduction pass** — is **drift. Reject it.**
+differs by direction**, **(c) a stored temperature treated as source-of-truth (instead of derived from
+the enthalpy curve) or a separate conduction pass**, or **(d) ANY branch keyed on state/category —
+`switch(state)`, `if (isGas/isLiquid/isSolid)`, `if (χ > c)`, `if (max == min)`, `if (μ == ∞)`, a
+`PR_GAS`-style class, or a computed flag that classifies a cell and forks on it** — is **drift. Reject it.**
+Test (d) mechanically: the engine source must contain none of `is_gas`, `is_liquid`, `is_solid`,
+`is_compressible`, `GAS_CHI_MIN`, `PR_GAS`; and no comparison of `χ`/`viscosity`/`τ_y` against a constant
+that selects a code path. Behavior comes from continuous weights (`χ·…`) and saturating math only.
 
 > The engine's **code** still carries the `A + B` split (overburden + own-weight head, own-weight used only
 > sideways) — it violates both (a) and (b) and remains **DEBT**, not design. Its exit is now fully

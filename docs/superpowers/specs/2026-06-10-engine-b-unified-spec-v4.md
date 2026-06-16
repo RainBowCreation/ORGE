@@ -1,6 +1,16 @@
 # Engine-B — Unified working spec v4 (flow / force / resistance / thermal / radiation)
 
-**Date:** 2026-06-10 · **Status:** **RATIFIED v4.1** (full redesign authorized by the user 2026-06-10;
+> **2026-06-16 — v4.3 ABSOLUTE NO-BRANCH PURGE (user-ordered).** Every gas/liquid/solid *classification*
+> was removed from this spec and from `DESIGN-LAW.md` (#0/#6/#8/#9). Root cause of a 3-week regression loop:
+> the spec said *"Gas classification: χ > 0.999"* (copied from the law), implementers wrote `is_gas`/
+> `GAS_CHI_MIN`/`PR_GAS`, and the code-vs-spec audit blessed it — while INV-UNIVERSAL forbade exactly that.
+> The spec contradicted itself. Now: **χ is a continuous weight only**, the EOS source is `χ`-weighted (§2.1/
+> §3.1), terrain shielding is a `μ→∞` mobility-weight limit (§3.1/§4), and **INV-UNIVERSAL is a build-failing
+> static+continuity guard** (§11). No classification step exists anywhere. The CODE still implements the old
+> branches — that is now tracked DEBT to be deleted under the INV-UNIVERSAL guard (the only sanctioned next
+> implementation work on the pressure/gas core). See §13 DEC-v4.3.
+
+**Date:** 2026-06-10 (v4.3 amend 2026-06-16) · **Status:** **RATIFIED v4.1; v4.3 no-branch purge applied** (full redesign authorized by the user 2026-06-10;
 v4.0 adversarially reviewed by a 6-lens fleet — 2 blockers + ~25 majors found and fixed; **the user
 ratified all law amendments 1–9 the same day — they are applied in `../DESIGN-LAW.md`'s current text, so
 every `[LAW-AMEND-n]` tag below is now a satisfied cross-reference, not a gate**).
@@ -61,13 +71,18 @@ Schema: `cp [J/kgK] · k [W/mK] · M [kg/mol] · minMass · defaultMass · maxMa
 | ice | 917 / 917 / 917 | 2108 | 2.2 | ∞ | ∞ | 0.97 | 5e-5 | 0.018 | — · 273→water L=3.34e5 |
 | lava | 330 / **2650** / 2650 | 1150 | 1.5 | 5.0e2 | 0 | 0.95 | 5e-5 | 0.065 | **1275→stone L=4.0e5** · — |
 | stone | 2700 / **2700** / 2700 | 800 | 2.5 | ∞ | ∞ | 0.90 | 2e-5 | 0.065 | — · 1450→lava L=4.0e5 |
-| air | 1.0 / 1.2 / 1000 | 1005 | 0.026 | 1.8e-5 | 0 | 0 | (gas: EOS) | 0.029 | — · — (T_ref 288) |
-| steam | **0.06 / 0.6 / 1000** | 2080 | 0.025 | 1.3e-5 | 0 | 0 | (gas: EOS) | 0.018 | 373→water L=2.256e6 · — (T_ref 373) |
+| air | 1.0 / 1.2 / 1000 | 1005 | 0.026 | 1.8e-5 | 0 | 0 | 0 (EOS·χ) | 0.029 | — · — (T_ref 288) |
+| steam | **0.06 / 0.6 / 1000** | 2080 | 0.025 | 1.3e-5 | 0 | 0 | 0 (EOS·χ) | 0.018 | 373→water L=2.256e6 · — (T_ref 373) |
 
-- **χ is defined HERE** *(review: it had no definition in the authoritative set)*:
-  `χ = (maxMass − defaultMass)/(maxMass − minMass)`, **guard `χ ≡ 0` when maxMass == minMass**.
-  Gas classification: χ > 0.999. Margins: air χ = 0.99980, steam χ = 0.99946 — both clear, barely; the
-  0.999 cutoff and these margins are pinned here so a band edit cannot silently demote a gas.
+- **χ is defined HERE** — a **continuous compression weight in [0,1]**, NEVER a classifier
+  (law #0/#8 v4.3): `χ = (maxMass − defaultMass)/(maxMass − minMass + ε_χ)`. The regularized denominator
+  means `maxMass == minMass` yields `χ = 0` **with no `if`-guard**, and every `max == default` material
+  (water/lava/stone/ice/void) has numerator 0 ⇒ `χ = 0` automatically. **There is NO "gas classification,"
+  NO χ-cutoff, NO `GAS_CHI_MIN`, NO `is_gas`.** χ enters formulas ONLY as a continuous multiplier (`χ·…`,
+  `(1−χ)·…`): a cell with χ near 1 (air ≈ 0.9988 at min 0.001, steam ≈ 0.999) gets near-full EOS pushback,
+  a cell with χ = 0 gets none — by the multiplier, not a branch. `minMass` is therefore free to be the true
+  rarefaction/cohesion floor (e.g. air 0.001) with **zero** effect on whether the cell "is a gas," because
+  no such question is ever asked.
 - Reality anchors: **lava 2650 < stone 2700** (melt lighter than its solid — un-inverts MAT-1);
   **lava→stone at 1275 K** = basalt solidus (review: 1000 K was ~300 K too cold and stretched crusting
   times; freeze/melt hysteresis now 175 K ≈ real liquidus–solidus gap); steam gets a real **gas band**
@@ -85,19 +100,25 @@ per-gas `T_ref,gas` (LUT column). **Joint stability constraint** `ω·(1+α_eos)
 combined SOR+EOS update diverges otherwise (the independent `ω`/`α_eos` ranges admit divergent pairs)
 `[LAW-AMEND-v42-A5]`. Retired symbols (must not reappear): `own_weight_head, p_surf, swap_kv,
 swap_threshold, head_relax, p_ac_scale, (1−χ) relaxation factor, T_curr/T_next, persisted vx/vy/vz`.
-`LADDER_BETA`, `LADDER_REST_DEADBAND`, `GAS_CHI_MIN` are **T4-transient gas-ladder knobs, exempt from INV-3**
-until T4's flux-intent rebuild deletes them — the manifest CI-diff does not fail on them meanwhile
-`[LAW-AMEND-v42-A5 / owner T4]`.
+**Classification symbols are FORBIDDEN (law #0 v4.3 — a build-failing token list, not merely "retired"):**
+`is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS, PR_LIQUID, PR_SOLID`, plus any
+`switch(state)` or any `if`/`?:` comparing `χ`/`viscosity`/`τ_y` against a constant to select a code path.
+`LADDER_BETA`, `LADDER_REST_DEADBAND` are transient relaxation-tuning scalars applied to **all** cells via
+χ-weighting (NOT gas-only knobs); exempt from INV-3 until T4 deletes them.
 
 ---
 
 ## §2 — EOS (pressure from own state)
 
-### §2.1 Gas EOS — LIVE *(fixes B-3/C-1/PC-2)* `[LAW-AMEND-7]`
+### §2.1 EOS — compression pressure, χ-continuous, computed for EVERY cell *(fixes B-3/C-1/PC-2)* `[LAW-AMEND-7]`
+**This is ONE formula evaluated for every cell — there is no "is it a gas?" gate.** It enters the engine
+ONLY as the χ-weighted relaxation source `χ·α_eos·(p_eos − P)` (§3.1): a `max == default` cell has χ = 0, so
+its EOS contribution is exactly 0 *by the multiplier* — the old "incompressible: no EOS branch" is the χ = 0
+limit, not an `if`. "gas"/"per-gas" wording below is descriptive shorthand for **high-χ cells**, never a class.
 ```
 p_abs = (m/M)·R·T/V          R = 8.314 J/(mol·K)
-P0    = (m0/M)·R·T_ref,gas/V # per-gas rest pressure at its own rest state (LUT column)
-p_eos = p_abs − P0           # GAUGE: 0 at the gas's own rest state
+P0    = (m0/M)·R·T_ref/V     # rest pressure at the cell's own rest state (T_ref LUT column)
+p_eos = p_abs − P0           # GAUGE: 0 at the cell's own rest state
 ```
 Air rest: (1.2/0.029)·8.314·288 ≈ 99.1 kPa ⇒ gauge 0. Steam rest at 373 K: ≈ 103.4 kPa ⇒ gauge 0
 *(per-gas T_ref — review: a global 288 K left resting steam pushing +24 kPa forever)*.
@@ -135,10 +156,11 @@ atmosphere does not rail into the vacuum (the ST7 failure mode of driving from r
 2.51× rest to 1.219×, 0.49% closed-form error; conservation exact; liquids byte-identical. The tall-column
 INV-ATMOS gate is NOT thereby satisfied — see §4/§11.)
 
-### §2.2 Incompressibles (max == default): no EOS branch exists *(fixes B-11)*
-`p_eos ≡ 0`; the compression branch is **removed**, not divided-by-zero. Their pressure is carried entirely
-by `P` (the constraint force); their hard wall is receiver-room = 0. Law #9's "compresses via EOS" applies
-to gases only `[LAW-AMEND-7]`.
+### §2.2 The `max == default` limit (χ = 0): EOS contribution vanishes by the multiplier *(fixes B-11)*
+NOT a branch and NOT a special case: when `max == default` the weight `χ = 0`, so the χ-weighted EOS source
+`χ·α_eos·(p_eos − P)` is exactly 0 — the same formula, evaluated at its lower limit. There is no `if`, no
+divide-by-zero. Such a cell's pressure is carried entirely by `P` (the constraint force); its hard wall is
+receiver-room = 0. Law #9's EOS pushback `χ·p_eos` is universal — it simply equals 0 here `[LAW-AMEND-7]`.
 
 ---
 
@@ -149,15 +171,19 @@ to gases only `[LAW-AMEND-7]`.
 > the anchor below is the repaired, worked-through version.)*
 
 ### §3.1 The update (red–black relaxation, 1-hop, GPU-native)
-Per sweep, for every **non-solid** cell `i` (solid faces are closed: excluded from `n_open`; solids carry
-no `P` and shield below — the shelf behavior):
+Per sweep, for **every** cell `i` — there is NO "non-solid" test and NO "fluid-vs-gas neighbor" test
+(law #0 v4.3). Each face carries a continuous **mobility weight** `w_f` derived from the pair's viscosity
+(`w_f = 1/(1 + dt·λ_f)`, `λ_f = (μ_i + μ_j)/(ρ̄_f·dx²)`): `w_f → 1` at a fluid face, `w_f → 0` as either
+side's `μ → ∞`, so a rigid (terrain) neighbor becomes a Neumann no-coupling face **by the weight, not a
+branch** (the old "solid faces closed / carry no P" shelf behavior, emergent). ONE face formula for every
+neighbor — fluid, gas, vacuum, or solid:
 ```
-contribution of face f→j:
-  fluid neighbor:      Φ_f = P_j      + ρ̄_f · g⃗·(r⃗_i − r⃗_j)        ρ̄_f = ½(ρ_i + ρ_j)
-  gas/vacuum neighbor: Φ_f = p_eos,j  + ρ̄_f · g⃗·(r⃗_i − r⃗_j)        (vacuum: p_eos,j = 0)
+contribution of face f→j (single formula, all neighbors):
+  Φ_f = P_j + ρ̄_f · g⃗·(r⃗_i − r⃗_j)        ρ̄_f = ½(ρ_i + ρ_j)   # vacuum: m_j = 0 ⇒ P_j = 0, ρ_j = 0
+                                                                # gas neighbor: P_j is its relaxed field (GW-1), not a separate p_eos read
 
-target_i = ( Σ_f Φ_f ) / n_open                     [+ α_eos·(p_eos,i − P_i) if i is gas]
-P_i ← (1−ω)·P_i + ω·target_i        [− κ·divU_i, first sweep of the tick only]
+target_i = ( Σ_f w_f·Φ_f ) / ( Σ_f w_f )  +  χ_i · α_eos · (p_eos,i − P_i)   # EOS source: χ-WEIGHTED, continuous (χ=0 ⇒ no source)
+P_i ← (1−ω)·P_i + ω·target_i             − κ·divU_i        # κ term: first sweep of the tick only
 ```
 - **`divU` in the κ term reads the persisted (pre-ENCODE snapshot) velocity** — the post-ENCODE `−g·dt`
   contribution is **excluded** (it is not a real divergence; including it would source a phantom `−g·dt`
@@ -175,11 +201,13 @@ P_i ← (1−ω)·P_i + ω·target_i        [− κ·divU_i, first sweep of the 
     cell; the gradient vanishes exactly at equal mass ⇒ equilibrium [750|750]. **B's leveling job is
     inside `P`** — same-level fill differences level through the one isotropic rule (the v4.0 claim, now
     with the algebra that actually produces it).
-- **Gas cells participate fully** *(review: pinning gas P to p_eos left a resting atmosphere with
-  unbalanced gravity, vel_damp silently fabricating heat)*: a gas cell uses the same stencil plus the
-  source term `α_eos·(p_eos,i − P_i)`. The resting atmosphere relaxes to its own ~12 Pa/cell hydrostatic
-  stratification (gravity balanced by ∇P, not by damping); a compressed pocket's P tracks its EOS within
-  ~1/α_eos sweeps. "Rest" in INV-AL means this relaxed stratified state.
+- **All cells run the identical stencil; the EOS source is χ-weighted, not gated** *(review: pinning a
+  high-χ cell's P to p_eos left a resting atmosphere with unbalanced gravity, vel_damp silently fabricating
+  heat)*: the source term `χ_i·α_eos·(p_eos,i − P_i)` scales continuously with χ — at χ = 0 it is exactly 0
+  (recovering pure hydrostatic relaxation), at χ ≈ 1 it is near-full EOS coupling, with no threshold between.
+  A high-χ resting atmosphere relaxes to its own ~12 Pa/cell hydrostatic stratification (gravity balanced by
+  ∇P, not by damping); a compressed pocket's P tracks its EOS within ~1/α_eos sweeps. "Rest" in INV-AL means
+  this relaxed stratified state.
 - **Fully sealed fluid regions** (no gas/vacuum face anywhere) are pure-Neumann: `P` there is defined up
   to a constant; only ∇P acts, and the κ·divU term keeps the level bounded. Invariants on absolute `P`
   therefore always specify open-top geometry (INV-P1) or a gauge anchor.
@@ -243,8 +271,10 @@ F⃗_i·dt = Σ_faces −p̄_f·A·dt·n̂_out
 - **A-11 (future feature, NOT implemented):** genuine HIGH-SPEED impact (into-surface speed above a jitter
   floor `v_impact_min`) *should* deposit the clamped KE as heat — deferred future feature, gated so resting
   pools never self-heat; no code now `[LAW-AMEND-v42-A11 / FUTURE]`.
-- Solid faces: closed (no flux, no force exchange; shielding via the §3.1 stencil). The v3 one-sided
-  wall-reaction kick is deleted; no transient is ever read as a physical impulse.
+- High-`μ`/`τ_y` (terrain) faces carry **no flux and no force exchange — emergently, not by a solid test**:
+  the §3.1 mobility weight `w_f → 0` as `μ → ∞`, and the §5 move gate's `max(0, |F| − τ_y)` → 0 as
+  `τ_y → ∞`, so a rigid neighbor shields by arithmetic. The v3 one-sided wall-reaction kick is deleted; no
+  transient is ever read as a physical impulse.
 
 ---
 
@@ -318,7 +348,7 @@ cached). Kernel count: `6 + 2·N_relax` (= 10 at N_relax=2, 14 at N_relax=4).
 **Σ outflows ≤ budget and Σ inflows ≤ room, structurally** — INV-DB and INV-RR guard both.
 
 ### §6.2 Receiver room
-`room = maxMass − m` (gas: large band; incompressible: 0 at rest). **INV-NOOVERMAX
+`room = maxMass − m` — one formula (wide band ⇒ large room; `max == default` ⇒ 0 room at rest; no branch). **INV-NOOVERMAX
 `[LAW-AMEND-v42-A12]`: over-max is forbidden from ANY path** — the prior "single exemption" for the §8.4
 freeze relabel is **RETIRED**; the freeze must evict its excess in the SAME pass (atomic freeze-evict, §8.4),
 never sit over-max even transiently. water→steam is in-band by §1.2's steam band (review: the v4.0 "two
@@ -444,7 +474,7 @@ energy exactly; the prior "drain next RESOLVE" transient-overshoot exemption is 
 | leveling | correct equilibrium; in-field (no B patch) | monotone (sloshing needs the staged momentum work) |
 | phase change | latent plateaus, T-continuous, emergent bounded steam explosion | whole-cell fronts; freeze 9.1% supersaturation transient |
 | lava lifecycle | crusts in open air ≈ 2.6 h/face (26 min fully exposed); quenches vs water ≈ ½ h to boiling | real crusts are cm-thin/minutes; sealed-roof lava stays conduction-slow |
-| convection | gas: EOS buoyancy; liquid: β-swap (126 N gate-clears, fires ~2 s/cell) | single-cell Rayleigh cells at 1 m |
+| convection | one mechanism for all cells: ρ_eff-difference swap + χ-weighted EOS (high-χ leans EOS buoyancy, χ=0 leans β-swap — same machinery, 126 N gate-clears, fires ~2 s/cell) | single-cell Rayleigh cells at 1 m |
 | capillarity | min_mass surrogate (12.5 cm films) | correct simplification (Bond ≫ 1) |
 | solids in liquid | static (τ_y = ∞); ice/lava/stone densities now consistent | sinking stone / floating ice = granular stage |
 
@@ -459,7 +489,7 @@ energy exactly; the prior "drain next RESOLVE" transient-overshoot exemption is 
 | INV-GAS | air pocket sealed under 2 m water: m stabilizes at **1.20 ± 0.05×** rest (= 1 + ρgh/P0); P ≈ overburden *(review: ≤2× was 4× too loose)* |
 | INV-AL | relaxed stratified rest atmosphere + pool: surface air `‖u‖ < 0.01·dx/dt` for 5000 ticks; no monotonic heating of static cells + an air\|steam interface variant: two resting gases at true equilibrium read NO spurious gradient (cross-gas absolute-P, A-2(i)) |
 | INV-ATMOS | **CURRENTLY DEFERRED / GW-OPEN — NOT satisfied** (engine commit 3ce9d45). Gated by `atmos_probe`. **Stability:** seed UNIFORM 1.2, run ≥ 5000 ticks at dt=0.5 — no cell oscillates >1% tick-to-tick at settle; the bottom does not exceed a bounded multiple of rest density; the top does not drain below the gas floor. **Well-balanced kept stable:** seed BAROMETRIC, run ≥ 2000 ticks — every cell stays within ε of its seeded/permanent-hold mass. **Realistic readout:** at settle `/orge` reads ≈ 1 ATM absolute at sea level, dropping ≈ 12 Pa/block. **Conservation:** per-species air mass exact every tick — this sub-clause ALREADY HOLDS. GW-1 (fc62565) + GW-2 (60e5a8c) LANDED and are necessary improvements but NOT sufficient: the 200-tall acoustic air column does not yet converge — a separate EOS-anchor→non-hydrostatic-P→residual-y-drive ratchet keeps the bottom densifying (out of GW-1/GW-2 scope; cure = a gas drive-velocity limiter / boundary-ghost fix / deferred θ y-rest-target restructure). Do NOT mark satisfied until the column converges. |
-| INV-UNIVERSAL | the core mechanic contains NO `switch(state)` / `if(isGas/isLiquid/…)` branch; state behavior comes only from material data (τ_y, χ, viscosity, min/max), never the species name — a state-branch in the core is a regression (acceptance test for every task). *(law #0 / P-0)* |
+| INV-UNIVERSAL | **ZERO branches by state/category (law #0 v4.3) — mechanically enforced, build-failing.** (1) *Static guard:* the engine source contains NONE of the tokens `is_gas`, `is_liquid`, `is_solid`, `is_compressible`, `GAS_CHI_MIN`, `PR_GAS`, `PR_LIQUID`, `PR_SOLID`, no `switch(state)`, and no `if`/`?:` comparing `χ`/`viscosity`/`τ_y`/`mass` against a constant to select a code path (incl. the disguised `if(maxMass==minMass)`, `if(μ==∞)`, "compute a value then classify"). A grep hit fails the build. (2) *Continuity guard:* sweep one material's χ continuously across the old 0.999 line (and a cell's mass across min/max) and assert `P`, the resolve-force, and `p_eos` contribution are continuous (no jump) — a hidden branch makes a discontinuity → fail. Every quantity is one formula over the floats; degenerate regimes emerge by branchless saturating math (`χ·…`, `min`/`max`/`clamp`, regularized division) ONLY. Acceptance test for EVERY task. *(law #0 / P-0; this guard is what breaks the recurring separation regression)* |
 | INV-NOSUBMIN | no cell rests at `0 < m < min(species)` from any path (flow, relabel, empty-refill); relabel forbidden when `m < min(target)`, empty-refill donor-side gated. *(A-10)* |
 | INV-NOOVERMAX | no cell rests at `m > max(species)`; the water→ice (lower-max) freeze evicts its surplus same-pass under both bounds, or defers. Twin of INV-NOSUBMIN: `min ≤ m ≤ max ∨ m = 0`. *(A-12)* |
 | INV-DB | 6-way diverging donor: Σ outflows ≤ budget every tick |
@@ -501,6 +531,18 @@ permutation only. · DEC-v4-E viscosity → cadence with a **seconds** floor. ·
 **chain-anchored** (ΔE≡0 relabels). · DEC-v4-G radiation on transparent faces + vacuum + **ΔT>300 K
 condensed contacts** (film-boiling surrogate). · DEC-v4-H realistic LUT (lava 2650 < stone 2700; lava
 solidus 1275 K; steam band; ice row).
+
+**DEC-v4.3 (2026-06-16 — ABSOLUTE NO-BRANCH, user-ordered):** purge every gas/liquid/solid classification
+from the law (#0/#6/#8/#9) and this spec. χ becomes a continuous weight only (regularized denominator, no
+`if(max==min)`); the EOS is one formula for every cell entering as `χ·p_eos` (§2.1/§2.2); the relaxation runs
+for all cells with a continuous μ-derived face mobility weight, unifying the former fluid/gas/solid face
+branches (§3.1); terrain shielding is the `μ→∞`/`τ_y→∞` limit (§3.1/§4). `is_gas`/`is_compressible`/
+`GAS_CHI_MIN`/`PR_GAS` are forbidden build-failing tokens (§1.3). INV-UNIVERSAL upgraded to a mechanical
+static+continuity guard (§11). Remaining threshold-branches still to make branchless and tracked under law #0:
+radiation's `|ΔT|>300 K` gate (§8.3 → smooth ramp), the §5.2 cohesion `if`-ladder (→ clamps), the DECODE
+no-penetration clamp's wall test. The CODE's existing `is_gas`/`PR_GAS`/EOS-only-for-gas branches are now
+DEBT pending deletion. Reason logged: the self-contradiction (INV-UNIVERSAL vs "Gas classification") drove a
+3-week loop where each implementation re-introduced the split and each code-vs-spec audit passed it.
 
 ---
 

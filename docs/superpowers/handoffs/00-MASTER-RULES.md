@@ -46,10 +46,14 @@ red–black sweeps relaxing the **single persisted `P`** whose fixed point is di
 fill differences; force = face-average pressure flux + advected momentum; heat = conduction + **radiation**
 + advected enthalpy, all antisymmetric, max-principle-clamped) → DECODE (per-cell: derive `u = p⃗/m`,
 `T = h⁻¹(E/m)` on enthalpy curves with **latent plateaus**; relabel T-continuously at plateau edges; CFL cap;
-sub-min flagged-not-deleted). Gases carry a **live gauge ideal-gas EOS** (rest air ≈ 1 atm ⇒ 0 gauge;
-compressed pockets push back with real MPa). Cross-species mass moves ONLY by swap/displacement (full
-payload: m, matIx, E, momentum; ΔPE → heat). `max==default` = incompressible (no EOS branch, no band).
-Solids: τ_y=∞ bears+blocks (shelf shields); granular yield deferred.
+sub-min flagged-not-deleted). **EVERY cell runs ONE formula — NO gas/liquid/solid classification or branch
+anywhere (law #0 v4.3; INV-UNIVERSAL is a build-failing guard).** The ideal-gas EOS `p_eos` is computed for
+all cells and enters ONLY as the χ-weighted source `χ·α_eos·(p_eos−P)`: a `max==default` cell has χ=0 so its
+EOS term is 0 *by the multiplier* (the old "incompressible: no EOS branch" is the χ=0 limit, not an `if`);
+a high-χ cell pushes back with real MPa when compressed. Terrain (`μ→∞`/`τ_y→∞`) shields by the continuous
+mobility weight / yield gate going to 0 — emergent, not a solid test. Cross-species mass moves ONLY by
+swap/displacement (full payload: m, matIx, E, momentum; ΔPE → heat). Forbidden build-failing tokens:
+`is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS`.
 
 ## 🧨 STALE TESTS — triage, never blindly satisfy (unchanged, verbatim policy)
 A failing existing test may be CORRECT-failing (it asserts superseded behavior). Triage against the v4 spec:
