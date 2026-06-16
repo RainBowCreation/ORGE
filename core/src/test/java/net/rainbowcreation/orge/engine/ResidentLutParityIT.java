@@ -104,6 +104,11 @@ class ResidentLutParityIT {
      * vs 3029.999929 out (Δ≈-7.1e-5 kg float noise); 12 occupied cells; temps [300.0034, 1500.0162] K; no
      * NaN/Inf, no 0/6000K ghost. Documented "regenerate the determinism golden when RESOLVE changes" case
      * (00-MASTER-RULES §STALE TESTS), NOT a wiring bug.
+     * Re-captured 2026-06-16 for the GW-1 gas-force refactor ({@code fc62565}; gas force = single relaxed P)
+     * — #11 is a no-op for this scene. NOTE this synthetic LUT sets defaultMass=0 ⇒ χ>0.999 for water/lava/air
+     * alike, so all three are GAS-classified here and GW-1's gas-force change legitimately moves them; 12 cells
+     * diverged (each species compacts to its maxMass cell at rest); conservation 3030.000000 in / 3030.000000
+     * out (Δ=0); 3 occupied; temps [300.000,1500.000]K; no NaN/ghost.
      */
     @Test
     void registerOnceRunsBitIdenticalToGolden() throws Exception {
