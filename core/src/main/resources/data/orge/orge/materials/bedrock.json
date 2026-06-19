@@ -1,0 +1,13 @@
+{
+  "thermal_conductivity": 0,
+  "heat_capacity": 800,
+  "molar_mass": 0.065,
+  "min_mass": 3000,
+  "default_mass": 3000,
+  "max_mass": 3000,
+  "default_temperature": 290,
+  "emissivity": 0,
+  "thermal_expansion": 0,
+  "yield_stress": 1e30,
+  "representative_block": "minecraft:bedrock"
+}
