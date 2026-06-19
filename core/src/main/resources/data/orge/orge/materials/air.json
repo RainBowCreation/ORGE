@@ -11,6 +11,5 @@
   "thermal_expansion": 0,
   "latent_heat_min": 0,
   "latent_heat_max": 0,
-  "t_ref_gas": 288,
-  "representative_block": "minecraft:air"
+  "t_ref_gas": 288
 }

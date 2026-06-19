@@ -12,6 +12,5 @@
   "latent_heat_min": 4.0e5,
   "latent_heat_max": 0,
   "min_temp": 1275,
-  "min_target": "orge:stone",
-  "representative_block": "minecraft:lava"
+  "min_target": "orge:stone"
 }

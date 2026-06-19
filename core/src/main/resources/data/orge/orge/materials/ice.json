@@ -11,6 +11,5 @@
   "latent_heat_min": 0,
   "latent_heat_max": 3.34e5,
   "max_temp": 273,
-  "max_target": "orge:water",
-  "representative_block": "minecraft:ice"
+  "max_target": "orge:water"
 }
