@@ -148,11 +148,24 @@ public final class ColumnAssembler {
                         char prior = cells.priorSpecies()[si];
                         Material m = lut.materials().get(mat);
                         float seeded;
-                        // Seed a fresh cell ONLY when its label is NEW relative to last cycle's engine-output
-                        // species. Genuine placement: prior (void/other) != mat ⇒ seed defaultMass.
-                        // Engine-drained-but-same-species cell: prior == mat ⇒ keep 0, no fabrication.
-                        if (storedMass <= 0f && prior != mat) {
-                            seeded = m.defaultMass();              // fresh seed (once); vacuum's is 0 (harmless)
+                        // EMPTY-CELL IDENTITY (user rule 2026-06-19): a cell that TRANSFORMED to empty —
+                        // a block broken, or a fluid fully drained out — becomes orge:vacuum (a fillable
+                        // empty cell), NEVER a sub-min ghost parcel of its old / first-touch species (an
+                        // orge:air cell below its min_mass cohesion floor refuses fluid inflow). Only a
+                        // NEVER-SIMULATED cell (prior == the VOID sentinel 0) is genuine fresh terrain and
+                        // seeds its rest mass — ambient air, ocean water, etc. prior is last cycle's
+                        // engine-output species, so VOID(0) ⇔ never simulated ⇔ generation; any REAL prior
+                        // ⇔ it was something and is now empty ⇔ vacuum. Self-healing: emitting matIx 0 makes
+                        // the write-back persist orge:vacuum, so next cycle sid==vacuum keeps it vacuum (no
+                        // air re-seed churn). Conservation-safe: only fires at storedMass ≤ 0 (≈0 kg).
+                        if (storedMass <= 0f) {
+                            if (prior == 0) {
+                                seeded = m.defaultMass();         // fresh generation (ambient air/ocean); vacuum's is 0
+                            } else {
+                                mat = 0;                          // transformed-to-empty ⇒ orge:vacuum (fillable)
+                                m = lut.materials().get(0);
+                                seeded = 0f;
+                            }
                         } else {
                             seeded = storedMass;
                         }

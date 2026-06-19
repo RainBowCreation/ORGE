@@ -84,9 +84,10 @@ class ColumnAssemblerTest {
         ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
 
         int ia = colIdx(1, 4, 2, 3);
-        assertEquals(1, t.matIx()[ia], "drained cell stays water-labelled");
+        assertEquals(0, t.matIx()[ia],
+                "engine-drained-empty water (prior==water, mass 0) becomes orge:vacuum — fillable, not a water@0 ghost");
         assertEquals(0f, t.mass()[ia], 1e-4,
-                "engine-drained water (prior==water) is NOT reseeded — no +1000 fabrication");
+                "drained-to-empty cell holds no mass (no +1000 fabrication; relabelled vacuum)");
 
         int ib = colIdx(5, 4, 6, 7);
         assertEquals(1, t.matIx()[ib], "new-placement cell is water-labelled");
@@ -208,9 +209,46 @@ class ColumnAssemblerTest {
                 "fresh SOLID (prior!=mat) now seeds defaultMass — movable() gate dropped");
 
         int ib = colIdx(5, 4, 6, 7);
-        assertEquals(stoneIx, t.matIx()[ib]);
+        assertEquals(0, t.matIx()[ib],
+                "engine-drained-empty same-species cell (prior==mat, mass 0) becomes orge:vacuum, not a species@0 ghost");
         assertEquals(0f, t.mass()[ib], 1e-4,
-                "engine-drained same-species solid (prior==mat) is NOT seeded");
+                "drained-to-empty cell holds no mass (no fabrication; relabelled vacuum)");
+    }
+
+    /** The break bug (2026-06-19): a STONE cell is broken → its block becomes minecraft:air →
+     *  first-touch orge:air, stored mass 0, prior == stone (the old solid). It MUST assemble as
+     *  orge:vacuum (a fillable empty cell), NOT a mass-0 orge:air ghost (orge:air's min_mass=1.0
+     *  cohesion floor would refuse lava/water inflow). Ambient air (rest mass) is untouched. */
+    @Test
+    void brokenSolidCellBecomesVacuumNotAirGhost() {
+        MaterialLut lut = lut();
+        MaterialRegistry reg = registry();
+        final char airIx = 2, stoneIx = 3;
+        ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            char[] prior = new char[4096];
+            java.util.Arrays.fill(mat, airIx);       // ambient air everywhere
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 300f);
+            if (sectionY == 4) {
+                int s = 1 + 16 * 2 + 256 * 3;
+                mat[s] = airIx; mass[s] = 0f; prior[s] = stoneIx; // broken: first-touch air, was stone, now empty
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, prior);
+        };
+
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
+
+        int bi = colIdx(1, 4, 2, 3);
+        assertEquals(0, t.matIx()[bi],
+                "broken solid cell (now empty) assembles as orge:vacuum, NOT an orge:air@0 ghost that blocks inflow");
+        assertEquals(0f, t.mass()[bi], 1e-4, "no air fabricated into the broken cell");
+        // ambient air (rest mass) is unaffected
+        int ai = colIdx(0, 0, 0, 0);
+        assertEquals(airIx, t.matIx()[ai], "ambient air stays air");
+        assertEquals(1.2f, t.mass()[ai], 1e-4, "ambient air keeps its rest mass");
     }
 
     /** S4: a known per-cell enthalpy E [J] in SectionCells lands at the correct engine-order
