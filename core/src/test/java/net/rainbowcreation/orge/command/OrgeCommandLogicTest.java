@@ -31,6 +31,7 @@ class OrgeCommandLogicTest {
         return new SectionView() {
             public float tempAt(int c) { return t[c]; }
             public float massAt(int c) { return m[c]; }
+            public Identifier material(int c) { return Identifier.fromNamespaceAndPath("orge", "air"); }
             public SectionData.Form form() { return form; }
             public boolean ambient() { return ambient; }
         };

@@ -20,6 +20,7 @@ class OrgeCommandLocaleTest {
         ThermalReadSource src = (dim, key) -> Optional.of(new SectionView() {
             public float tempAt(int cell) { return 285.0f; }
             public float massAt(int cell) { return 1000.0f; }
+            public Identifier material(int cell) { return Identifier.fromNamespaceAndPath("orge", "air"); }
             public net.rainbowcreation.orge.section.SectionData.Form form() {
                 return net.rainbowcreation.orge.section.SectionData.Form.UNIFORM;
             }

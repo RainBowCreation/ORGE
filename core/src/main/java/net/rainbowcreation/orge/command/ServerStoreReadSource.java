@@ -57,6 +57,7 @@ public final class ServerStoreReadSource implements ThermalReadSource {
             return StepValidator.clampDerivedKelvin(t);
         }
         @Override public float massAt(int cell) { return data.massAt(cell); }
+        @Override public Identifier material(int cell) { return data.materialAt(cell); }
         @Override public SectionData.Form form() { return data.form(); }
         // ambient() provided by the record component
     }

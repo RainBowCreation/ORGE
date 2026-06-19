@@ -23,7 +23,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.material.ActiveMaterials;
-import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.InjectDebug;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.section.SubchunkKey;
@@ -113,8 +112,10 @@ public final class OrgeCommands {
 
     private int read(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Op op, BlockPos p) {
         OrgeCommandLogic.Response resp = logic.run(request(ctx, op, p, p, null, null));
-        // GET reports one cell: append the LIVE block + mapped ORGE material so the operator can
-        // see what the thermal store's mass/temp actually belongs to (the store keeps no material).
+        // GET reports one cell: append the LIVE block + the cell's material. For a SIMULATED cell the
+        // material is the STORED per-cell species (sim truth — e.g. orge:vacuum after a break, even
+        // though the live block is minecraft:air); for a never-simulated/ambient cell the store has no
+        // real species so we fall back to the live block's first-touch mapping.
         if (op == OrgeCommandLogic.Op.GET && resp.ok()) {
             resp = appendToFirstLine(resp, liveCellDescriptor(ctx.getSource().getLevel(), p));
         }
@@ -188,7 +189,7 @@ public final class OrgeCommands {
     private String liveLine(ServerLevel level, BlockPos p) {
         BlockState state = level.getBlockState(p);
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        Identifier matId = LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry()).id();
+        Identifier matId = cellMaterial(level, p, state);
         CellAddress addr = CellAddress.of(p.getX(), p.getY(), p.getZ());
         Identifier dim = level.dimension().identifier();
         LiveStatus st = status.statusOf(dim, addr.key());
@@ -208,12 +209,32 @@ public final class OrgeCommands {
                 ((int) Math.floor(pos.z)) >> 4);
     }
 
-    /** {@code ", block=<id>, material=<id>"} for the live block at {@code pos} (server-thread read). */
-    private static String liveCellDescriptor(ServerLevel level, BlockPos pos) {
+    /**
+     * {@code ", block=<id>, material=<id>"} for the cell at {@code pos} (server-thread read). The
+     * material is the STORED per-cell species for a simulated cell (so a broken cell reads its real
+     * {@code orge:vacuum}, not the {@code minecraft:air} block's first-touch {@code orge:air}); for a
+     * never-simulated/ambient cell, where the store has no real species, it falls back to the live
+     * block's mapping.
+     */
+    private String liveCellDescriptor(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        Material material = LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry());
-        return String.format(Locale.ROOT, ", block=%s, material=%s", blockId, material.id());
+        Identifier matId = cellMaterial(level, pos, state);
+        return String.format(Locale.ROOT, ", block=%s, material=%s", blockId, matId);
+    }
+
+    /**
+     * The material to display for a cell: the STORED per-cell species when the section is simulated
+     * (authoritative sim truth), else the live block's first-touch mapping (never-simulated/ambient,
+     * where the store holds only the synthesized baseline). One source of truth for both readouts.
+     */
+    private Identifier cellMaterial(ServerLevel level, BlockPos pos, BlockState state) {
+        CellAddress addr = CellAddress.of(pos.getX(), pos.getY(), pos.getZ());
+        Optional<SectionView> v = logic.view(level.dimension().identifier(), addr.key());
+        if (v.isPresent() && !v.get().ambient()) {
+            return v.get().material(addr.cell());
+        }
+        return LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry()).id();
     }
 
     private static OrgeCommandLogic.Response appendToFirstLine(OrgeCommandLogic.Response resp, String suffix) {
