@@ -11,11 +11,19 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Task 1.4 oracle: phase change selects a MATERIAL (by material id); the block drawn is that
- * material's {@code representative_block} via a SEPARATE material → block lookup. The two ids
- * differ (material {@code orge:ice} ≠ block {@code minecraft:ice}); identity lives in the material.
+ * Task 1.4 oracle: phase change selects a MATERIAL (by material id) via {@link
+ * PhasePlanner#targetMaterial}; the block drawn is that material's {@code representative_block} via a
+ * SEPARATE material → block lookup ({@code registry.map(Material::representativeBlock)}, as inlined in
+ * {@link PhaseChangeDecider}). The two ids differ (material {@code orge:ice} ≠ block
+ * {@code minecraft:ice}); identity lives in the material.
  */
 class PhaseChangeTargetTest {
+
+    /** The material → {@code representative_block} draw lookup, as inlined in {@link PhaseChangeDecider}. */
+    private static Optional<Identifier> representativeBlock(
+            Function<Identifier, Optional<Material>> registry, Identifier materialId) {
+        return registry.apply(materialId).map(Material::representativeBlock);
+    }
 
     private static Identifier id(String ns, String path) { return Identifier.fromNamespaceAndPath(ns, path); }
 
@@ -54,27 +62,27 @@ class PhaseChangeTargetTest {
 
     @Test
     void boilingSelectsSteamMaterialThenRendersSteamRepresentativeBlock() {
-        Optional<Identifier> target = PhaseRule.targetMaterial(400f, water());
+        Optional<Identifier> target = PhasePlanner.targetMaterial(400f, water());
         // identity = the MATERIAL id
         assertEquals(Optional.of(STEAM), target, "boiling selects the steam MATERIAL");
         // render = the SEPARATE material → representative_block lookup
-        Optional<Identifier> block = PhaseRenderResolver.representativeBlock(fakeRegistry(), target.get());
+        Optional<Identifier> block = representativeBlock(fakeRegistry(), target.get());
         assertEquals(Optional.of(STEAM_BLOCK), block);
     }
 
     @Test
     void freezingSelectsIceMaterialThenRendersVanillaIceBlock() {
-        Optional<Identifier> target = PhaseRule.targetMaterial(250f, water());
+        Optional<Identifier> target = PhasePlanner.targetMaterial(250f, water());
         assertEquals(Optional.of(ICE), target, "freezing selects the ice MATERIAL");
-        Optional<Identifier> block = PhaseRenderResolver.representativeBlock(fakeRegistry(), target.get());
+        Optional<Identifier> block = representativeBlock(fakeRegistry(), target.get());
         assertEquals(Optional.of(ICE_BLOCK), block);
     }
 
     @Test
     void identityIsTheMaterialIdNotTheRenderedBlock() {
         // The whole point of the indirection: for ice the material id and the rendered block id DIFFER.
-        Optional<Identifier> target = PhaseRule.targetMaterial(250f, water());
-        Optional<Identifier> block = PhaseRenderResolver.representativeBlock(fakeRegistry(), target.get());
+        Optional<Identifier> target = PhasePlanner.targetMaterial(250f, water());
+        Optional<Identifier> block = representativeBlock(fakeRegistry(), target.get());
         assertNotEquals(target, block, "material orge:ice is NOT the block minecraft:ice");
         assertEquals(ICE, target.get(), "identity is the material id");
         assertEquals(ICE_BLOCK, block.get(), "the drawn block is a separate lookup");
@@ -83,7 +91,7 @@ class PhaseChangeTargetTest {
     @Test
     void absentTargetMaterialResolvesToEmpty() {
         Optional<Identifier> block =
-                PhaseRenderResolver.representativeBlock(fakeRegistry(), id("orge", "unregistered"));
+                representativeBlock(fakeRegistry(), id("orge", "unregistered"));
         assertTrue(block.isEmpty(), "an unregistered material has no representative block");
     }
 }

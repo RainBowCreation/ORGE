@@ -2,7 +2,7 @@ package net.rainbowcreation.orge;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
-import net.rainbowcreation.orge.phase.PhaseRule;
+import net.rainbowcreation.orge.phase.PhasePlanner;
 import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import org.junit.jupiter.api.Test;
 import java.util.List;
@@ -78,7 +78,7 @@ class AuditScenarioTest {
 
             // (2) phase change on post-step temps (all cells)
             for (int i = 0; i < n; i++) {
-                Optional<Identifier> target = PhaseRule.targetMaterial(t[i], matAt.apply(i));
+                Optional<Identifier> target = PhasePlanner.targetMaterial(t[i], matAt.apply(i));
                 if (target.isPresent()) {
                     block[i] = target.get();
                     if (target.get().equals(ORGE_STEAM)) {

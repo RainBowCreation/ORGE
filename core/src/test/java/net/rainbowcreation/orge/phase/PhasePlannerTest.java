@@ -97,7 +97,7 @@ class PhasePlannerTest {
     @Test
     void emptyColdCellDoesNotFreeze() {
         // A cell the native engine drained to 0 kg / 0 K. 0 K is far below water's 273.15 K
-        // freeze point, so without the mass guard PhaseRule would emit an ice transition for an
+        // freeze point, so without the mass guard the threshold rule would emit an ice transition for an
         // empty cell (the ghost-ice bug). With the guard, no transition.
         float[] temps = fill(0f);
         float[] mass = fill(0f);
@@ -124,5 +124,70 @@ class PhasePlannerTest {
         List<PhasePlanner.Transition> plan = PhasePlanner.plan(temps, mass, allWater, ALL_EXIST);
         assertEquals(SectionData.CELLS, plan.size(), "real hot water still boils");
         assertEquals(Set.of(mat("steam")), Set.copyOf(plan.stream().map(PhasePlanner.Transition::materialId).toList()));
+    }
+
+    // --- The fused §7 threshold rule: PhasePlanner.targetMaterial (migrated from PhaseRuleTest). ---
+    // Targets are MATERIAL ids; boiling checked first; strict inequalities; null/±∞ never transition.
+
+    /** A material whose phase targets are MATERIAL ids (e.g. {@code orge:steam}/{@code orge:ice}). */
+    private static Material ruleMaterial(float maxTemp, Identifier maxTarget,
+                                         float minTemp, Identifier minTarget) {
+        return Material.builder(mat("x"))
+                .thermalConductivity(0.6f).heatCapacity(1000f).molarMass(0.018f)
+                .defaultMass(1000f).defaultTemperature(293f)
+                .viscosity(0f)
+                .maxTemp(maxTemp).minTemp(minTemp)
+                .maxTarget(maxTarget).minTarget(minTarget)
+                .build();
+    }
+
+    private static Material inert() {
+        return ruleMaterial(Float.POSITIVE_INFINITY, null, Float.NEGATIVE_INFINITY, null);
+    }
+
+    @Test
+    void boilsAboveBoilingPointToMaxMaterial() {
+        Material water = ruleMaterial(373.15f, mat("steam"), 273.15f, mat("ice"));
+        assertEquals(java.util.Optional.of(mat("steam")), PhasePlanner.targetMaterial(400f, water));
+    }
+
+    @Test
+    void freezesBelowFreezingPointToMinMaterial() {
+        Material water = ruleMaterial(373.15f, mat("steam"), 273.15f, mat("ice"));
+        assertEquals(java.util.Optional.of(mat("ice")), PhasePlanner.targetMaterial(250f, water));
+    }
+
+    @Test
+    void noTransitionInsideTheBand() {
+        Material water = ruleMaterial(373.15f, mat("steam"), 273.15f, mat("ice"));
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(300f, water));
+    }
+
+    @Test
+    void exactThresholdsAreNoOps() {
+        Material water = ruleMaterial(373.15f, mat("steam"), 273.15f, mat("ice"));
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(373.15f, water), "boiling uses strict >");
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(273.15f, water), "freezing uses strict <");
+    }
+
+    @Test
+    void nullTargetsNeverTransitionEvenPastThreshold() {
+        Material noBoil = ruleMaterial(373.15f, null, 273.15f, null);
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(9999f, noBoil));
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(0f, noBoil));
+    }
+
+    @Test
+    void infiniteDefaultsNeverTransition() {
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(5000f, inert()));
+        assertEquals(java.util.Optional.empty(), PhasePlanner.targetMaterial(1f, inert()));
+    }
+
+    @Test
+    void boilingTakesPrecedenceWhenBothCouldFire() {
+        // Contrived overlap (boil 300 < freeze 400) so BOTH branches are simultaneously true at 350 K —
+        // the only way to actually exercise boiling-before-freezing precedence.
+        Material m = ruleMaterial(300f, mat("a"), 400f, mat("b"));
+        assertEquals(java.util.Optional.of(mat("a")), PhasePlanner.targetMaterial(350f, m), "boiling checked first");
     }
 }

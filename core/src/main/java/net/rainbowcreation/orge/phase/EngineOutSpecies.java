@@ -13,8 +13,9 @@ import java.util.List;
  * <p>Why this matters: the native molar-sort swaps fluids vertically (lava sinks under water), and
  * blocks are only rewritten by the reconciler AFTER the phase changer runs. Reading material from
  * the live block therefore paired a swapped-in temperature with the OUTGOING material — e.g. the
- * risen water carried its cool temperature while the block still read lava, so {@code PhaseRule} saw
- * {@code cool < lava.minTemp} and froze it to {@code lava.minTarget} = stone. Sourcing material from
+ * risen water carried its cool temperature while the block still read lava, so the phase rule
+ * ({@code PhasePlanner#targetMaterial}) saw {@code cool < lava.minTemp} and froze it to
+ * {@code lava.minTarget} = stone. Sourcing material from
  * {@code matOut} keeps material and temperature on the same post-swap snapshot.</p>
  *
  * <p>Mirrors the resolution {@code MinecraftFluidReconciler} already applies to {@code matOut}.</p>

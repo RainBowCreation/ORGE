@@ -29,8 +29,9 @@ import java.util.function.IntFunction;
  * <p>Behaviour mirrors the old adapter exactly: stored-species enthalpy → temperature ({@link
  * EnthalpyCurve#deriveT}, law §7 — T is never stored; a massless/unresolvable cell reads ambient),
  * {@link PhasePlanner} over the engine-out species ({@link EngineOutSpecies}, live-block fallback)
- * with a material-exists gate, {@link SourcePinPlanner} for the conditional re-pin, and {@link
- * PhaseRenderResolver} for the material → block draw.</p>
+ * with a material-exists gate, {@link SourcePinPlanner} for the conditional re-pin, and the inline
+ * material → {@code representative_block} draw lookup (identity is the material id; the block is only
+ * what is rendered).</p>
  */
 public final class PhaseChangeDecider {
 
@@ -92,12 +93,14 @@ public final class PhaseChangeDecider {
         List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cellMat, transitions);
 
         // Resolve each target MATERIAL → its representative_block (identity is the material id; the
-        // block is only what is drawn). Drop a transition whose material/repr is unavailable.
+        // block is only what is drawn — a material's id and its rendered block may differ, e.g.
+        // material orge:ice ⇄ block minecraft:ice). Drop a transition whose material is unregistered
+        // or carries no representative block.
         List<Placement> placements = new ArrayList<>(transitions.size());
         for (PhasePlanner.Transition t : transitions) {
-            Optional<Identifier> repr = PhaseRenderResolver.representativeBlock(registry, t.materialId());
+            Optional<Identifier> repr = registry.apply(t.materialId()).map(Material::representativeBlock);
             if (repr.isEmpty()) {
-                continue; // material unregistered → nothing to draw
+                continue; // material unregistered / no repr block → nothing to draw
             }
             placements.add(new Placement(t.cellIndex(), repr.get()));
         }
