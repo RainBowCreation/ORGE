@@ -89,34 +89,18 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             BlockState current = LiveMaterials.blockStateAt(section, i);
             Material worldMaterial = LiveMaterials.materialFor(current.getBlock(), mats.registry());
 
-            // The species the cell BECAME this step (engine matOut); fall back to the world block's
-            // material when the engine didn't report one (null overload / non-advection cycle).
-            Material outMat = outMaterialFor(outMaterial, outLut, i, worldMaterial);
+            // The species the cell BECAME this step (engine matOut), shared with the §7 changer; falls
+            // back to the world block's material when the engine didn't report one.
+            Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
 
-            // Reconcile a cell when EITHER the world block is a managed fluid OR the engine says it is
-            // now a fluid (wetting an air cell). Skip cells that are and stay non-fluid.
-            boolean worldIsFluid = worldMaterial.movable();
-            boolean becameFluid = outMat != null && outMat.movable();
-            if (!worldIsFluid && !becameFluid) {
+            // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
+            // call (fluid test, level math, species-aware throttle, §7 whitelist, repr-block pick).
+            boolean currentIsLiquid = current.getBlock() instanceof LiquidBlock;
+            FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
+                    worldMaterial, outMat, data.massAt(i),
+                    bucketOfWorldBlock(current), currentIsLiquid, current.isAir());
+            if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
                 continue;
-            }
-
-            float mass = data.massAt(i);
-            // The cap/full reference is the species the cell now holds (so a wetted air cell reads
-            // water's 1000 kg full reference, not air's).
-            Material levelMaterial = becameFluid ? outMat : worldMaterial;
-            float f = FluidReconcileLogic.fraction(mass, levelMaterial.defaultMass());
-            int renderLevel = FluidReconcileLogic.levelForFraction(f);
-
-            // ---- species-aware level-bucket throttle (Decision 13b) ----
-            // The bucket throttle may only skip the write when the cell's SPECIES is unchanged. A
-            // species change (incl. a fluid cell that Pass A vacated → air) must always reconcile,
-            // even if the numeric render level coincides, or the stale block is never replaced
-            // (falling-column duplicate trail).
-            int currentBucket = bucketOfWorldBlock(current);
-            boolean sameSpecies = sameSpecies(levelMaterial, worldMaterial);
-            if (FluidReconcileLogic.throttles(sameSpecies, renderLevel, currentBucket)) {
-                continue; // same species, mass moved within the same render bucket -> no packet
             }
 
             int x = i & 15;
@@ -124,28 +108,16 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             int z = (i >> 8) & 15;
             BlockPos pos = new BlockPos(ox + x, oy + y, oz + z);
 
-            if (renderLevel == FluidReconcileLogic.REMOVE) {
-                // Only clear a cell that currently holds a managed fluid block; leave others alone.
-                // (Steam renders as minecraft:air — its representative_block — so a vacated gas cell is
-                // already air and needs no clear.)
-                if (current.getBlock() instanceof LiquidBlock) {
-                    setIfChanged(level, pos, current, Blocks.AIR.defaultBlockState());
-                }
+            if (action.kind() == FluidReconcileDecider.Kind.CLEAR) {
+                // Decider already confirmed this cell holds a managed fluid block; remove it (→ air).
+                setIfChanged(level, pos, current, Blocks.AIR.defaultBlockState());
                 continue;
             }
 
-            // §7 contact whitelist: do not overwrite a block that §7 owns (water+lava→obsidian etc.).
-            // The whitelist is "only place over air or over a managed fluid block"; never stomp a
-            // solid the phase-changer produced.
-            if (!isPlaceableTarget(current, levelMaterial)) {
-                continue;
-            }
-
-            Block target = representativeBlock(levelMaterial);
-            if (target == null) {
-                continue; // material has no representative block to place
-            }
-            setIfChanged(level, pos, current, stateWithLevel(target, renderLevel));
+            // PLACE: a nonexistent repr block downgrades to minecraft:air (BLOCK getValue returns AIR
+            // for unknown ids); the decider already dropped a material with no repr block at all.
+            Block target = BuiltInRegistries.BLOCK.getValue(action.block());
+            setIfChanged(level, pos, current, stateWithLevel(target, action.renderLevel()));
         }
     }
 
@@ -160,76 +132,12 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         }
     }
 
-    /** The fluid block this material renders as, or null when it declares no representative block. */
-    private static Block representativeBlock(Material material) {
-        Identifier id = material.representativeBlock();
-        if (id == null) {
-            return null;
-        }
-        return BuiltInRegistries.BLOCK.getValue(id);
-    }
-
-    /**
-     * The engine's output species for cell {@code i}, resolved through the step's batch LUT
-     * ({@code outLut}, threaded in from the scheduler's {@code pendingMaterials}). Falls back to
-     * {@code worldMaterial} when no engine species is available or the cell is the vacuum/air sentinel
-     * (index 0).
-     */
-    private static Material outMaterialFor(char[] outMaterial, List<Material> outLut, int i,
-                                           Material worldMaterial) {
-        if (outMaterial == null || outLut == null || i >= outMaterial.length) {
-            return worldMaterial;
-        }
-        int s = outMaterial[i];
-        if (s == 0 || s >= outLut.size()) {
-            return worldMaterial; // air cell that received no fluid mass; world-block path decides
-        }
-        return outLut.get(s);
-    }
-
-    /**
-     * True when the cell's NEW species (the one being rendered this step, {@code levelMaterial}) is
-     * the SAME material as the world block currently shows ({@code worldMaterial}), compared by
-     * material id. Only then is the level-bucket throttle allowed to skip the write. A null id on
-     * either side (defensive) counts as "changed" so the cell always reconciles.
-     */
-    private static boolean sameSpecies(Material levelMaterial, Material worldMaterial) {
-        if (levelMaterial == worldMaterial) {
-            return true;
-        }
-        if (levelMaterial == null || worldMaterial == null) {
-            return false;
-        }
-        Identifier a = levelMaterial.id();
-        Identifier b = worldMaterial.id();
-        if (a == null || b == null) {
-            return false; // guard: unidentified material -> never throttle
-        }
-        return a.equals(b);
-    }
-
     /** The render bucket the world block currently shows: REMOVE for non-fluid, else its LEVEL. */
     private static int bucketOfWorldBlock(BlockState current) {
         if (current.getBlock() instanceof LiquidBlock && current.hasProperty(LiquidBlock.LEVEL)) {
             return FluidReconcileLogic.levelBucket(current.getValue(LiquidBlock.LEVEL));
         }
         return FluidReconcileLogic.levelBucket(FluidReconcileLogic.REMOVE);
-    }
-
-    /**
-     * §7 contact whitelist (Decision 7): a cell is placeable only when it is currently air/replaceable
-     * OR already the managed fluid block. This refuses to overwrite a solid (e.g. obsidian/stone the
-     * phase-changer produced from a water+lava contact), leaving §7 in charge. (Steam renders as
-     * minecraft:air, so gas cells are covered by the air branch.)
-     */
-    private static boolean isPlaceableTarget(BlockState current, Material material) {
-        if (current.isAir()) {
-            return true;
-        }
-        if (current.getBlock() instanceof LiquidBlock) {
-            return true; // already a managed fluid; updating its level is fine
-        }
-        return false; // solid or other block -> §7 / vanilla owns it, do not stomp
     }
 
     /** {@code block}'s default state carrying {@code level} on {@link LiquidBlock#LEVEL} (clamped). */

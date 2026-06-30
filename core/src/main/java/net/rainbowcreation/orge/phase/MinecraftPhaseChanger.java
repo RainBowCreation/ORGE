@@ -10,7 +10,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
-import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.scheduler.ThermalWorld;
@@ -20,7 +19,6 @@ import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.function.IntFunction;
 
 /**
@@ -78,79 +76,45 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         SectionData data = store.get(key);
 
         ActiveMaterials.State mats = ActiveMaterials.current();
-        final java.util.function.Function<Identifier, Material> lookup =
-                id -> mats.registry().get(id).orElse(null);
-
-        // Read mass + derive T from stored extensive E (law §7 — T is never stored). Derive needs the
-        // cell's species curve, so it runs at this boundary. Mass gates the phase rule so drained/empty
-        // cells never transition (Bug B); a massless / unresolvable cell derives to ambient (no curve).
-        float[] temps = new float[SectionData.CELLS];
-        float[] mass = new float[SectionData.CELLS];
-        for (int i = 0; i < SectionData.CELLS; i++) {
-            mass[i] = data.massAt(i);
-            Material cellM = lookup.apply(data.materialAt(i));
-            temps[i] = cellM == null ? SectionData.DEFAULT_AMBIENT_K
-                    : EnthalpyCurve.deriveT(data.enthalpyAt(i), mass[i], cellM, lookup,
-                            SectionData.DEFAULT_AMBIENT_K);
-        }
-
         final LevelChunkSection sec = section;
-        // Pair each cell with the species the engine says it BECAME this step (matOut), not the live
-        // block: the native molar-sort swaps fluids vertically (lava sinks under water) and the
-        // reconciler rewrites blocks only AFTER this changer runs, so the live block is still the
-        // OUTGOING material. Reading it paired a swapped-in temperature with the wrong material —
-        // risen water carried its cool temperature while the block read lava, so PhaseRule saw
-        // cool < lava.minTemp and froze the water to lava.minTarget = stone. EngineOutSpecies falls
-        // back to the live block when the engine reported no species (null args / vacuum sentinel), so
-        // a surviving pinned source still reads as its source material for the re-pin below.
-        IntFunction<Material> cellMat = i -> EngineOutSpecies.resolve(
-                outMaterial, outLut, i, LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry()));
+        // The only MC-typed input the decision needs: the live world block's material per cell, read
+        // back through the first-touch rule. It is the fallback species when the engine reported none
+        // (EngineOutSpecies handles the rest); the swap/temperature reasoning lives in the decider.
+        IntFunction<Material> liveBlockMaterial =
+                i -> LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry());
 
-        // The planner works in MATERIAL ids and the existence check is "does this target MATERIAL
-        // exist?" — the block to draw is the separate material → representative_block lookup below.
-        List<PhasePlanner.Transition> plan = PhasePlanner.plan(
-                temps, mass, cellMat, id -> mats.registry().get(id).isPresent());
-        List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cellMat, plan);
+        // Resolve the registry ONCE (id → Optional<Material>) and let the pure decider make every
+        // load-bearing call: stored-species temperature, the phase plan, the conditional re-pin, and
+        // the material → representative_block draw. The adapter is left with only the block-write and
+        // the enthalpy-write below.
+        PhaseChangeDecider.Plan plan = PhaseChangeDecider.plan(
+                data, outMaterial, outLut, liveBlockMaterial,
+                mats.registry()::get, SectionData.DEFAULT_AMBIENT_K);
 
         int ox = key.cx() << 4;
         int oy = key.sectionY() << 4;
         int oz = key.cz() << 4;
-        for (PhasePlanner.Transition t : plan) {
-            // Resolve the target MATERIAL → its representative_block (a separate lookup; identity is
-            // the material id, the block is only what's drawn). Skip if the material or its repr block
-            // isn't available. BANKED: fully block-decoupled material identity (so invisible gases can
-            // share minecraft:air as their repr) — v1 records the new species ONLY via the placed
-            // representative_block, so each phase-target material must have a uniquely-bound repr block
-            // (§8 geometry rescan reads it back through the first-touch BlockMaterialRule).
-            Optional<Identifier> repr =
-                    PhaseRenderResolver.representativeBlock(mats.registry()::get, t.materialId());
-            if (repr.isEmpty()) {
-                continue; // material unregistered → nothing to draw
-            }
-            // Nonexistent repr block downgrades to minecraft:air (BLOCK is a defaulted registry whose
+        for (PhaseChangeDecider.Placement p : plan.placements()) {
+            // The decider already resolved the target material → its representative_block. A
+            // nonexistent repr block downgrades to minecraft:air (BLOCK is a defaulted registry whose
             // getValue returns AIR for unknown ids), matching the material schema's air-fallback.
-            int i = t.cellIndex();
+            int i = p.cellIndex();
             int x = i & 15;
             int y = (i >> 4) & 15;
             int z = (i >> 8) & 15;
-            BlockState state = BuiltInRegistries.BLOCK.getValue(repr.get()).defaultBlockState();
+            BlockState state = BuiltInRegistries.BLOCK.getValue(p.block()).defaultBlockState();
             // UPDATE_CLIENTS only: sync the change to clients but skip the neighbour/physics
             // cascade (DESIGN §7). The chunk light engine still re-lights on the state change;
             // if a light-emitting transition (e.g. lava→stone) ever looks stale, revisit the flag.
             level.setBlock(new BlockPos(ox + x, oy + y, oz + z), state, Block.UPDATE_CLIENTS);
         }
 
-        // Conditional re-pin: hold surviving source cells at their default_temperature (engine-audit C).
-        if (!resets.isEmpty()) {
-            for (SourcePinPlanner.Reset r : resets) {
-                // Re-pin stores the Dirichlet temperature as extensive E (law §7 — T is never stored).
-                // E = mass·h(T) via the cell's species curve; an unresolvable / massless cell stores 0 J.
-                int ci = r.cellIndex();
-                Material cellM = lookup.apply(data.materialAt(ci));
-                float massKg = data.massAt(ci);
-                float e = (cellM == null || massKg <= 0f)
-                        ? 0f : (float) EnthalpyCurve.cellE(massKg, cellM, lookup, r.temperatureK());
-                data.setEnthalpy(ci, e);
+        // Apply the conditional re-pin (engine-audit C): the decider computed the Dirichlet hold as
+        // stored extensive E (law §7 — T is never stored); we only write it back and persist.
+        List<PhaseChangeDecider.EnthalpyWrite> writes = plan.enthalpyWrites();
+        if (!writes.isEmpty()) {
+            for (PhaseChangeDecider.EnthalpyWrite w : writes) {
+                data.setEnthalpy(w.cellIndex(), w.enthalpyJ());
             }
             store.put(key, data);
         }
