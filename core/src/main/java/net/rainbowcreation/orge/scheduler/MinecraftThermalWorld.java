@@ -93,6 +93,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     public void bindServer(MinecraftServer server) { this.server = server; }
     public void unbindServer() { this.server = null; }
 
+    /** The bound server, or null when none is running (for server-thread callers that need world access). */
+    public MinecraftServer boundServer() { return this.server; }
+
     // Server thread only — delegated to the snapshot / write-back modules.
     @Override
     public ColumnBatch snapshotColumns(int range) {

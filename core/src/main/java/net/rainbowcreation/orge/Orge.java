@@ -7,6 +7,7 @@ import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
+import net.rainbowcreation.orge.command.CellSpeciesSource;
 import net.rainbowcreation.orge.command.LiveReadoutManager;
 import net.rainbowcreation.orge.command.LiveStatus;
 import net.rainbowcreation.orge.command.OrgeCommandLogic;
@@ -17,8 +18,11 @@ import net.rainbowcreation.orge.command.ServerStoreReadSource;
 import net.rainbowcreation.orge.command.ServerStoreWriteSink;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.PackType;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.storage.LevelResource;
@@ -26,12 +30,15 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.rainbowcreation.orge.engine.EngineFactory;
 import net.rainbowcreation.orge.fluid.VanillaFluidSuppressor;
 import net.rainbowcreation.orge.engine.OrgeEngine;
+import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.material.MaterialJsonLoader;
 import net.rainbowcreation.orge.phase.MinecraftFluidReconciler;
 import net.rainbowcreation.orge.phase.MinecraftPhaseChanger;
 import net.rainbowcreation.orge.scheduler.ExecutorStepRunner;
 import net.rainbowcreation.orge.scheduler.ActiveSet;
 import net.rainbowcreation.orge.scheduler.CellMaterialTracker;
+import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.scheduler.MinecraftThermalWorld;
 import net.rainbowcreation.orge.scheduler.Scheduler;
 import net.rainbowcreation.orge.scheduler.WakeSink;
@@ -266,9 +273,40 @@ public final class Orge {
         // §10 Decision 11 trigger (b), belt-and-suspenders: a /orge set/fill writes a temp/mass into
         // a cell without a block change, so the source roster (derived fresh from blocks) wouldn't see
         // it. Pass the wake sink so a temp write wakes the thermal pass and a mass write wakes flow.
+        // A /orge set/fill onto a never-simulated cell hits a synthesized vacuum stub; this resolver
+        // gives that cell its LIVE block species (the same block first-touch identity the snapshot uses)
+        // so the temperature encode lands on the right enthalpy curve instead of storing 0 J and losing
+        // the edit. Server-thread only; returns null (sink leaves identity untouched) when unresolvable.
+        CellSpeciesSource liveSpecies = (dim, key, cell) -> {
+            MinecraftServer srv = thermalWorld.boundServer();
+            if (srv == null) {
+                return null;
+            }
+            ServerLevel level = null;
+            for (ServerLevel l : srv.getAllLevels()) {
+                if (l.dimension().identifier().equals(dim)) {
+                    level = l;
+                    break;
+                }
+            }
+            if (level == null) {
+                return null;
+            }
+            LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
+            if (chunk == null) {
+                return null;
+            }
+            LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, key.sectionY());
+            if (section == null) {
+                return null;
+            }
+            Material m = LiveMaterials.materialFor(
+                    LiveMaterials.blockAt(section, cell), ActiveMaterials.current().registry());
+            return m == null ? null : m.id();
+        };
         OrgeCommandLogic commandLogic = new OrgeCommandLogic(
                 List.of(new ServerStoreReadSource(SECTION_STORES)),
-                new ServerStoreWriteSink(SECTION_STORES, wake),
+                new ServerStoreWriteSink(SECTION_STORES, wake, liveSpecies),
                 (ReadRangeProvider) () -> Scheduler.MAX_RANGE);
         // get-live status: UNLOADED (column gone) -> AMBIENT (loaded, never simulated) -> DORMANT
         // (settled, dropped from schedule) / ACTIVE (stepping). Closes over the store + active set,
