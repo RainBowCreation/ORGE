@@ -128,7 +128,7 @@ public final class ColumnAssembler {
             for (int z = 0; z < 16; z++) {
                 for (int sy = 0; sy < 16; sy++) {
                     int engineY = sectionY * 16 + sy + 64;
-                    int rowBase = 16 * engineY + 6144 * z;        // + x below
+                    int rowBase = RegionMarshaller.colIdx(0, engineY, z);   // + x below
                     int secRow = 16 * sy + 256 * z;               // + x below
                     for (int x = 0; x < 16; x++) {
                         int ci = rowBase + x;

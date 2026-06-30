@@ -4,10 +4,35 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Packs ColumnTasks into the flat arrays orgeStepWorld expects and slices results back.
- *  Column arrays are CHUNK_N long in engine order (idx = x + 16*y + 6144*z). */
+ *  Column arrays are CHUNK_N long in engine order (idx = x + 16*y + 6144*z).
+ *
+ *  <p>This class owns the engine-column bijection: {@link #colIdx(int, int, int)} is the single source of
+ *  truth for {@code (x, engineY, z) -> flat index}, and {@link #colX}/{@link #colY}/{@link #colZ} are its
+ *  inverse. Callers address cells by coordinate through these helpers instead of re-deriving the
+ *  {@code x + 16*y + 6144*z} / {@code (idx/16)%384} / {@code idx/6144} arithmetic by hand. The
+ *  section-offset variant lives in {@code ColumnSectionCodec.colIdx} and routes through {@link #colIdx}.</p> */
 public final class RegionMarshaller {
     public static final int CHUNK_W = 16, CHUNK_H = 384, CHUNK_D = 16;
     public static final int CHUNK_N = CHUNK_W * CHUNK_H * CHUNK_D; // 98304
+
+    /** Engine-column strides: idx = x + COL_Y_STRIDE*engineY + COL_Z_STRIDE*z. */
+    private static final int COL_Y_STRIDE = CHUNK_W;            // 16   (one row of x)
+    private static final int COL_Z_STRIDE = CHUNK_W * CHUNK_H;  // 6144 (one x·y plane)
+
+    /** The engine-column bijection (single source of truth): flat index of cell {@code (x, engineY, z)},
+     *  {@code engineY in [0,CHUNK_H)}. Row bases use {@code colIdx(0, engineY, z)}. */
+    public static int colIdx(int x, int engineY, int z) {
+        return x + COL_Y_STRIDE * engineY + COL_Z_STRIDE * z;
+    }
+
+    /** Inverse of {@link #colIdx}: the cell x of a flat engine-column index (idx is non-negative). */
+    public static int colX(int idx) { return idx % CHUNK_W; }
+
+    /** Inverse of {@link #colIdx}: the engine Y in {@code [0,CHUNK_H)} of a flat engine-column index. */
+    public static int colY(int idx) { return (idx / COL_Y_STRIDE) % CHUNK_H; }
+
+    /** Inverse of {@link #colIdx}: the cell z of a flat engine-column index. */
+    public static int colZ(int idx) { return idx / COL_Z_STRIDE; }
 
     /** {@code pxIn/pyIn/pzIn} = the marshalled EXTENSIVE momentum p [kg·m/s] (from {@link ColumnTask#momX()}
      *  etc.; law §7) — the conserved transported channel; {@code v=p/m} is derived at display only.
@@ -79,35 +104,43 @@ public final class RegionMarshaller {
         return out;
     }
 
-    /** Back-compat overload: enthalpy (absolute E [J]) channel zero-filled. swapReady supplied.
-     *  Used by callers that don't yet thread eOut (e.g. NativeEngine until S6). */
+    // ---- Convenience slice overloads: every one routes DIRECTLY through the canonical 10-arg slice
+    // above, zero-filling exactly the trailing channels it omits. No tower (no overload delegates to
+    // another overload) — the channel layout lives in one place. ----
+
+    /** Convenience: enthalpy (absolute E [J]) channel zero-filled. swapReady supplied.
+     *  Used by callers that don't thread eOut. */
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
                                            float[] pxOut, float[] pyOut, float[] pzOut,
                                            float[] pOut, float[] swapReadyOut, int nCols) {
         int total = nCols * CHUNK_N;
-        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, swapReadyOut, new float[total], nCols);
+        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, swapReadyOut,
+                     new float[total], nCols);
     }
 
-    /** Back-compat overload: swapReady + enthalpy channels zero-filled. Momentum + pressure supplied. */
+    /** Convenience: swapReady + enthalpy channels zero-filled. Momentum + pressure supplied. */
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
                                            float[] pxOut, float[] pyOut, float[] pzOut,
                                            float[] pOut, int nCols) {
         int total = nCols * CHUNK_N;
-        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, new float[total], nCols);
+        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut,
+                     new float[total], new float[total], nCols);
     }
 
-    /** Back-compat overload: pressure + swapReady channels zero-filled. Momentum supplied. */
+    /** Convenience: pressure + swapReady + enthalpy channels zero-filled. Momentum supplied. */
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
                                            float[] pxOut, float[] pyOut, float[] pzOut, int nCols) {
         int total = nCols * CHUNK_N;
-        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, new float[total], new float[total], nCols);
+        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut,
+                     new float[total], new float[total], new float[total], nCols);
     }
 
-    /** Back-compat overload: momentum + pressure + swapReady channels zero-filled. Used by tests that don't care. */
+    /** Convenience: momentum + pressure + swapReady + enthalpy channels zero-filled. Used by tests that
+     *  only care about mat/mass/T. */
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut, int nCols) {
         int total = nCols * CHUNK_N;
         float[] zeros = new float[total];
-        return slice(matOut, massOut, tOut, zeros, zeros, zeros, zeros, zeros, nCols);
+        return slice(matOut, massOut, tOut, zeros, zeros, zeros, zeros, zeros, new float[total], nCols);
     }
 
     private RegionMarshaller() {}

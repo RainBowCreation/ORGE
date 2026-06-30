@@ -12,6 +12,7 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.engine.ColumnResult;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.NeighborHalo;
+import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
@@ -618,9 +619,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     /** Recorded engine-output species id for an engine-cell in a column, or null if untracked. */
     private Identifier recordedIncumbentId(Identifier dim, int cx, int cz, int engineCell) {
-        int x = engineCell & 15;
-        int engineY = (engineCell / 16) % 384;
-        int z = engineCell / 6144;
+        int x = RegionMarshaller.colX(engineCell);
+        int engineY = RegionMarshaller.colY(engineCell);
+        int z = RegionMarshaller.colZ(engineCell);
         int sectionY = Math.floorDiv(engineY - 64, 16);      // inverse of engineY = sectionY*16 + sy + 64
         int sy = engineY - 64 - sectionY * 16;
         SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
@@ -634,9 +635,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         if (store == null) {
             return 0f;
         }
-        int x = engineCell & 15;
-        int engineY = (engineCell / 16) % 384;
-        int z = engineCell / 6144;
+        int x = RegionMarshaller.colX(engineCell);
+        int engineY = RegionMarshaller.colY(engineCell);
+        int z = RegionMarshaller.colZ(engineCell);
         int sectionY = Math.floorDiv(engineY - 64, 16);
         int sy = engineY - 64 - sectionY * 16;
         SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
@@ -866,7 +867,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         float[] m = new float[SectionData.CELLS];
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
-                int colRow = 16 * ColumnSectionCodec.engineY(sectionY, sy) + 6144 * z;
+                int colRow = RegionMarshaller.colIdx(0, ColumnSectionCodec.engineY(sectionY, sy), z);
                 int secRow = 16 * sy + 256 * z;
                 for (int x = 0; x < 16; x++) {
                     m[secRow + x] = columnInMass[colRow + x];

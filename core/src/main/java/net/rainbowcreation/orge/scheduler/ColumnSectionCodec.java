@@ -20,9 +20,11 @@ public final class ColumnSectionCodec {
         return sectionY * 16 + sy + 64;
     }
 
-    /** Engine column index for section-local cell {@code (x, sy, z)} of section {@code sectionY}. */
+    /** Engine column index for section-local cell {@code (x, sy, z)} of section {@code sectionY}.
+     *  The section-offset variant: it resolves {@code (sectionY, sy)} to its engine Y, then defers the
+     *  {@code (x, engineY, z) -> flat} bijection to {@link RegionMarshaller#colIdx} (the single source). */
     public static int colIdx(int x, int sectionY, int sy, int z) {
-        return x + 16 * engineY(sectionY, sy) + 6144 * z;
+        return RegionMarshaller.colIdx(x, engineY(sectionY, sy), z);
     }
 
     /**
@@ -36,7 +38,7 @@ public final class ColumnSectionCodec {
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
                 int ey = engineY(sectionY, sy);
-                int colRow = 16 * ey + 6144 * z;   // + x
+                int colRow = RegionMarshaller.colIdx(0, ey, z);   // + x
                 int secRow = 16 * sy + 256 * z;    // + x
                 for (int x = 0; x < 16; x++) {
                     t[secRow + x] = colT[colRow + x];
@@ -59,7 +61,7 @@ public final class ColumnSectionCodec {
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
                 int ey = engineY(sectionY, sy);
-                int colRow = 16 * ey + 6144 * z;   // + x
+                int colRow = RegionMarshaller.colIdx(0, ey, z);   // + x
                 int secRow = 16 * sy + 256 * z;    // + x
                 for (int x = 0; x < 16; x++) {
                     out[secRow + x] = col[colRow + x];
@@ -78,7 +80,7 @@ public final class ColumnSectionCodec {
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
                 int ey = engineY(sectionY, sy);
-                int colRow = 16 * ey + 6144 * z;
+                int colRow = RegionMarshaller.colIdx(0, ey, z);
                 int secRow = 16 * sy + 256 * z;
                 for (int x = 0; x < 16; x++) {
                     mi[secRow + x] = colMat[colRow + x];

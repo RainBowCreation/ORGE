@@ -5,6 +5,7 @@ import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.NativeEngine;
 import net.rainbowcreation.orge.engine.NativeLoader;
 import net.rainbowcreation.orge.engine.OrgeEngine;
+import net.rainbowcreation.orge.engine.RegionMarshaller;
 import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ColumnAssembler;
@@ -136,7 +137,7 @@ class Section11LivePipelineReproTest {
                     for (int sy = 0; sy < 16; sy++) {
                         int engineY = sectionY * 16 + sy + 64;
                         for (int x = 0; x < 16; x++) {
-                            int ci = x + 16 * engineY + 6144 * z;
+                            int ci = RegionMarshaller.colIdx(x, engineY, z);
                             int si = sLocal(x, sy, z);
                             mat[s][si] = r.matIx()[ci];
                             mass[s][si] = r.mass()[ci];
@@ -186,7 +187,7 @@ class Section11LivePipelineReproTest {
     }
 
     // engine column index for a world (x, yWorld, z).
-    private static int colIdx(int x, int yWorld, int z) { return x + 16 * (yWorld + 64) + 6144 * z; }
+    private static int colIdx(int x, int yWorld, int z) { return RegionMarshaller.colIdx(x, yWorld + 64, z); }
 
     /** Set a cell's prior-species signature directly (arms the gate for a pre-constructed drained cell). */
     private static void setPrior(FakeColumn col, int x, int yWorld, int z, char species) {

@@ -10,34 +10,38 @@ public record ColumnResult(char[] matIx, float[] mass, float[] temperature,
                            float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
                            float[] enthalpy) {
 
-    /** Back-compat constructor — enthalpy (absolute E [J]) channel zero-filled to CHUNK_N. */
+    // ---- Convenience constructors: each delegates DIRECTLY to the canonical 9-channel constructor
+    // above, zero-filling exactly the trailing channels it omits (a zero-momentum / zero-energy resting
+    // cell is the correct default). No tower — no convenience constructor delegates to another. ----
+
+    /** Convenience — enthalpy (absolute E [J]) channel zero-filled to CHUNK_N. */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature,
                         float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady) {
         this(matIx, mass, temperature, momX, momY, momZ, p, swapReady,
              new float[RegionMarshaller.CHUNK_N]);
     }
 
-    /** Back-compat constructor — swapReady + enthalpy channels zero-filled to CHUNK_N. */
+    /** Convenience — swapReady + enthalpy channels zero-filled to CHUNK_N. */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature,
                         float[] momX, float[] momY, float[] momZ, float[] p) {
         this(matIx, mass, temperature, momX, momY, momZ, p,
-             new float[RegionMarshaller.CHUNK_N]);
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N]);
     }
 
-    /** Back-compat constructor — pressure channel zero-filled to CHUNK_N. */
+    /** Convenience — pressure + swapReady + enthalpy channels zero-filled to CHUNK_N. */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature,
                         float[] momX, float[] momY, float[] momZ) {
         this(matIx, mass, temperature, momX, momY, momZ,
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
              new float[RegionMarshaller.CHUNK_N]);
     }
 
-    /** Back-compat constructor — momentum + pressure channels zero-filled to CHUNK_N (a zero-momentum
-     *  resting cell is correct). */
+    /** Convenience — momentum + pressure + swapReady + enthalpy channels zero-filled to CHUNK_N
+     *  (a zero-momentum, zero-energy resting cell is correct). */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature) {
         this(matIx, mass, temperature,
-             new float[RegionMarshaller.CHUNK_N],
-             new float[RegionMarshaller.CHUNK_N],
-             new float[RegionMarshaller.CHUNK_N],
-             new float[RegionMarshaller.CHUNK_N]);
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N]);
     }
 }
