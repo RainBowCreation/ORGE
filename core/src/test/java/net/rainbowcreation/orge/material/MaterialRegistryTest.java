@@ -127,4 +127,38 @@ class MaterialRegistryTest {
                 "get should return empty after clear()"
         );
     }
+
+    // -------------------------------------------------------------------------
+    // all() — read-only view: cannot be used to corrupt the registry
+    // -------------------------------------------------------------------------
+
+    @Test
+    void allReturnsReadOnlyViewThatRejectsMutation() {
+        registry.put(mat("orge", "stone"));
+
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> registry.all().clear(),
+                "all() must reject clear() so a caller cannot corrupt the registry through it"
+        );
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> registry.all().iterator().remove(),
+                "all() must reject element removal through its iterator"
+        );
+        assertTrue(
+                registry.get(Identifier.fromNamespaceAndPath("orge", "stone")).isPresent(),
+                "registry must be untouched after attempted mutation through all()"
+        );
+    }
+
+    @Test
+    void allStaysLiveAfterSubsequentPut() {
+        var view = registry.all();
+        assertTrue(view.isEmpty(), "view of an empty registry should be empty");
+
+        registry.put(mat("orge", "stone"));
+
+        assertEquals(1, view.size(), "all() should be a live view reflecting later puts");
+    }
 }

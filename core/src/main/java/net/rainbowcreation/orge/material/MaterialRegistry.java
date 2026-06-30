@@ -3,6 +3,7 @@ package net.rainbowcreation.orge.material;
 import net.minecraft.resources.Identifier;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,8 +46,14 @@ public final class MaterialRegistry {
         return fallback;
     }
 
+    /**
+     * A read-only, live view of the registered materials. The returned collection
+     * reflects subsequent {@link #put}/{@link #clear} mutations but rejects any
+     * mutation attempted through it ({@code clear}, {@code remove}, …), so a caller
+     * can never corrupt the registry by reaching through {@code all()}.
+     */
     public Collection<Material> all() {
-        return byId.values();
+        return Collections.unmodifiableCollection(byId.values());
     }
 
     public void clear() {
