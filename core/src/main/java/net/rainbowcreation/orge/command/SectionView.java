@@ -6,7 +6,13 @@ import net.rainbowcreation.orge.section.SectionData;
 /** Immutable read view of one section's per-cell thermal state, for observability. */
 public interface SectionView {
 
-    /** Temperature (K) of cell {@code cell} (0..4095). */
+    /**
+     * Temperature (K) of cell {@code cell} (0..4095), DERIVED — never stored (Law §6/§7). Each call
+     * re-derives T from the cell's stored extensive enthalpy E and mass on its species enthalpy curve
+     * (see {@link DerivedTemperature#decode}); the result is clamped to the {@code [0,6000]} derive
+     * boundary. A massless cell or an unresolved species has no enthalpy curve and falls back to
+     * {@link SectionData#DEFAULT_AMBIENT_K}.
+     */
     float tempAt(int cell);
 
     /** Mass (kg) of cell {@code cell} (0..4095). */

@@ -7,6 +7,7 @@ import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
+import net.rainbowcreation.orge.command.LiveReadoutManager;
 import net.rainbowcreation.orge.command.LiveStatus;
 import net.rainbowcreation.orge.command.OrgeCommandLogic;
 import net.rainbowcreation.orge.command.OrgeCommands;
@@ -282,11 +283,12 @@ public final class Orge {
             }
             return activeSet.isAsleep(dim, key) ? LiveStatus.DORMANT : LiveStatus.ACTIVE;
         };
-        OrgeCommands orgeCommands = new OrgeCommands(commandLogic, statusSource);
+        LiveReadoutManager liveReadout = new LiveReadoutManager(commandLogic, statusSource);
+        OrgeCommands orgeCommands = new OrgeCommands(commandLogic, liveReadout);
         CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) ->
                 orgeCommands.register(dispatcher));
         // /orge get-live paints each toggled player's crosshair cell to the action bar every tick.
-        TickEvent.SERVER_POST.register(orgeCommands::tickLiveReadouts);
-        LifecycleEvent.SERVER_STOPPING.register(server -> orgeCommands.clearLiveReadouts());
+        TickEvent.SERVER_POST.register(liveReadout::tick);
+        LifecycleEvent.SERVER_STOPPING.register(server -> liveReadout.clear());
     }
 }

@@ -1,17 +1,11 @@
 package net.rainbowcreation.orge.command;
 
 import net.minecraft.resources.Identifier;
-import net.rainbowcreation.orge.material.ActiveMaterials;
-import net.rainbowcreation.orge.material.EnthalpyCurve;
-import net.rainbowcreation.orge.material.Material;
-import net.rainbowcreation.orge.scheduler.StepValidator;
 import net.rainbowcreation.orge.scheduler.WakeSink;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
-
-import java.util.function.Function;
 
 /**
  * Server-authoritative writes into the live {@link SectionStore}. Each write reads the section
@@ -52,18 +46,10 @@ public final class ServerStoreWriteSink implements ThermalWriteSink {
             return;
         }
         SectionData data = store.get(key);
-        // Law §6/§7: T is never stored — encode the kelvin edit to stored extensive E at the write
-        // boundary. E = mass·h(T) via the cell's species enthalpy curve; an unresolvable species or a
-        // massless cell carries no enthalpy and stores 0 J. The user-supplied kelvin is clamped to the
-        // [0,6000] derive boundary FIRST (a clamp on an intensive INPUT is sanctioned — see
-        // StepValidator.clampDerivedKelvin); the resulting extensive E is NEVER clamped.
-        ActiveMaterials.State mats = ActiveMaterials.current();
-        Function<Identifier, Material> lookup = id -> mats.registry().get(id).orElse(null);
-        Material material = lookup.apply(data.materialAt(cell));
-        float massKg = data.massAt(cell);
-        float k = StepValidator.clampDerivedKelvin(kelvin);
-        float e = (material == null || massKg <= 0f)
-                ? 0f : (float) EnthalpyCurve.cellE(massKg, material, lookup, k);
+        // Law §6/§7: T is never stored — encode the kelvin edit to stored extensive E through the named
+        // temperature<->enthalpy seam (kelvin clamp + massless/unresolved 0-J fallback live there; E is
+        // never clamped).
+        float e = DerivedTemperature.encode(kelvin, data.massAt(cell), data.materialAt(cell));
         data.setEnthalpy(cell, e);
         store.put(key, data);
         if (wake != null) wake.wakeThermalSection(dimension, key); // a temp edit re-runs conduction
