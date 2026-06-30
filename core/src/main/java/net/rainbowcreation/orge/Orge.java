@@ -14,8 +14,7 @@ import net.rainbowcreation.orge.command.OrgeCommandLogic;
 import net.rainbowcreation.orge.command.OrgeCommands;
 import net.rainbowcreation.orge.command.ReadRangeProvider;
 import net.rainbowcreation.orge.command.SectionStatusSource;
-import net.rainbowcreation.orge.command.ServerStoreReadSource;
-import net.rainbowcreation.orge.command.ServerStoreWriteSink;
+import net.rainbowcreation.orge.command.ServerCellStore;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -51,7 +50,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -304,9 +302,13 @@ public final class Orge {
                     LiveMaterials.blockAt(section, cell), ActiveMaterials.current().registry());
             return m == null ? null : m.id();
         };
+        // One deep read/write seam: the server-authoritative CellStore. It hides the temperature<->enthalpy
+        // encode/decode, the never-simulated-cell species establish (via liveSpecies), the edit-epoch mark,
+        // and the post-write wake. (v1 reads are server-only; a client-cache source would wrap this in a
+        // ReadChainCellStore without the command layer changing.)
+        ServerCellStore cellStore = new ServerCellStore(SECTION_STORES, wake, liveSpecies);
         OrgeCommandLogic commandLogic = new OrgeCommandLogic(
-                List.of(new ServerStoreReadSource(SECTION_STORES)),
-                new ServerStoreWriteSink(SECTION_STORES, wake, liveSpecies),
+                cellStore,
                 (ReadRangeProvider) () -> Scheduler.MAX_RANGE);
         // get-live status: UNLOADED (column gone) -> AMBIENT (loaded, never simulated) -> DORMANT
         // (settled, dropped from schedule) / ACTIVE (stepping). Closes over the store + active set,

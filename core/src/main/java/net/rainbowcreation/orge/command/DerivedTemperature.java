@@ -15,8 +15,8 @@ import java.util.function.Function;
  * and re-derives kelvin from stored E ({@link #decode}). Both directions resolve the cell's species against
  * the live {@link ActiveMaterials} table, walk its {@link EnthalpyCurve} (with latent plateaus), and apply
  * the {@link StepValidator#clampDerivedKelvin [0,6000]} clamp at the intensive boundary — the stored
- * extensive E is NEVER clamped. The read sink ({@link ServerStoreReadSource}) and the write sink
- * ({@link ServerStoreWriteSink}) both call through here so the encode/decode stay a single source of truth.
+ * extensive E is NEVER clamped. The {@link ServerCellStore} read view and write path both call through
+ * here so the encode/decode stay a single source of truth.
  */
 public final class DerivedTemperature {
 

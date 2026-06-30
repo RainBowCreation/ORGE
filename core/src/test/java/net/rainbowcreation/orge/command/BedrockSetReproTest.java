@@ -62,23 +62,22 @@ class BedrockSetReproTest {
     @Test
     void orgeSetOnNeverSimulatedBedrockRoundTrips(@TempDir java.nio.file.Path dir) {
         SectionStoreManager mgr = mgr(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
         // Live block at the target cell is bedrock — the resolver the real wiring injects (Orge.java reads
         // the world block; here we stub it). The command itself still passes NO species.
         CellSpeciesSource live = (dim, k, cell) -> BEDROCK;
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr, null, live);
+        ServerCellStore store = new ServerCellStore(mgr, null, live);
         SubchunkKey key = new SubchunkKey(0, -4, 0); // y=-64 bedrock section
 
-        // EXACTLY what OrgeCommandLogic.set does: mass first, then temp. NO material pre-seed.
-        sink.writeMass(DIM, key, 5, 3000f);
-        sink.writeTemp(DIM, key, 5, 300f);
+        // EXACTLY what OrgeCommandLogic.set does: one atomic write of temp + mass. NO material pre-seed;
+        // the store establishes the live species and applies mass before encoding the temperature.
+        store.write(DIM, key, 5, 300f, 3000f);
 
-        SectionStore store = mgr.store(DIM);
-        SectionData d = store.get(key);
+        SectionStore sectionStore = mgr.store(DIM);
+        SectionData d = sectionStore.get(key);
         assertEquals(BEDROCK, d.materialAt(5), "set must establish the cell's live species");
         assertTrue(d.enthalpyAt(5) > 0f, "encode must store real enthalpy, not the vacuum 0 J");
 
-        SectionView v = src.section(DIM, key).orElseThrow();
+        SectionView v = store.read(DIM, key).orElseThrow();
         assertEquals(300f, v.tempAt(5), 0.5f, "/orge set 300 K on a bedrock cell must read back 300 K");
         assertEquals(3000f, v.massAt(5), 0.001f);
     }
@@ -102,8 +101,8 @@ class BedrockSetReproTest {
         store.put(key, seed);
 
         // Resolver would say "bedrock" (the block), but the cell already has water identity.
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr, null, (dim, k, cell) -> BEDROCK);
-        sink.writeTemp(DIM, key, 5, 350f);
+        ServerCellStore cellStore = new ServerCellStore(mgr, null, (dim, k, cell) -> BEDROCK);
+        cellStore.write(DIM, key, 5, 350f, null);
 
         assertEquals(water, store.get(key).materialAt(5), "established species must not be clobbered");
     }

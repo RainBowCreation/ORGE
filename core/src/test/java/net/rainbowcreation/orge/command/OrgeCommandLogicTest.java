@@ -37,13 +37,45 @@ class OrgeCommandLogicTest {
         };
     }
 
-    /** Read source backed by an in-memory map; absent key -> empty. A null map -> always empty (no store). */
-    static ThermalReadSource source(Map<SubchunkKey, SectionView> data) {
-        return (dim, key) -> data == null ? Optional.empty() : Optional.ofNullable(data.get(key));
+    /**
+     * One in-memory {@link CellStore} standing in for the whole read/write seam: reads come from
+     * {@code data} (a null map -> always empty, i.e. "no store"); {@link #isLoaded} from a set of loaded
+     * columns; writes are recorded as {@link Write} tuples. The store applies mass-before-temp internally
+     * (see {@link ServerCellStore}); here we only assert the logic forwarded the right cell/temp/mass.
+     */
+    static final class FakeCellStore implements CellStore {
+        final Map<SubchunkKey, SectionView> data;
+        final java.util.Set<String> loaded = new java.util.HashSet<>();
+        final List<Write> writes = new ArrayList<>();
+
+        FakeCellStore(Map<SubchunkKey, SectionView> data) { this.data = data; }
+
+        FakeCellStore load(int cx, int cz) { loaded.add(cx + "," + cz); return this; }
+
+        public Optional<SectionView> read(Identifier dim, SubchunkKey key) {
+            return data == null ? Optional.empty() : Optional.ofNullable(data.get(key));
+        }
+
+        public boolean isLoaded(Identifier dim, SubchunkKey key) {
+            return loaded.contains(key.cx() + "," + key.cz());
+        }
+
+        public void write(Identifier dim, SubchunkKey key, int cell, float tempK, Float massKg) {
+            writes.add(new Write(key, cell, tempK, massKg));
+        }
+
+        long massWrites() { return writes.stream().filter(w -> w.massKg() != null).count(); }
+
+        record Write(SubchunkKey key, int cell, float tempK, Float massKg) {}
     }
 
-    static OrgeCommandLogic logic(List<ThermalReadSource> reads, ThermalWriteSink sink, int range) {
-        return new OrgeCommandLogic(reads, sink, () -> range);
+    static OrgeCommandLogic logic(CellStore store, int range) {
+        return new OrgeCommandLogic(store, () -> range);
+    }
+
+    /** Read-only store backed by an in-memory map (no writes exercised). */
+    static FakeCellStore reads(Map<SubchunkKey, SectionView> data) {
+        return new FakeCellStore(data);
     }
 
     static OrgeCommandLogic.Request get(int x, int y, int z, boolean op, SubchunkKey src) {
@@ -55,7 +87,7 @@ class OrgeCommandLogicTest {
     void getReadsAmbientBaselineWithAnnotation() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+        OrgeCommandLogic logic = logic(reads(data), 4);
 
         OrgeCommandLogic.Response r = logic.run(get(1, 2, 3, true, null));
 
@@ -72,7 +104,9 @@ class OrgeCommandLogicTest {
         client.put(key, view(500f, 0f, false));            // "client cache" - fresher
         Map<SubchunkKey, SectionView> server = new HashMap<>();
         server.put(key, view(285f, 0f, true));             // server fallback
-        OrgeCommandLogic logic = logic(List.of(source(client), source(server)), null, 4);
+        // The read chain lives in the CellStore now: first present source wins.
+        CellStore store = new ReadChainCellStore(List.of(reads(client), reads(server)));
+        OrgeCommandLogic logic = logic(store, 4);
 
         OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, true, null));
 
@@ -84,7 +118,8 @@ class OrgeCommandLogicTest {
         SubchunkKey key = new SubchunkKey(0, 0, 0);
         Map<SubchunkKey, SectionView> server = new HashMap<>();
         server.put(key, view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>()), source(server)), null, 4);
+        CellStore store = new ReadChainCellStore(List.of(reads(new HashMap<>()), reads(server)));
+        OrgeCommandLogic logic = logic(store, 4);
 
         OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, true, null));
 
@@ -93,7 +128,7 @@ class OrgeCommandLogicTest {
 
     @Test
     void getNoStoreForDimensionFails() {
-        OrgeCommandLogic logic = logic(List.of(source(null)), null, 4);
+        OrgeCommandLogic logic = logic(reads(null), 4); // null map -> store serves nothing
         OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, true, null));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("no ORGE data"), r.lines().get(0));
@@ -101,8 +136,7 @@ class OrgeCommandLogicTest {
 
     @Test
     void getYOutOfBuildHeightFails() {
-        Map<SubchunkKey, SectionView> data = new HashMap<>();
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+        OrgeCommandLogic logic = logic(reads(new HashMap<>()), 4);
         OrgeCommandLogic.Response r = logic.run(get(0, 999, 0, true, null));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("build height"), r.lines().get(0));
@@ -114,7 +148,7 @@ class OrgeCommandLogicTest {
     void nonOpInSphereAllowed() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+        OrgeCommandLogic logic = logic(reads(data), 4);
         // target section (0,0,0); source section (1,0,0): d2=1 <= (4-1)^2
         OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, false, new SubchunkKey(1, 0, 0)));
         assertTrue(r.ok(), r.lines().toString());
@@ -124,7 +158,7 @@ class OrgeCommandLogicTest {
     void nonOpOutOfSphereDenied() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 2); // range 2 -> r=1 -> r2=1
+        OrgeCommandLogic logic = logic(reads(data), 2); // range 2 -> r=1 -> r2=1
         // source section (5,0,0): d2=25 > 1
         OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, false, new SubchunkKey(5, 0, 0)));
         assertFalse(r.ok());
@@ -135,7 +169,7 @@ class OrgeCommandLogicTest {
     void nonOpWithoutSourcePositionDenied() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+        OrgeCommandLogic logic = logic(reads(data), 4);
         OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, false, null));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("out of range"));
@@ -145,7 +179,7 @@ class OrgeCommandLogicTest {
     void opReadsAnywhere() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(100, 0, 100), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 2);
+        OrgeCommandLogic logic = logic(reads(data), 2);
         OrgeCommandLogic.Response r = logic.run(get(1600, 0, 1600, true, new SubchunkKey(0, 0, 0)));
         assertTrue(r.ok());
     }
@@ -159,7 +193,7 @@ class OrgeCommandLogicTest {
     void sectionSummarizesUniformAmbient() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+        OrgeCommandLogic logic = logic(reads(data), 4);
 
         OrgeCommandLogic.Response r = logic.run(section(0, 0, 0, true, null));
 
@@ -180,7 +214,7 @@ class OrgeCommandLogicTest {
         t[2] = 200f;       // one colder cell
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), arrayView(t, m, false, SectionData.Form.FULL));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 4);
+        OrgeCommandLogic logic = logic(reads(data), 4);
 
         OrgeCommandLogic.Response r = logic.run(section(0, 0, 0, true, null));
 
@@ -195,33 +229,13 @@ class OrgeCommandLogicTest {
     void sectionProximityGatedForNonOp() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
-        OrgeCommandLogic logic = logic(List.of(source(data)), null, 2);
+        OrgeCommandLogic logic = logic(reads(data), 2);
         OrgeCommandLogic.Response r = logic.run(section(0, 0, 0, false, new SubchunkKey(9, 0, 0)));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("out of range"));
     }
 
     // ---- set ----
-
-    /** Records writes; isLoaded controlled by a set of loaded columns (cx,cz packed as "cx,cz"). */
-    static final class FakeSink implements ThermalWriteSink {
-        final java.util.Set<String> loaded = new java.util.HashSet<>();
-        final List<String> temps = new ArrayList<>();
-        final List<String> masses = new ArrayList<>();
-        final List<String> order = new ArrayList<>(); // call order: "M" / "T", to pin mass-before-temp
-        FakeSink load(int cx, int cz) { loaded.add(cx + "," + cz); return this; }
-        public boolean isLoaded(Identifier dim, SubchunkKey key) {
-            return loaded.contains(key.cx() + "," + key.cz());
-        }
-        public void writeTemp(Identifier dim, SubchunkKey key, int cell, float k) {
-            temps.add(key.cx() + "," + key.sectionY() + "," + key.cz() + ":" + cell + "=" + k);
-            order.add("T");
-        }
-        public void writeMass(Identifier dim, SubchunkKey key, int cell, float kg) {
-            masses.add(key.cx() + "," + key.sectionY() + "," + key.cz() + ":" + cell + "=" + kg);
-            order.add("M");
-        }
-    }
 
     static OrgeCommandLogic.Request set(int x, int y, int z, Float k, Float mass, boolean op) {
         return new OrgeCommandLogic.Request(OrgeCommandLogic.Op.SET, DIM,
@@ -230,62 +244,67 @@ class OrgeCommandLogicTest {
 
     @Test
     void setRequiresOperator() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 400f, null, false));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("operator"), r.lines().get(0));
-        assertTrue(sink.temps.isEmpty(), "no write when denied");
+        assertTrue(store.writes.isEmpty(), "no write when denied");
     }
 
     @Test
-    void setWritesMassBeforeTempSoEnthalpyEncodesAtNewMass() {
-        // Regression: writeTemp encodes enthalpy from the cell's current mass. If temp is written
-        // before the new mass, a later read derives T·oldMass/newMass (set 300 K @ 3000 kg read 0.12 K).
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+    void setForwardsTempAndNewMassInOneAtomicWrite() {
+        // Regression intent (a633e52): the temperature must encode at the NEW mass, not the old one
+        // (set 300 K @ 3000 kg over a 1.2 kg cell would otherwise read 0.12 K). At this seam the command
+        // hands BOTH the temperature and the new mass to the store in a single write() so the store can
+        // apply mass before encoding temperature; the mass-before-encode ORDER itself is the store's
+        // job and is round-trip-verified in ServerStoreSeamTest.massBeforeTempEncodesTemperatureAtTheNewMass.
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 300f, 3000f, true));
         assertTrue(r.ok(), r.lines().toString());
-        assertEquals(List.of("M", "T"), sink.order, "mass must be written before temperature");
+        assertEquals(1, store.writes.size(), "one atomic write");
+        FakeCellStore.Write w = store.writes.get(0);
+        assertEquals(300f, w.tempK(), "temperature forwarded");
+        assertEquals(3000f, w.massKg(), "new mass forwarded in the SAME write, so the store encodes at it");
     }
 
     @Test
     void setWritesTempLeavesMassUnchangedWhenOmitted() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(set(1, 2, 3, 400f, null, true));
         assertTrue(r.ok(), r.lines().toString());
-        assertEquals(1, sink.temps.size());
-        assertTrue(sink.temps.get(0).endsWith("=400.0"), sink.temps.get(0));
-        assertTrue(sink.masses.isEmpty(), "mass omitted -> not written");
+        assertEquals(1, store.writes.size());
+        assertEquals(400f, store.writes.get(0).tempK());
+        assertNull(store.writes.get(0).massKg(), "mass omitted -> null (store leaves mass unchanged)");
         assertTrue(r.lines().get(0).contains("mass unchanged"), r.lines().get(0));
     }
 
     @Test
     void setWritesTempAndMassWhenProvided() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 400f, 1000f, true));
         assertTrue(r.ok());
-        assertEquals(1, sink.temps.size());
-        assertEquals(1, sink.masses.size());
-        assertTrue(sink.masses.get(0).endsWith("=1000.0"));
+        assertEquals(1, store.writes.size());
+        assertEquals(1000f, store.writes.get(0).massKg());
     }
 
     @Test
     void setNotLoadedFails() {
-        FakeSink sink = new FakeSink(); // nothing loaded
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()); // nothing loaded
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 400f, null, true));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("not loaded"), r.lines().get(0));
-        assertTrue(sink.temps.isEmpty());
+        assertTrue(store.writes.isEmpty());
     }
 
     @Test
     void setYOutOfRangeFails() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(set(0, 999, 0, 400f, null, true));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("build height"));
@@ -299,8 +318,8 @@ class OrgeCommandLogicTest {
 
     @Test
     void fillRequiresOperator() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 1, 1, 1, 400f, null, false));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("operator"));
@@ -308,61 +327,61 @@ class OrgeCommandLogicTest {
 
     @Test
     void fillWritesEveryCellInBoxAndReportsCount() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         // 3x3x3 box at origin = 27 cells, all in column (0,0)
         OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 2, 2, 2, 400f, null, true));
         assertTrue(r.ok(), r.lines().toString());
-        assertEquals(27, sink.temps.size());
+        assertEquals(27, store.writes.size());
         assertTrue(r.lines().get(0).contains("filled 27 cells"), r.lines().get(0));
     }
 
     @Test
     void fillWritesMassWhenProvided() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 1, 0, 0, 400f, 500f, true));
         assertTrue(r.ok());
-        assertEquals(2, sink.temps.size());
-        assertEquals(2, sink.masses.size());
+        assertEquals(2, store.writes.size());
+        assertEquals(2, store.massWrites(), "both cells carry the mass in their atomic write");
     }
 
     @Test
     void fillSkipsUnloadedColumnsAndReports() {
-        FakeSink sink = new FakeSink().load(0, 0); // only column (0,0) loaded
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0); // only column (0,0) loaded
+        OrgeCommandLogic logic = logic(store, 4);
         // span x 0..16 crosses into column (1,0) at x=16, which is not loaded
         OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 16, 0, 0, 400f, null, true));
         assertTrue(r.ok());
-        assertEquals(16, sink.temps.size(), "x=0..15 loaded, x=16 skipped");
+        assertEquals(16, store.writes.size(), "x=0..15 loaded, x=16 skipped");
         assertTrue(r.lines().get(0).contains("1 skipped"), r.lines().get(0));
     }
 
     @Test
     void fillAllUnloadedFails() {
-        FakeSink sink = new FakeSink(); // nothing loaded
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()); // nothing loaded
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 1, 1, 1, 400f, null, true));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("0 cells"), r.lines().get(0));
-        assertTrue(sink.temps.isEmpty());
+        assertTrue(store.writes.isEmpty());
     }
 
     @Test
     void fillOverCapRejected() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         // 33x33x33 = 35937 > 32768 cap
         OrgeCommandLogic.Response r = logic.run(fill(0, 0, 0, 32, 32, 32, 400f, null, true));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("too large"), r.lines().get(0));
-        assertTrue(sink.temps.isEmpty(), "rejected before any write");
+        assertTrue(store.writes.isEmpty(), "rejected before any write");
     }
 
     @Test
     void fillYOutOfRangeFails() {
-        FakeSink sink = new FakeSink().load(0, 0);
-        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        FakeCellStore store = new FakeCellStore(new HashMap<>()).load(0, 0);
+        OrgeCommandLogic logic = logic(store, 4);
         OrgeCommandLogic.Response r = logic.run(fill(0, -100, 0, 0, 999, 0, 400f, null, true));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("build height"));

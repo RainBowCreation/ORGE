@@ -2,7 +2,7 @@ package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.command.SectionView;
-import net.rainbowcreation.orge.command.ServerStoreReadSource;
+import net.rainbowcreation.orge.command.ServerCellStore;
 import net.rainbowcreation.orge.material.BlockMaterialRule;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.material.MaterialRegistry;
@@ -124,7 +124,7 @@ class BreakAirGhostDisplayReproIT {
      * THE FIX (2026-06-19): {@code /orge get} now renders the material from the STORED per-cell
      * species for a simulated cell (via {@link SectionView#material}), not the live block. This test
      * drives the same break, then reads through the exact source the fixed display uses
-     * ({@link ServerStoreReadSource} → {@link SectionView#material}) and asserts it reports the
+     * ({@link ServerCellStore} → {@link SectionView#material}) and asserts it reports the
      * sim-true {@code orge:vacuum} on a non-ambient (simulated) cell.
      */
     @Test
@@ -139,8 +139,8 @@ class BreakAirGhostDisplayReproIT {
         store.setMaterialAt(0, 0, sectionY, sectionCell, ORGE_WATER);
         world.captureBreak(DIM, bx, by, bz);
 
-        ServerStoreReadSource readSource = new ServerStoreReadSource(mgr);
-        Optional<SectionView> v = readSource.section(DIM, new SubchunkKey(0, sectionY, 0));
+        ServerCellStore readSource = new ServerCellStore(mgr);
+        Optional<SectionView> v = readSource.read(DIM, new SubchunkKey(0, sectionY, 0));
         assertTrue(v.isPresent(), "store is loaded ⇒ a view exists");
         SectionView view = v.get();
         assertFalse(view.ambient(), "the section is simulated (loaded), so the stored material is authoritative");

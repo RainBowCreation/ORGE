@@ -22,7 +22,7 @@ public interface WakeSink {
 
     /** (a') A block was BROKEN at world coords: durable removal → vacuum + wake (spec durable-material
      *  Part 4). The break signal is authoritative (the outgoing block is never read). Default = a plain
-     *  {@link #wakeBlock}, so impls that carry no durable-material seam (ActiveSet, ServerStoreWriteSink,
+     *  {@link #wakeBlock}, so impls that carry no durable-material seam (ActiveSet, ServerCellStore,
      *  WakePlatform passthrough) need no change; {@code MinecraftThermalWorld}'s capturing sink overrides
      *  it to enqueue the removal→vacuum intent. */
     default void wakeBreak(Identifier dim, int blockX, int blockY, int blockZ) {

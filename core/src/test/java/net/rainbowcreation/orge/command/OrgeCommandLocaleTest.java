@@ -3,7 +3,6 @@ package net.rainbowcreation.orge.command;
 import net.minecraft.resources.Identifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
@@ -15,9 +14,9 @@ class OrgeCommandLocaleTest {
     @AfterEach
     void restore() { Locale.setDefault(original); }
 
-    /** A read source returning a fixed-temperature ambient view, so GET formats a float. */
+    /** A {@link CellStore} returning a fixed-temperature ambient view, so GET formats a float. */
     private static OrgeCommandLogic logic() {
-        ThermalReadSource src = (dim, key) -> Optional.of(new SectionView() {
+        SectionView fixed = new SectionView() {
             public float tempAt(int cell) { return 285.0f; }
             public float massAt(int cell) { return 1000.0f; }
             public Identifier material(int cell) { return Identifier.fromNamespaceAndPath("orge", "air"); }
@@ -25,8 +24,16 @@ class OrgeCommandLocaleTest {
                 return net.rainbowcreation.orge.section.SectionData.Form.UNIFORM;
             }
             public boolean ambient() { return true; }
-        });
-        return new OrgeCommandLogic(List.of(src), NoWriteSink.INSTANCE, () -> 8);
+        };
+        CellStore store = new CellStore() {
+            public Optional<SectionView> read(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key) {
+                return Optional.of(fixed);
+            }
+            public boolean isLoaded(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key) { return false; }
+            public void write(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key,
+                              int cell, float tempK, Float massKg) {}
+        };
+        return new OrgeCommandLogic(store, () -> 8);
     }
 
     @Test
@@ -41,12 +48,5 @@ class OrgeCommandLocaleTest {
         String line = resp.lines().get(0);
         assertTrue(line.contains("285.00 K"), "expected dot-decimal, got: " + line);
         assertFalse(line.contains("285,00"), "comma decimal leaked: " + line);
-    }
-
-    private enum NoWriteSink implements ThermalWriteSink {
-        INSTANCE;
-        public boolean isLoaded(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key) { return false; }
-        public void writeTemp(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key, int cell, float t) {}
-        public void writeMass(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key, int cell, float m) {}
     }
 }

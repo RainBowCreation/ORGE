@@ -11,8 +11,9 @@ import java.util.Optional;
 /**
  * Pure behavior of the {@code /orge} command (DESIGN observability track, Topic A). No Brigadier,
  * no Minecraft text: it takes a {@link Request} and returns a {@link Response} of plain feedback
- * lines, so it is fully headless-testable. Reads walk an ordered {@link ThermalReadSource} chain
- * (client cache -> server fallback); writes go to a single server-authoritative {@link ThermalWriteSink}.
+ * lines, so it is fully headless-testable. Both reads and writes go through a single {@link CellStore}
+ * deep module — the temperature&lt;-&gt;enthalpy encode, species establishment, dirty-mark and wake all
+ * live behind it, so this logic never touches the store internals.
  */
 public final class OrgeCommandLogic {
 
@@ -44,15 +45,11 @@ public final class OrgeCommandLogic {
         public static Response fail(String line) { return new Response(false, List.of(line)); }
     }
 
-    private final List<ThermalReadSource> readSources;
-    private final ThermalWriteSink writeSink;
+    private final CellStore store;
     private final ReadRangeProvider readRange;
 
-    public OrgeCommandLogic(List<ThermalReadSource> readSources,
-                            ThermalWriteSink writeSink,
-                            ReadRangeProvider readRange) {
-        this.readSources = List.copyOf(readSources);
-        this.writeSink = writeSink;
+    public OrgeCommandLogic(CellStore store, ReadRangeProvider readRange) {
+        this.store = store;
         this.readRange = readRange;
     }
 
@@ -135,20 +132,16 @@ public final class OrgeCommandLogic {
             return Response.fail(yError(r));
         }
         CellAddress addr = CellAddress.of(r.x1(), r.y1(), r.z1());
-        if (!writeSink.isLoaded(r.dimension(), addr.key())) {
+        if (!store.isLoaded(r.dimension(), addr.key())) {
             return Response.fail(notLoaded());
         }
-        // Mass before temperature: writeTemp encodes enthalpy E = mass·h(T) from the cell's
-        // CURRENT mass, so the new mass must land first — otherwise T reads back as
-        // T·oldMass/newMass (e.g. set 300 K @ 3000 kg over a 1.2 kg cell read back 0.12 K).
-        String massPart;
-        if (r.massKg() != null) {
-            writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
-            massPart = String.format(Locale.ROOT, ", %.1f kg", r.massKg());
-        } else {
-            massPart = " (mass unchanged)";
-        }
-        writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
+        // One atomic write: the store applies the new mass before encoding the temperature so the
+        // enthalpy E = mass·h(T) lands on the final mass (a null mass leaves it unchanged). The
+        // mass-before-temp ordering is the store's responsibility, not this layer's.
+        store.write(r.dimension(), addr.key(), addr.cell(), r.temperatureK(), r.massKg());
+        String massPart = r.massKg() != null
+                ? String.format(Locale.ROOT, ", %.1f kg", r.massKg())
+                : " (mass unchanged)";
         return Response.ok(String.format(Locale.ROOT, "set (%d,%d,%d) -> %.2f K%s",
                 r.x1(), r.y1(), r.z1(), r.temperatureK(), massPart));
     }
@@ -172,15 +165,13 @@ public final class OrgeCommandLogic {
             for (int y = ylo; y <= yhi; y++) {
                 for (int z = zlo; z <= zhi; z++) {
                     CellAddress addr = CellAddress.of(x, y, z);
-                    if (!writeSink.isLoaded(r.dimension(), addr.key())) {
+                    if (!store.isLoaded(r.dimension(), addr.key())) {
                         skipped++;
                         continue;
                     }
-                    // Mass before temperature (see set()): enthalpy encodes at the new mass.
-                    if (r.massKg() != null) {
-                        writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
-                    }
-                    writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
+                    // One atomic write per cell; the store encodes the temperature at the new mass
+                    // (see set()). A null mass leaves the cell's mass unchanged.
+                    store.write(r.dimension(), addr.key(), addr.cell(), r.temperatureK(), r.massKg());
                     written++;
                 }
             }
@@ -207,13 +198,7 @@ public final class OrgeCommandLogic {
     }
 
     private Optional<SectionView> resolve(Identifier dim, SubchunkKey key) {
-        for (ThermalReadSource s : readSources) {
-            Optional<SectionView> v = s.section(dim, key);
-            if (v.isPresent()) {
-                return v;
-            }
-        }
-        return Optional.empty();
+        return store.read(dim, key);
     }
 
     private boolean inBuildRange(int y, Request r) {

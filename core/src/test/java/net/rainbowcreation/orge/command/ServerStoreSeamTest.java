@@ -20,12 +20,13 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Read/write seam over the §5 store. Under law §7 the store holds extensive E, so a {@code /orge set}
- * temperature is encoded {@code E = m·h(T)} on write and {@code T = h⁻¹(E/m)} derived on read — which
- * only round-trips for a cell that carries a resolvable species AND mass (the enthalpy curve needs
- * both). The seam therefore installs an {@code orge:water} table and gives each edited cell water +
- * mass before writing a temperature. A bare (material-less / mass-less) cell has no enthalpy and reads
- * the ambient fallback. (S7 finalizes the display-derive wiring.)
+ * The {@link ServerCellStore} read/write seam over the §5 store (the deep module that replaced the old
+ * ServerStoreReadSource + ServerStoreWriteSink slivers). Under law §7 the store holds extensive E, so a
+ * {@code /orge set} temperature is encoded {@code E = m·h(T)} on write and {@code T = h⁻¹(E/m)} derived
+ * on read — which only round-trips for a cell that carries a resolvable species AND mass (the enthalpy
+ * curve needs both). The seam therefore installs an {@code orge:water} table and gives each edited cell
+ * water + mass before writing a temperature. A bare (material-less / mass-less) cell has no enthalpy and
+ * reads the ambient fallback.
  */
 class ServerStoreSeamTest {
 
@@ -61,61 +62,56 @@ class ServerStoreSeamTest {
     }
 
     @Test
-    void readSourceReturnsAmbientBeforeWriteThenStoredAfter(@TempDir Path dir) {
+    void readReturnsAmbientBeforeWriteThenStoredAfter(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
-        SectionView before = src.section(DIM, key).orElseThrow();
+        SectionView before = store.read(DIM, key).orElseThrow();
         assertTrue(before.ambient(), "never-written section is ambient");
         assertEquals(285.0f, before.tempAt(0), 0.001f);
 
         seedWaterCell(mgr, key, 5);
-        sink.writeTemp(DIM, key, 5, 400f);
+        store.write(DIM, key, 5, 400f, null); // set temperature, mass unchanged
 
-        SectionView after = src.section(DIM, key).orElseThrow();
+        SectionView after = store.read(DIM, key).orElseThrow();
         assertFalse(after.ambient(), "after write it is stored");
         assertEquals(400f, after.tempAt(5), 0.05f, "kelvin round-trips through E = m·h(T) for a water cell");
     }
 
     @Test
-    void writeTempThenMassDoNotClobber(@TempDir Path dir) {
+    void writeTempAndMassRoundTripTogether(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
         seedWaterCell(mgr, key, 7);
-        sink.writeTemp(DIM, key, 7, 350f);
-        sink.writeMass(DIM, key, 7, 1000f);
+        store.write(DIM, key, 7, 350f, 1000f); // one atomic write carries temp + mass
 
-        SectionView v = src.section(DIM, key).orElseThrow();
-        assertEquals(350f, v.tempAt(7), 0.05f, "temperature (derived from stored E) preserved across the mass write");
+        SectionView v = store.read(DIM, key).orElseThrow();
+        assertEquals(350f, v.tempAt(7), 0.05f, "temperature (derived from stored E) coexists with the mass");
         assertEquals(1000f, v.massAt(7), 0.001f);
     }
 
     @Test
     void massBeforeTempEncodesTemperatureAtTheNewMass(@TempDir Path dir) {
-        // Reproduces the /orge set bug end-to-end through the real sink: a low-mass cell set to a
-        // higher mass + temperature. writeTemp encodes E = mass·h(T) from the cell's current mass,
-        // so mass must be written FIRST. Old order (temp then mass) pinned E to 1.2 kg and the read
-        // derived 300·1.2/3000 = 0.12 K. This asserts the fixed mass-first order round-trips.
+        // Reproduces the /orge set bug end-to-end through the real store: a low-mass cell set to a
+        // higher mass + temperature in one write. The store encodes E = mass·h(T) from the cell's mass,
+        // so it must apply the new mass BEFORE the encode. Old order (temp then mass) pinned E to 1.2 kg
+        // and the read derived 300·1.2/3000 = 0.12 K. This pins that the store orders it correctly.
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
-        SectionStore store = mgr.store(DIM);
-        SectionData d = store.get(key);
+        SectionStore sectionStore = mgr.store(DIM);
+        SectionData d = sectionStore.get(key);
         d.setMass(9, 1.2f);              // cell starts light
         d.setMaterialAt(9, WATER);
-        store.put(key, d);
+        sectionStore.put(key, d);
 
-        sink.writeMass(DIM, key, 9, 3000f); // mass first (the fixed /orge set order)
-        sink.writeTemp(DIM, key, 9, 300f);
+        store.write(DIM, key, 9, 300f, 3000f); // mass + temp atomic; store applies mass first
 
-        SectionView v = src.section(DIM, key).orElseThrow();
+        SectionView v = store.read(DIM, key).orElseThrow();
         assertEquals(3000f, v.massAt(9), 0.001f);
         assertEquals(300f, v.tempAt(9), 0.1f,
                 "T must encode at the new mass, not 300*1.2/3000 = 0.12 K");
@@ -137,14 +133,13 @@ class ServerStoreSeamTest {
     @Test
     void setTempThenGetDerivesSameKelvin(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
         seedWaterCell(mgr, key, 11); // resolvable orge:water + 1000 kg
-        sink.writeTemp(DIM, key, 11, 350f);
+        store.write(DIM, key, 11, 350f, null);
 
-        SectionView v = src.section(DIM, key).orElseThrow();
+        SectionView v = store.read(DIM, key).orElseThrow();
         assertEquals(350f, v.tempAt(11), 0.05f,
                 "off-plateau round-trip: write encodes kelvin->E, read derives E->kelvin");
     }
@@ -161,7 +156,7 @@ class ServerStoreSeamTest {
         ActiveMaterials.swap(new ActiveMaterials.State(reg));
 
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
         float massKg = 1000f;
@@ -174,7 +169,7 @@ class ServerStoreSeamTest {
         float midE = (float) (massKg * midEta);
         seedCellWithE(mgr, key, 13, WATER, massKg, midE);
 
-        SectionView v = src.section(DIM, key).orElseThrow();
+        SectionView v = store.read(DIM, key).orElseThrow();
         assertEquals(373.15f, v.tempAt(13), 0.5f,
                 "mid-plateau E shows pinned plateau T, not E/(m·cp) runaway");
     }
@@ -184,13 +179,13 @@ class ServerStoreSeamTest {
     @Test
     void getOnCorruptHugeEClampsDisplayT(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
         // 1e12 J on 1 kg of water -> raw derive ~1e8/4186 K; clamp pins it to 6000.
         seedCellWithE(mgr, key, 17, WATER, 1f, 1e12f);
 
-        SectionView v = src.section(DIM, key).orElseThrow();
+        SectionView v = store.read(DIM, key).orElseThrow();
         assertEquals(6000f, v.tempAt(17), 0.001f,
                 "corrupt huge E shows the clamped 6000 K display boundary");
     }
@@ -199,7 +194,7 @@ class ServerStoreSeamTest {
     @Test
     void getOnMasslessOrUnresolvedShowsAmbient(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        ServerCellStore store = new ServerCellStore(mgr);
         SubchunkKey key = new SubchunkKey(0, 4, 0);
 
         // Massless water cell: no enthalpy -> ambient fallback.
@@ -208,7 +203,7 @@ class ServerStoreSeamTest {
         Identifier unknown = Identifier.fromNamespaceAndPath("orge", "unobtainium");
         seedCellWithE(mgr, key, 21, unknown, 1000f, 1e6f);
 
-        SectionView v = src.section(DIM, key).orElseThrow();
+        SectionView v = store.read(DIM, key).orElseThrow();
         float massless = v.tempAt(19);
         float unresolved = v.tempAt(21);
         assertEquals(SectionData.DEFAULT_AMBIENT_K, massless, 0.001f, "massless cell -> ambient");
@@ -217,18 +212,39 @@ class ServerStoreSeamTest {
     }
 
     @Test
+    void writeMarksSectionExternallyEditedSoStaleWriteBackSkips(@TempDir Path dir) {
+        // Edit-epoch guard (cf30919): a direct write must mark the section edited so a stale in-flight
+        // ColumnWriteBack skips it instead of clobbering the edit. Snapshot, then write, then the section
+        // must report "edited since snapshot". (WriteBackEditGuardTest drives the write-back end of this.)
+        SectionStoreManager mgr = managerWithLoadedColumn(dir);
+        ServerCellStore store = new ServerCellStore(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        seedWaterCell(mgr, key, 3);
+
+        SectionStore sectionStore = mgr.store(DIM);
+        SectionData d = sectionStore.get(key);
+        d.markSnapshot();
+        assertFalse(d.editedSinceSnapshot(), "fresh snapshot: not yet edited");
+
+        store.write(DIM, key, 3, 320f, null);
+
+        assertTrue(sectionStore.get(key).editedSinceSnapshot(),
+                "a direct write must bump the edit epoch so the stale write-back skips this section");
+    }
+
+    @Test
     void isLoadedReflectsColumnState(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
-        assertTrue(sink.isLoaded(DIM, new SubchunkKey(0, 4, 0)));
-        assertFalse(sink.isLoaded(DIM, new SubchunkKey(9, 4, 9)));
+        ServerCellStore store = new ServerCellStore(mgr);
+        assertTrue(store.isLoaded(DIM, new SubchunkKey(0, 4, 0)));
+        assertFalse(store.isLoaded(DIM, new SubchunkKey(9, 4, 9)));
     }
 
     @Test
     void unknownDimensionYieldsEmptyRead(@TempDir Path dir) {
         SectionStoreManager mgr = managerWithLoadedColumn(dir);
-        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
-        Optional<SectionView> v = src.section(
+        ServerCellStore store = new ServerCellStore(mgr);
+        Optional<SectionView> v = store.read(
                 Identifier.fromNamespaceAndPath("minecraft", "the_end"),
                 new SubchunkKey(0, 4, 0));
         assertTrue(v.isEmpty(), "no store for dimension -> empty (let logic report it)");
