@@ -179,7 +179,43 @@ public final class RegionFile implements Closeable {
     }
 
     // -------------------------------------------------------------------------
-    // Slot index
+    // Chunk-addressed facade (owns the chunk -> local-slot mapping)
+    // -------------------------------------------------------------------------
+    //
+    // A region spans 32×32 chunks, so a chunk's local slot coordinate is (chunkCoord & 31).
+    // Callers address columns by absolute chunk coordinate (cx, cz) and let the region perform
+    // the mask, so no caller needs to know the 32-wide region geometry.
+
+    /**
+     * Reads the column blob for chunk {@code (cx, cz)}, mapping it to its local slot internally.
+     *
+     * @return the blob bytes, or {@code null} if the chunk's slot is empty
+     * @throws IOException on I/O errors or corrupt data
+     */
+    byte[] readChunk(int cx, int cz) throws IOException {
+        return read(cx & 31, cz & 31);
+    }
+
+    /**
+     * Writes the column blob for chunk {@code (cx, cz)}, mapping it to its local slot internally.
+     *
+     * @throws IOException on I/O errors
+     */
+    void writeChunk(int cx, int cz, byte[] blob) throws IOException {
+        write(cx & 31, cz & 31, blob);
+    }
+
+    /**
+     * Deletes the column blob for chunk {@code (cx, cz)}, mapping it to its local slot internally.
+     *
+     * @throws IOException on I/O errors
+     */
+    void deleteChunk(int cx, int cz) throws IOException {
+        delete(cx & 31, cz & 31);
+    }
+
+    // -------------------------------------------------------------------------
+    // Slot index (internal slot-addressed layer beneath the chunk facade)
     // -------------------------------------------------------------------------
 
     /**
@@ -205,7 +241,7 @@ public final class RegionFile implements Closeable {
      * @return the blob bytes, or {@code null} if the slot is empty
      * @throws IOException on I/O errors or corrupt data
      */
-    public byte[] read(int lx, int lz) throws IOException {
+    byte[] read(int lx, int lz) throws IOException {
         int s      = slot(lx, lz);
         int offset = locations[s];
         if (offset == 0) {
@@ -237,7 +273,7 @@ public final class RegionFile implements Closeable {
      *
      * @throws IOException on I/O errors
      */
-    public void write(int lx, int lz, byte[] blob) throws IOException {
+    void write(int lx, int lz, byte[] blob) throws IOException {
         int s = slot(lx, lz);
 
         int needSectors = sectorCountFor(blob.length);
@@ -290,7 +326,7 @@ public final class RegionFile implements Closeable {
      *
      * @throws IOException on I/O errors
      */
-    public void delete(int lx, int lz) throws IOException {
+    void delete(int lx, int lz) throws IOException {
         int s      = slot(lx, lz);
         int offset = locations[s];
 

@@ -1,5 +1,7 @@
 package net.rainbowcreation.orge.section;
 
+import net.minecraft.resources.Identifier;
+
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -172,43 +174,48 @@ public final class SectionCodec {
      * </pre></p>
      */
     public static void writeSection(DataOutputStream out, SectionData s) throws IOException {
-        if (s.form() == SectionData.Form.UNIFORM) {
+        // Serialize through the section's typed snapshot — never the live channel arrays or the
+        // material palette's raw index store. The snapshot reports channel presence, so the wire
+        // layout below is driven by the snapshot, not by SectionData's lazy-allocation state.
+        SectionSnapshot snap = s.snapshot();
+        if (!snap.isFull()) {
             out.writeByte(FORM_UNIFORM);
-            out.writeFloat(s.uniformEnthalpy());
-            out.writeFloat(s.uniformMass());
+            out.writeFloat(snap.uniformEnthalpy());
+            out.writeFloat(snap.uniformMass());
         } else {
             out.writeByte(FORM_FULL);
-            byte[] tComp = deflate(floatsToBytes(s.enthalpyArray()));
+            byte[] tComp = deflate(floatsToBytes(snap.enthalpy()));
             out.writeInt(tComp.length);
             out.write(tComp);
-            byte[] mComp = deflate(floatsToBytes(s.massArray()));
+            byte[] mComp = deflate(floatsToBytes(snap.mass()));
             out.writeInt(mComp.length);
             out.write(mComp);
         }
-        // material block (uniform for format uniformity; UNIFORM sections never carry materials).
-        if (s.hasMaterials()) {
+        // material block (uniform for format uniformity; UNIFORM sections never carry materials
+        // except a FULL section that demoted after materials were set — see SectionData).
+        if (snap.hasMaterials()) {
             out.writeByte(1);
-            MaterialPalette mp = s.materials();
-            out.writeShort(mp.palette().size());
-            for (net.minecraft.resources.Identifier id : mp.palette()) {
+            List<Identifier> palette = snap.materialPalette();
+            out.writeShort(palette.size());
+            for (Identifier id : palette) {
                 out.writeUTF(id.toString());
             }
-            byte[] iComp = deflate(charsToBytes(mp.indices()));
+            byte[] iComp = deflate(charsToBytes(snap.materialIndices()));
             out.writeInt(iComp.length);
             out.write(iComp);
         } else {
             out.writeByte(0);
         }
         // momentum block (extensive p⃗ = m·u, [kg·m/s]; law §7).
-        if (s.hasMomentum()) {
+        if (snap.hasMomentum()) {
             out.writeByte(1);
-            byte[] vxComp = deflate(floatsToBytes(s.momXArray()));
+            byte[] vxComp = deflate(floatsToBytes(snap.momX()));
             out.writeInt(vxComp.length);
             out.write(vxComp);
-            byte[] vyComp = deflate(floatsToBytes(s.momYArray()));
+            byte[] vyComp = deflate(floatsToBytes(snap.momY()));
             out.writeInt(vyComp.length);
             out.write(vyComp);
-            byte[] vzComp = deflate(floatsToBytes(s.momZArray()));
+            byte[] vzComp = deflate(floatsToBytes(snap.momZ()));
             out.writeInt(vzComp.length);
             out.write(vzComp);
         } else {
@@ -216,9 +223,9 @@ public final class SectionCodec {
         }
         // pressure block (independent gate; written AFTER momentum so order is
         // materials -> momentum -> pressure).
-        if (s.hasPressure()) {
+        if (snap.hasPressure()) {
             out.writeByte(1);
-            byte[] pComp = deflate(floatsToBytes(s.pArray()));
+            byte[] pComp = deflate(floatsToBytes(snap.pressure()));
             out.writeInt(pComp.length);
             out.write(pComp);
         } else {
@@ -234,72 +241,73 @@ public final class SectionCodec {
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     public static SectionData readSection(DataInputStream in) throws IOException {
+        // Read the wire into a typed SectionSnapshot, then let SectionData rebuild itself from it.
+        // The codec adopts no SectionData internals (no setMomentum/arraycopy/adoptMaterials reach):
+        // a null component means the channel's flag byte was 0.
         byte form = in.readByte();
-        SectionData section;
+        SectionData.Form snapForm;
+        float uniformEnthalpy = 0f;
+        float uniformMass = 0f;
+        float[] enthalpy = null;
+        float[] mass = null;
         if (form == FORM_UNIFORM) {
-            float t = in.readFloat();
-            float m = in.readFloat();
-            section = SectionData.uniform(t, m);
+            uniformEnthalpy = in.readFloat();
+            uniformMass = in.readFloat();
+            snapForm = SectionData.Form.UNIFORM;
         } else if (form == FORM_FULL) {
             int tLen = in.readInt();
             if (tLen < 0) throw new IOException("corrupt section: negative compressed length " + tLen);
-            byte[] tComp = in.readNBytes(tLen);
-            float[] t = bytesToFloats(inflate(tComp, SectionData.CELLS * 4));
+            enthalpy = bytesToFloats(inflate(in.readNBytes(tLen), SectionData.CELLS * 4));
 
             int mLen = in.readInt();
             if (mLen < 0) throw new IOException("corrupt section: negative compressed length " + mLen);
-            byte[] mComp = in.readNBytes(mLen);
-            float[] m = bytesToFloats(inflate(mComp, SectionData.CELLS * 4));
+            mass = bytesToFloats(inflate(in.readNBytes(mLen), SectionData.CELLS * 4));
 
-            section = SectionData.full(t, m);
+            snapForm = SectionData.Form.FULL;
         } else {
             throw new IOException("unknown section form: " + (form & 0xFF));
         }
-        {
-            byte hasMaterials = in.readByte();
-            if (hasMaterials == 1) {
-                int paletteCount = in.readShort() & 0xFFFF;
-                List<net.minecraft.resources.Identifier> paletteList = new ArrayList<>(paletteCount);
-                for (int i = 0; i < paletteCount; i++) {
-                    paletteList.add(net.minecraft.resources.Identifier.parse(in.readUTF()));
-                }
-                int iLen = in.readInt();
-                if (iLen < 0) throw new IOException("corrupt section: negative compressed length " + iLen);
-                byte[] iComp = in.readNBytes(iLen);
-                char[] indices = bytesToChars(inflate(iComp, SectionData.CELLS * 2));
-                section.adoptMaterials(new MaterialPalette(paletteList, indices));
-            }
-        }
-        {
-            byte hasMomentum = in.readByte();
-            if (hasMomentum == 1) {
-                int vxLen = in.readInt();
-                if (vxLen < 0) throw new IOException("corrupt section: negative compressed length " + vxLen);
-                float[] vx = bytesToFloats(inflate(in.readNBytes(vxLen), SectionData.CELLS * 4));
 
-                int vyLen = in.readInt();
-                if (vyLen < 0) throw new IOException("corrupt section: negative compressed length " + vyLen);
-                float[] vy = bytesToFloats(inflate(in.readNBytes(vyLen), SectionData.CELLS * 4));
-
-                int vzLen = in.readInt();
-                if (vzLen < 0) throw new IOException("corrupt section: negative compressed length " + vzLen);
-                float[] vz = bytesToFloats(inflate(in.readNBytes(vzLen), SectionData.CELLS * 4));
-
-                System.arraycopy(vx, 0, section.momXArray(), 0, SectionData.CELLS);
-                System.arraycopy(vy, 0, section.momYArray(), 0, SectionData.CELLS);
-                System.arraycopy(vz, 0, section.momZArray(), 0, SectionData.CELLS);
+        List<Identifier> palette = null;
+        char[] materialIndices = null;
+        if (in.readByte() == 1) {
+            int paletteCount = in.readShort() & 0xFFFF;
+            palette = new ArrayList<>(paletteCount);
+            for (int i = 0; i < paletteCount; i++) {
+                palette.add(Identifier.parse(in.readUTF()));
             }
+            int iLen = in.readInt();
+            if (iLen < 0) throw new IOException("corrupt section: negative compressed length " + iLen);
+            materialIndices = bytesToChars(inflate(in.readNBytes(iLen), SectionData.CELLS * 2));
         }
-        {
-            byte hasPressure = in.readByte();
-            if (hasPressure == 1) {
-                int pLen = in.readInt();
-                if (pLen < 0) throw new IOException("corrupt section: negative compressed length " + pLen);
-                float[] p = bytesToFloats(inflate(in.readNBytes(pLen), SectionData.CELLS * 4));
-                System.arraycopy(p, 0, section.pArray(), 0, SectionData.CELLS);
-            }
+
+        float[] momX = null;
+        float[] momY = null;
+        float[] momZ = null;
+        if (in.readByte() == 1) {
+            int vxLen = in.readInt();
+            if (vxLen < 0) throw new IOException("corrupt section: negative compressed length " + vxLen);
+            momX = bytesToFloats(inflate(in.readNBytes(vxLen), SectionData.CELLS * 4));
+
+            int vyLen = in.readInt();
+            if (vyLen < 0) throw new IOException("corrupt section: negative compressed length " + vyLen);
+            momY = bytesToFloats(inflate(in.readNBytes(vyLen), SectionData.CELLS * 4));
+
+            int vzLen = in.readInt();
+            if (vzLen < 0) throw new IOException("corrupt section: negative compressed length " + vzLen);
+            momZ = bytesToFloats(inflate(in.readNBytes(vzLen), SectionData.CELLS * 4));
         }
-        return section;
+
+        float[] pressure = null;
+        if (in.readByte() == 1) {
+            int pLen = in.readInt();
+            if (pLen < 0) throw new IOException("corrupt section: negative compressed length " + pLen);
+            pressure = bytesToFloats(inflate(in.readNBytes(pLen), SectionData.CELLS * 4));
+        }
+
+        return SectionData.fromSnapshot(new SectionSnapshot(
+                snapForm, uniformEnthalpy, uniformMass,
+                enthalpy, mass, momX, momY, momZ, pressure, palette, materialIndices));
     }
 
     // =========================================================================

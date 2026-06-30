@@ -19,12 +19,8 @@ import java.util.TreeMap;
  * Each section is written as {@link SectionData.Form#UNIFORM} or
  * {@link SectionData.Form#FULL} ({@code deflate} of the two float arrays).</p>
  *
- * <p>The primary persistence unit is a <em>chunk column</em> — all sections stacked
- * in Y for one chunk (cx, cz). Use {@link #loadColumn} / {@link #saveColumn} when
- * operating on multiple sections at once. The per-section convenience methods
- * {@link #load(SubchunkKey)} and {@link #save(SubchunkKey, SectionData)} are backed
- * by a read-modify-write on the full column and are therefore more expensive when
- * called repeatedly for the same chunk.</p>
+ * <p>The persistence unit is a <em>chunk column</em> — all sections stacked in Y for one
+ * chunk (cx, cz). Use {@link #loadColumn} / {@link #saveColumn} to read or write a column.</p>
  */
 public final class RegionStore implements Closeable {
 
@@ -96,7 +92,7 @@ public final class RegionStore implements Closeable {
             return new TreeMap<>();
         }
         try {
-            byte[] blob = region(cx, cz).read(cx & 31, cz & 31);
+            byte[] blob = region(cx, cz).readChunk(cx, cz);
             return blob == null ? new TreeMap<>() : SectionCodec.readColumn(blob);
         } catch (IOException e) {
             throw new UncheckedIOException("failed to load column (" + cx + "," + cz + ")", e);
@@ -115,48 +111,13 @@ public final class RegionStore implements Closeable {
         try {
             RegionFile rf = region(cx, cz);
             if (sections.isEmpty()) {
-                rf.delete(cx & 31, cz & 31);
+                rf.deleteChunk(cx, cz);
             } else {
-                rf.write(cx & 31, cz & 31, SectionCodec.writeColumn(sections));
+                rf.writeChunk(cx, cz, SectionCodec.writeColumn(sections));
             }
         } catch (IOException e) {
             throw new UncheckedIOException("failed to save column (" + cx + "," + cz + ")", e);
         }
-    }
-
-    // -------------------------------------------------------------------------
-    // Per-section convenience (column-backed read-modify-write)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Loads a single section by key.
-     *
-     * <p><strong>Note:</strong> the column is the primary persistence unit. This method
-     * reads the full column blob from the region file and returns the requested section.
-     * Prefer {@link #loadColumn} when reading multiple sections from the same chunk.</p>
-     *
-     * @return the section, or {@code null} if that sectionY is not present in the column
-     * @throws UncheckedIOException if an I/O error occurs
-     */
-    public SectionData load(SubchunkKey key) {
-        return loadColumn(key.cx(), key.cz()).get(key.sectionY());
-    }
-
-    /**
-     * Saves a single section by key via a read-modify-write on the full column.
-     *
-     * <p><strong>Note:</strong> the column is the primary persistence unit. Each call
-     * reads the column, updates the target section, and rewrites the entire column blob.
-     * Prefer {@link #saveColumn} when writing multiple sections into the same chunk at once.</p>
-     *
-     * @throws UncheckedIOException if an I/O error occurs
-     */
-    public void save(SubchunkKey key, SectionData data) {
-        Objects.requireNonNull(key, "key");
-        Objects.requireNonNull(data, "data");
-        NavigableMap<Integer, SectionData> col = loadColumn(key.cx(), key.cz());
-        col.put(key.sectionY(), data);
-        saveColumn(key.cx(), key.cz(), col);
     }
 
     // -------------------------------------------------------------------------

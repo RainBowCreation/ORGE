@@ -103,25 +103,61 @@ public final class SectionData {
     }
 
     // -------------------------------------------------------------------------
-    // Uniform accessors (for the codec)
+    // Serialization seam (codec exchanges a SectionSnapshot, not internals)
     // -------------------------------------------------------------------------
 
     /**
-     * Returns the uniform enthalpy value (E [J]). Only meaningful when {@link #form()} is
-     * {@link Form#UNIFORM}; a section constructed as {@code FULL} (via {@link #full})
-     * returns {@code 0}.
+     * Captures this section's current state as an immutable {@link SectionSnapshot} for the codec.
+     *
+     * <p>Channel presence is encoded by {@code null} components, mirroring this section's lazy
+     * allocation exactly: {@code FULL} hands over its live {@code enthalpy}/{@code mass} arrays
+     * (a {@code UNIFORM} section reports its two scalars instead), and each optional channel
+     * (momentum / pressure / materials) is present iff its backing store has been allocated. The
+     * in-memory-only {@code swapReady} channel is never included (law §7). Arrays are aliased, not
+     * copied — the codec only reads them.</p>
      */
-    public float uniformEnthalpy() {
-        return uniformEnthalpy;
+    SectionSnapshot snapshot() {
+        boolean full = (form == Form.FULL);
+        List<Identifier> palette = (materials == null) ? null : materials.palette();
+        char[] indices = (materials == null) ? null : materials.indices();
+        return new SectionSnapshot(
+                form,
+                uniformEnthalpy,
+                uniformMass,
+                full ? enthalpy : null,
+                full ? mass : null,
+                momX, momY, momZ,
+                p,
+                palette, indices);
     }
 
     /**
-     * Returns the uniform mass value. Only meaningful when {@link #form()} is
-     * {@link Form#UNIFORM}; a section constructed as {@code FULL} (via {@link #full})
-     * returns {@code 0}.
+     * Reconstructs a section from a {@link SectionSnapshot} (codec, on load), adopting the snapshot's
+     * arrays directly (no copy).
+     *
+     * <p>Materials are adopted <em>without</em> forcing promotion, so a material layer that rode on a
+     * {@code UNIFORM} section (a {@code FULL} section keeps its materials when it later demotes — see
+     * {@link #demoteIfUniform()}) round-trips with its form intact. Momentum/pressure imply per-cell
+     * arrays, so adopting either promotes to {@code FULL} (a no-op for an already-{@code FULL} snapshot).</p>
      */
-    public float uniformMass() {
-        return uniformMass;
+    static SectionData fromSnapshot(SectionSnapshot snap) {
+        SectionData s = snap.isFull()
+                ? full(snap.enthalpy(), snap.mass())
+                : uniform(snap.uniformEnthalpy(), snap.uniformMass());
+        if (snap.hasMaterials()) {
+            s.materials = new MaterialPalette(snap.materialPalette(), snap.materialIndices());
+        }
+        if (snap.hasMomentum()) {
+            s.promote();
+            s.momX = snap.momX();
+            s.momY = snap.momY();
+            s.momZ = snap.momZ();
+        }
+        if (snap.hasPressure()) {
+            s.promote();
+            s.p = snap.pressure();
+        }
+        return s;
     }
 
     // -------------------------------------------------------------------------
@@ -422,12 +458,12 @@ public final class SectionData {
         return materials != null;
     }
 
-    /** Whether this section has non-default (non-null) momentum arrays. Used by the codec. */
+    /** Whether this section has non-default (non-null) momentum arrays (the snapshot's presence gate). */
     public boolean hasMomentum() {
         return momX != null;
     }
 
-    /** Whether this section has a non-default (non-null) pressure array. Used by the codec. */
+    /** Whether this section has a non-default (non-null) pressure array (the snapshot's presence gate). */
     public boolean hasPressure() {
         return p != null;
     }
@@ -465,16 +501,6 @@ public final class SectionData {
      */
     public List<Identifier> palette() {
         return materials == null ? List.of(MaterialPalette.VACUUM_ID) : materials.palette();
-    }
-
-    /** The live material layer, or {@code null} if none has been allocated. For the codec (D2). */
-    public MaterialPalette materials() {
-        return materials;
-    }
-
-    /** Installs a reconstructed material layer (codec, on load). */
-    public void adoptMaterials(MaterialPalette m) {
-        this.materials = m;
     }
 
     // -------------------------------------------------------------------------

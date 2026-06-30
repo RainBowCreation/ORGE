@@ -198,40 +198,6 @@ class RegionStoreTest {
     }
 
     // -------------------------------------------------------------------------
-    // Test 7: Per-section convenience (load/save delegates to column)
-    // -------------------------------------------------------------------------
-
-    @Test
-    void perSectionConvenienceMethods() throws IOException {
-        RegionStore store = new RegionStore(world);
-
-        SectionData sec5 = SectionData.uniform(300.0f, 1000.0f);
-        store.save(new SubchunkKey(2, 5, 3), sec5);
-
-        // Load the section back
-        SectionData loaded5 = store.load(new SubchunkKey(2, 5, 3));
-        assertNotNull(loaded5, "loaded section must not be null");
-        assertTrue(sec5.equalsValue(loaded5), "loaded section must match saved");
-
-        // Section not present in column returns null
-        SectionData loaded6 = store.load(new SubchunkKey(2, 6, 3));
-        assertNull(loaded6, "absent section must return null");
-
-        // Save a second section into the SAME column (read-modify-write must NOT drop first)
-        SectionData sec6 = SectionData.uniform(310.0f, 900.0f);
-        store.save(new SubchunkKey(2, 6, 3), sec6);
-
-        // Both sections must be in the column
-        NavigableMap<Integer, SectionData> col = store.loadColumn(2, 3);
-        assertTrue(col.containsKey(5), "column must still contain sectionY=5 after second save");
-        assertTrue(col.containsKey(6), "column must contain sectionY=6 after second save");
-        assertTrue(sec5.equalsValue(col.get(5)), "sectionY=5 must be value-equal after second save");
-        assertTrue(sec6.equalsValue(col.get(6)), "sectionY=6 must be value-equal after second save");
-
-        store.closeAll();
-    }
-
-    // -------------------------------------------------------------------------
     // Test 8: close() implements Closeable
     // -------------------------------------------------------------------------
 

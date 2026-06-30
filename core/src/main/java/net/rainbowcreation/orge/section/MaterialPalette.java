@@ -102,8 +102,14 @@ public final class MaterialPalette {
         return palette;
     }
 
-    /** The raw index array (length {@value CELLS}); live backing store, for the codec. */
-    public char[] indices() {
+    /**
+     * The raw index array (length {@value CELLS}); live backing store.
+     *
+     * <p>Package-private: only {@link SectionData#snapshot()} reads it (to hand the palette to the
+     * codec as a typed {@link SectionSnapshot} component). The codec never reaches the raw array
+     * directly — this stays encapsulated within the section package.</p>
+     */
+    char[] indices() {
         return indices;
     }
 }
