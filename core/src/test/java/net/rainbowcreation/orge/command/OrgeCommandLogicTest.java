@@ -208,15 +208,18 @@ class OrgeCommandLogicTest {
         final java.util.Set<String> loaded = new java.util.HashSet<>();
         final List<String> temps = new ArrayList<>();
         final List<String> masses = new ArrayList<>();
+        final List<String> order = new ArrayList<>(); // call order: "M" / "T", to pin mass-before-temp
         FakeSink load(int cx, int cz) { loaded.add(cx + "," + cz); return this; }
         public boolean isLoaded(Identifier dim, SubchunkKey key) {
             return loaded.contains(key.cx() + "," + key.cz());
         }
         public void writeTemp(Identifier dim, SubchunkKey key, int cell, float k) {
             temps.add(key.cx() + "," + key.sectionY() + "," + key.cz() + ":" + cell + "=" + k);
+            order.add("T");
         }
         public void writeMass(Identifier dim, SubchunkKey key, int cell, float kg) {
             masses.add(key.cx() + "," + key.sectionY() + "," + key.cz() + ":" + cell + "=" + kg);
+            order.add("M");
         }
     }
 
@@ -233,6 +236,17 @@ class OrgeCommandLogicTest {
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("operator"), r.lines().get(0));
         assertTrue(sink.temps.isEmpty(), "no write when denied");
+    }
+
+    @Test
+    void setWritesMassBeforeTempSoEnthalpyEncodesAtNewMass() {
+        // Regression: writeTemp encodes enthalpy from the cell's current mass. If temp is written
+        // before the new mass, a later read derives T·oldMass/newMass (set 300 K @ 3000 kg read 0.12 K).
+        FakeSink sink = new FakeSink().load(0, 0);
+        OrgeCommandLogic logic = logic(List.of(source(new HashMap<>())), sink, 4);
+        OrgeCommandLogic.Response r = logic.run(set(0, 0, 0, 300f, 3000f, true));
+        assertTrue(r.ok(), r.lines().toString());
+        assertEquals(List.of("M", "T"), sink.order, "mass must be written before temperature");
     }
 
     @Test

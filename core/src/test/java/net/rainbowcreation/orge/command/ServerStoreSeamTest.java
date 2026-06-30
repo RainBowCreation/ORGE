@@ -95,6 +95,32 @@ class ServerStoreSeamTest {
         assertEquals(1000f, v.massAt(7), 0.001f);
     }
 
+    @Test
+    void massBeforeTempEncodesTemperatureAtTheNewMass(@TempDir Path dir) {
+        // Reproduces the /orge set bug end-to-end through the real sink: a low-mass cell set to a
+        // higher mass + temperature. writeTemp encodes E = mass·h(T) from the cell's current mass,
+        // so mass must be written FIRST. Old order (temp then mass) pinned E to 1.2 kg and the read
+        // derived 300·1.2/3000 = 0.12 K. This asserts the fixed mass-first order round-trips.
+        SectionStoreManager mgr = managerWithLoadedColumn(dir);
+        ServerStoreReadSource src = new ServerStoreReadSource(mgr);
+        ServerStoreWriteSink sink = new ServerStoreWriteSink(mgr);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+
+        SectionStore store = mgr.store(DIM);
+        SectionData d = store.get(key);
+        d.setMass(9, 1.2f);              // cell starts light
+        d.setMaterialAt(9, WATER);
+        store.put(key, d);
+
+        sink.writeMass(DIM, key, 9, 3000f); // mass first (the fixed /orge set order)
+        sink.writeTemp(DIM, key, 9, 300f);
+
+        SectionView v = src.section(DIM, key).orElseThrow();
+        assertEquals(3000f, v.massAt(9), 0.001f);
+        assertEquals(300f, v.tempAt(9), 0.1f,
+                "T must encode at the new mass, not 300*1.2/3000 = 0.12 K");
+    }
+
     /** Give a cell a resolvable species + mass with a specific stored E (J) directly. */
     private void seedCellWithE(SectionStoreManager mgr, SubchunkKey key, int cell,
                               Identifier matId, float massKg, float enthalpyJ) {

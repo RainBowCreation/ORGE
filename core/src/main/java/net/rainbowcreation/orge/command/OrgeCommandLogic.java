@@ -138,7 +138,9 @@ public final class OrgeCommandLogic {
         if (!writeSink.isLoaded(r.dimension(), addr.key())) {
             return Response.fail(notLoaded());
         }
-        writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
+        // Mass before temperature: writeTemp encodes enthalpy E = mass·h(T) from the cell's
+        // CURRENT mass, so the new mass must land first — otherwise T reads back as
+        // T·oldMass/newMass (e.g. set 300 K @ 3000 kg over a 1.2 kg cell read back 0.12 K).
         String massPart;
         if (r.massKg() != null) {
             writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
@@ -146,6 +148,7 @@ public final class OrgeCommandLogic {
         } else {
             massPart = " (mass unchanged)";
         }
+        writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
         return Response.ok(String.format(Locale.ROOT, "set (%d,%d,%d) -> %.2f K%s",
                 r.x1(), r.y1(), r.z1(), r.temperatureK(), massPart));
     }
@@ -173,10 +176,11 @@ public final class OrgeCommandLogic {
                         skipped++;
                         continue;
                     }
-                    writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
+                    // Mass before temperature (see set()): enthalpy encodes at the new mass.
                     if (r.massKg() != null) {
                         writeSink.writeMass(r.dimension(), addr.key(), addr.cell(), r.massKg());
                     }
+                    writeSink.writeTemp(r.dimension(), addr.key(), addr.cell(), r.temperatureK());
                     written++;
                 }
             }
