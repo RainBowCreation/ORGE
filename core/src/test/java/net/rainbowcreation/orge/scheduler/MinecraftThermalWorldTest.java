@@ -4,7 +4,6 @@ import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.engine.ColumnResult;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
-import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.engine.TestMaterials;
 import net.rainbowcreation.orge.material.EnthalpyCurve;
@@ -67,105 +66,6 @@ class MinecraftThermalWorldTest {
         mgr.onLevelLoad(DIM, dir, AmbientProvider.FALLBACK);
         mgr.onChunkLoad(DIM, 0, 0);
         return mgr;
-    }
-
-    /** A chain-root material with cp=1 ⇒ {@code h(T)=cp·T=T}, so the dormant writeBack's ENCODE
-     *  {@code E=m·h(T)} reduces to {@code E=m·T} for clean assertions. */
-    private static final Identifier ORGE_UNIT = Identifier.fromNamespaceAndPath("orge", "unit_cp");
-
-    private static Material unitCp() {
-        return Material.builder(ORGE_UNIT)
-                .thermalConductivity(1f).heatCapacity(1f).molarMass(0f)
-                .defaultMass(1000f).defaultTemperature(Float.NaN).viscosity(0f).build();
-    }
-
-    /** Register {@link #unitCp()} as the active LUT and stamp every cell of {@code key}'s section to it,
-     *  so the dormant {@link MinecraftThermalWorld#writeBack} ENCODE has a curve to derive E against
-     *  (E = m·cp·T = m·T). Returns the manager's store. */
-    private static void seedUnitCpSection(SectionStoreManager mgr, SubchunkKey key) {
-        net.rainbowcreation.orge.material.MaterialRegistry reg =
-                new net.rainbowcreation.orge.material.MaterialRegistry();
-        reg.put(unitCp());
-        net.rainbowcreation.orge.material.ActiveMaterials.swap(
-                new net.rainbowcreation.orge.material.ActiveMaterials.State(reg));
-        SectionData data = mgr.store(DIM).get(key);
-        for (int i = 0; i < SectionData.CELLS; i++) data.setMaterialAt(i, ORGE_UNIT);
-        mgr.store(DIM).put(key, data);
-    }
-
-    /**
-     * S6 (re-authored from the stale T15 T-as-E bridge): the DORMANT per-section {@link
-     * MinecraftThermalWorld#writeBack} now ENCODES {@code E = m·h(T)} from the engine's derived Tout
-     * (law §6 — never stores the raw T as E). With a cp=1 material E = m·T. Mass persistence is unchanged.
-     */
-    @Test
-    void writeBackEncodesEnthalpyFromTemperatureAndPersistsMass(@TempDir Path dir) {
-        SectionStoreManager mgr = loadedManager(dir);
-        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
-        SubchunkKey key = new SubchunkKey(0, 4, 0);
-        seedUnitCpSection(mgr, key);
-
-        float[] temps = new float[SectionData.CELLS];
-        Arrays.fill(temps, 350f);
-        float[] mass = new float[SectionData.CELLS];
-        Arrays.fill(mass, 1000f); // geometry mass (e.g. water's default_mass)
-        StepTask task = new StepTask(key, new char[SectionData.CELLS], mass, temps, null);
-        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
-
-        world.writeBack(entry, new StepResult(temps, mass));
-
-        SectionData data = mgr.store(DIM).get(key);
-        assertEquals(1000f * 350f, data.enthalpyAt(0), 1e-1f, "E = m·cp·T encoded (NOT raw T-as-E)");
-        assertEquals(1000f, data.massAt(0), 1e-4f, "engine mass must be persisted, not left at 0");
-        assertEquals(1000f, data.massAt(SectionData.CELLS - 1), 1e-4f, "all cells carry their mass");
-    }
-
-    @Test
-    void writeBackDemotesToUniformWhenEngineFlattensAllCells(@TempDir Path dir) {
-        SectionStoreManager mgr = loadedManager(dir);
-        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
-        SubchunkKey key = new SubchunkKey(0, 4, 0);
-        seedUnitCpSection(mgr, key);
-
-        float[] temps = new float[SectionData.CELLS];
-        Arrays.fill(temps, 300f);
-        float[] mass = new float[SectionData.CELLS];
-        Arrays.fill(mass, 1000f);
-        StepTask task = new StepTask(key, new char[SectionData.CELLS], mass, temps, null);
-        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
-
-        world.writeBack(entry, new StepResult(temps, mass));
-
-        SectionData data = mgr.store(DIM).get(key);
-        assertEquals(SectionData.Form.UNIFORM, data.form(),
-                "a section the engine flattened to a single value must collapse back to UNIFORM, "
-                        + "not ratchet at FULL forever");
-        assertEquals(1000f * 300f, data.enthalpyAt(0), 1e-1f, "uniform E = m·cp·T preserved through demote");
-        assertEquals(1000f, data.massAt(0), 1e-4f, "uniform mass preserved through demote");
-    }
-
-    @Test
-    void writeBackStaysFullWhenAGradientRemains(@TempDir Path dir) {
-        SectionStoreManager mgr = loadedManager(dir);
-        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
-        SubchunkKey key = new SubchunkKey(0, 4, 0);
-        seedUnitCpSection(mgr, key);
-
-        float[] temps = new float[SectionData.CELLS];
-        Arrays.fill(temps, 300f);
-        temps[0] = 350f; // a real gradient — must NOT collapse
-        float[] mass = new float[SectionData.CELLS];
-        Arrays.fill(mass, 1000f);
-        StepTask task = new StepTask(key, new char[SectionData.CELLS], mass, temps, null);
-        ThermalWorld.BatchEntry entry = new ThermalWorld.BatchEntry(DIM, key, task);
-
-        world.writeBack(entry, new StepResult(temps, mass));
-
-        SectionData data = mgr.store(DIM).get(key);
-        assertEquals(SectionData.Form.FULL, data.form(),
-                "a section holding a genuine gradient must stay FULL");
-        assertEquals(1000f * 350f, data.enthalpyAt(0), 1e-1f, "cell 0 E = m·cp·350");
-        assertEquals(1000f * 300f, data.enthalpyAt(1), 1e-1f, "cell 1 E = m·cp·300");
     }
 
     /** D is an input air cell the engine wetted (outMat[D]=water). The recorded signature must be

@@ -13,7 +13,6 @@ import net.rainbowcreation.orge.engine.ColumnResult;
 import net.rainbowcreation.orge.engine.ColumnTask;
 import net.rainbowcreation.orge.engine.NeighborHalo;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
-import net.rainbowcreation.orge.engine.StepResult;
 import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.EnthalpyCurve;
@@ -41,7 +40,7 @@ import java.util.Set;
  * {@link ColumnSectionCodec}, then reconciles/phase-changes each. The only Minecraft-coupled class in
  * the scheduler. {@link #snapshotColumns}/{@link #writeBackColumn} touch the server-thread-confined
  * {@link SectionStoreManager} and MUST be called on the server thread (the {@code volatile server}
- * field is the only cross-thread state). The per-section {@link #writeBack} override is kept dormant.
+ * field is the only cross-thread state).
  */
 public final class MinecraftThermalWorld implements ThermalWorld {
 
@@ -326,45 +325,6 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     public void bindServer(MinecraftServer server) { this.server = server; }
     public void unbindServer() { this.server = null; }
 
-    // Server thread only.
-    @Override
-    public void writeBack(BatchEntry entry, StepResult result) {
-        SectionStore store = stores.store(entry.dimension());
-        if (store == null || !store.isLoaded(entry.key().cx(), entry.key().cz())) {
-            return;
-        }
-        SectionData data = store.get(entry.key());
-        // Persist the engine's per-cell mass (§10): advection now MOVES mass between cells, so the
-        // authoritative post-step mass is result.mass() — no longer the snapshot geometry mass.
-        // Conduction cycles carry mass through unchanged (the scheduler passes the snapshot mass
-        // back in result.mass()), so this stays the block-derived geometry mass when no flow ran.
-        // TODO(perf, §8 follow-on): enthalpyArray() force-promotes a UNIFORM ambient section to FULL (two 4096 arrays + fill) right before we overwrite every cell. A SectionData.setAllEnthalpies(float[]) that skips the fill would avoid the churn for first-touch sections.
-        float[] massDst = data.massArray();
-        System.arraycopy(result.mass(), 0, massDst, 0, SectionData.CELLS);
-        // S6 (law §6/§7): this DORMANT per-section path's StepResult has no extensive-E channel — it
-        // carries only the engine's derived Tout. The live column path stores eOut directly; here we
-        // must ENCODE E = m·h(Tout) on the cell's enthalpy curve, NEVER store the raw T as E (a temp-
-        // ghost). Per-cell species = stored material when present, else the index-0 vacuum sentinel.
-        ActiveMaterials.State mats = ActiveMaterials.current();
-        java.util.function.Function<Identifier, Material> lookup =
-                id -> mats.registry().get(id).orElse(null);
-        float[] tOut = result.temperature();
-        float[] dst = data.enthalpyArray();
-        for (int i = 0; i < SectionData.CELLS; i++) {
-            Material cellM = lookup.apply(data.materialAt(i));
-            float mi = massDst[i];
-            // E = m·h(T); a massless / unresolvable cell carries no enthalpy (E = 0).
-            dst[i] = (cellM == null || mi <= 0f) ? 0f
-                    : (float) EnthalpyCurve.cellE(mi, cellM, lookup, tOut[i]);
-        }
-        // writeBack force-promoted this section to FULL via the array accessors above. Collapse it
-        // straight back to UNIFORM when the engine left every cell identical (a settled/flat section),
-        // so FULL is not a one-way ratchet — observability (/orge get-live) and the on-disk form both
-        // reflect the section's true state. No-op (cheap scan, returns false) while a gradient remains.
-        data.demoteIfUniform();
-        store.put(entry.key(), data);
-    }
-
     /**
      * Feed a section's per-step settle deltas into the active set (DESIGN §10 Decision 11). A
      * negative delta means that pass did not run this cycle (skip its countdown), so a coincident
@@ -378,13 +338,6 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         if (maxTempDelta >= 0f) {
             activeSet.noteThermalDelta(entry.dimension(), entry.key(), maxTempDelta);
         }
-    }
-
-    /** Trigger (c): a neighbour pushed mass across our shared seam — revive its flow pass so it
-     *  re-enters the snapshot and accepts the incoming mass instead of stranding it at the border. */
-    @Override
-    public void wakeNeighbourFlow(Identifier dim, SubchunkKey neighbour) {
-        activeSet.wakeFlowSection(dim, neighbour);
     }
 
     /**
