@@ -25,7 +25,7 @@ class PlacementCaptureTest {
         int cell = 3 + 16 * 70 + 6144 * 4;
         float ambientK = 295f;
 
-        PlacementCapture.capture(q, DIM, 0, 0, cell, live, air(), ambientK);
+        BlockChangeCapture.capturePlacement(q, DIM, 0, 0, cell, live, air(), ambientK);
 
         List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
         assertEquals(1, got.size());
@@ -39,7 +39,7 @@ class PlacementCaptureTest {
     @Test
     void selfWriteDoesNotEnqueue() {                 // live == incumbent (reconciler repaint)
         PendingInjections q = new PendingInjections();
-        PlacementCapture.capture(q, DIM, 0, 0, 100, water(), water(), 295f);
+        BlockChangeCapture.capturePlacement(q, DIM, 0, 0, 100, water(), water(), 295f);
         assertTrue(q.peekColumn(DIM, 0, 0).isEmpty());
     }
 
@@ -47,7 +47,7 @@ class PlacementCaptureTest {
     void airOverSolidIsDisplacement() {               // different ids → enqueue (movable() irrelevant)
         PendingInjections q = new PendingInjections();
         Material stone = TestMaterials.stone();
-        PlacementCapture.capture(q, DIM, 0, 0, 100, air(), stone, 295f);
+        BlockChangeCapture.capturePlacement(q, DIM, 0, 0, 100, air(), stone, 295f);
         assertEquals(1, q.peekColumn(DIM, 0, 0).size());
         assertEquals(air().id(), q.peekColumn(DIM, 0, 0).get(0).species());
     }
@@ -66,7 +66,7 @@ class PlacementCaptureTest {
         PendingInjections q = new PendingInjections();
         q.enqueueRemoval(DIM, 0, 0, 100);   // a same-window BREAK / air-flicker queued a removal here
 
-        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
+        BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
 
         assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(),
                 "the stale removal is cancelled and NO placement is enqueued (no vacuum stomp, no fabrication)");
@@ -80,7 +80,7 @@ class PlacementCaptureTest {
         Material stone = TestMaterials.stone();
         q.enqueueRemoval(DIM, 0, 0, 100);
 
-        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), stone, 295f);
+        BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), stone, 295f);
 
         List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
         assertEquals(1, got.size(), "the different-species place supersedes the removal");
@@ -95,7 +95,7 @@ class PlacementCaptureTest {
         PendingInjections q = new PendingInjections();
         q.enqueueRemoval(DIM, 0, 0, 100);
 
-        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, null, water(), 295f);
+        BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, null, water(), 295f);
 
         List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
         assertEquals(1, got.size());
@@ -107,10 +107,10 @@ class PlacementCaptureTest {
     @Test
     void noPendingRemovalDelegatesToOrdinaryCapture() {
         PendingInjections q = new PendingInjections();
-        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
+        BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f);
         assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "self-write with no pending removal enqueues nothing");
 
-        PlacementCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 101, water(), air(), 295f);
+        BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 101, water(), air(), 295f);
         assertEquals(1, q.peekColumn(DIM, 0, 0).size(), "a real displacement still enqueues");
     }
 }

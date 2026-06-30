@@ -25,51 +25,51 @@ class PlacementInjectionPolicyTest {
 
     @Test
     void waterOverAirIsDisplacement() {
-        assertTrue(PlacementInjectionPolicy.isDisplacement(water(), air()));
+        assertTrue(BlockChangeCapture.isDisplacement(water(), air()));
     }
 
     @Test
     void sameSpeciesFluidIsNotDisplacement() {          // reconciler self-write: live == incumbent
-        assertFalse(PlacementInjectionPolicy.isDisplacement(water(), water()));
+        assertFalse(BlockChangeCapture.isDisplacement(water(), water()));
     }
 
     @Test
     void fluidOverNullIncumbentIsDisplacement() {       // untracked cell — enqueue for durability
-        assertTrue(PlacementInjectionPolicy.isDisplacement(water(), null));
+        assertTrue(BlockChangeCapture.isDisplacement(water(), null));
     }
 
     @Test
     void nullLiveIsNotDisplacement() {                  // nothing placed → nothing to inject
-        assertFalse(PlacementInjectionPolicy.isDisplacement(null, air()));
+        assertFalse(BlockChangeCapture.isDisplacement(null, air()));
     }
 
     // --- solid cases (BUG 2: previously returned false, now must be true) ---
 
     @Test
     void solidOverFluidIsDisplacement() {               // placing stone into water must displace
-        assertTrue(PlacementInjectionPolicy.isDisplacement(stone(), water()));
+        assertTrue(BlockChangeCapture.isDisplacement(stone(), water()));
     }
 
     @Test
     void solidOverSolidDifferentIdIsDisplacement() {    // different solid species → displace
         // stone id != air id; both are non-movable — movable() must not affect outcome
-        assertTrue(PlacementInjectionPolicy.isDisplacement(stone(), air()));
+        assertTrue(BlockChangeCapture.isDisplacement(stone(), air()));
     }
 
     @Test
     void solidOverNullIncumbentIsDisplacement() {       // untracked cell with solid placement
-        assertTrue(PlacementInjectionPolicy.isDisplacement(stone(), null));
+        assertTrue(BlockChangeCapture.isDisplacement(stone(), null));
     }
 
     @Test
     void sameSpeciesSolidIsNotDisplacement() {          // reconciler repaint with solid species
-        assertFalse(PlacementInjectionPolicy.isDisplacement(stone(), stone()));
+        assertFalse(BlockChangeCapture.isDisplacement(stone(), stone()));
     }
 
     // --- previously-named tests updated to new contract ---
 
     @Test
     void sameSpeciesIsNotDisplacement() {               // alias: same id regardless of movable()
-        assertFalse(PlacementInjectionPolicy.isDisplacement(water(), water()));
+        assertFalse(BlockChangeCapture.isDisplacement(water(), water()));
     }
 }

@@ -159,7 +159,7 @@ class PlacementInjectionPipelineIT {
     /**
      * F2 bug-2/bug-3 core, on the REAL engine: a SOLID placement injection (stone, its defaultMass) into
      * a floor cell holding a WATER incumbent. This is the exact intent {@link
-     * net.rainbowcreation.orge.scheduler.PlacementCapture#capture} now enqueues for a solid placement
+     * net.rainbowcreation.orge.scheduler.BlockChangeCapture#capturePlacement} now enqueues for a solid placement
      * (F1 dropped the movable() gate, so any placed species captures + displaces). It proves:
      * <ul>
      *   <li>bug 3 — the solid SEEDS its full {@code defaultMass} (2000 kg stone) at the cell;</li>
@@ -197,7 +197,7 @@ class PlacementInjectionPipelineIT {
         ColumnTask task = cols.get(0);
 
         // The SOLID placement injection: stone, its defaultMass (2000 kg), at the target cell, column 0.
-        // This is exactly what PlacementCapture.capture enqueues for a solid placement under F1.
+        // This is exactly what BlockChangeCapture.capturePlacement enqueues for a solid placement under F1.
         EngineInjection inj = new EngineInjection(0, ci, STONE, 2000f, 290f);
 
         // Drive the REAL native engine through the injection-aware 5-arg overload (same call as fluids).

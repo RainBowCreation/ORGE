@@ -19,8 +19,10 @@ import java.util.function.Supplier;
  * World-event ingest for the live {@link MinecraftThermalWorld}: a wake event in &rarr; a
  * {@link SectionStore}/{@link PendingInjections} write out. Owns the {@link WakeSink} the loader
  * hooks push into, the per-block placement/break capture (durable identity + a displacement-or-removal
- * intent under the unified substance model), the shared removal record, the capture-decision trace,
- * and the biome ambient helper {@link ColumnSnapshot} also reads.
+ * intent under the unified substance model), the displacement policy ({@link #isDisplacement}) and the
+ * pure capture step ({@link #capturePlacement} / {@link #captureOrCancelStaleRemoval}) folded in behind
+ * this surface, the shared removal record, the capture-decision trace, and the biome ambient helper
+ * {@link ColumnSnapshot} also reads.
  *
  * <p>Server-thread-confined; the live {@link MinecraftServer} is read lazily through the injected
  * {@code serverSource}. Fully null/guard-safe (server unbound, level absent, chunk unloaded, prior
@@ -87,7 +89,7 @@ final class BlockChangeCapture {
 
     /** Server-thread: read the live block + the recorded incumbent at this cell and, under the unified
      *  substance model, (a) enqueue a displace-and-inject intent for ANY differing species
-     *  ({@link PlacementInjectionPolicy} — solid or fluid alike captures the placed material's
+     *  ({@link #isDisplacement} — solid or fluid alike captures the placed material's
      *  {@code defaultMass} and displaces the incumbent), and (b) record the placed block's first-touch
      *  material as the cell's DURABLE identity in the {@link SectionStore} (spec Part 3), so the
      *  placement persists against the next assemble even before the engine writes it back (the vanish
@@ -161,13 +163,81 @@ final class BlockChangeCapture {
         // Same-window break/flicker + same-species re-place: cancel a stale pending removal instead of
         // letting it stomp the cell to vacuum (solid flow-through) or force-injecting a fresh defaultMass
         // (movable-fluid mass fabrication). Any other case delegates to the ordinary displacement capture.
-        PlacementCapture.captureOrCancelStaleRemoval(
+        captureOrCancelStaleRemoval(
                 pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
 
         // Durable identity (spec Part 3): the placed block's first-touch material becomes the cell's stored
         // material at once, so the placement persists even before the engine writes it back (vanish-race fix,
         // generalised to every species). live == firstTouchMaterial(placedBlock) already (computed above).
         recordDurableIdentity(stores.store(dim), cx, cz, sectionY, sectionCell, live);
+    }
+
+    /**
+     * Displacement decision for the placement-injection capture (folded from the former
+     * {@code PlacementInjectionPolicy}). A placement is captured (enqueued for displace-and-inject) when
+     * the placed material differs from the recorded incumbent species, or the cell is untracked:
+     * <ul>
+     *   <li>the cell is untracked ({@code incumbent == null}) — enqueue so the placement is made durable
+     *       against the stale-write-back vanish race;</li>
+     *   <li>OR the placed species id differs from the incumbent species id — the new block replaces
+     *       whatever was there (fluid, solid, or anything else).</li>
+     * </ul>
+     * Not captured: {@code live == null} (no ORGE material for the placed block), or a self-write where
+     * {@code live.id()} equals {@code incumbent.id()} (the reconciler's own engine-output repaint).
+     * {@code movable()} is NOT consulted — it governs only post-placement flow, not capture.
+     *
+     * @param live      material of the newly-placed block at the cell (from the live world).
+     * @param incumbent material of the cell's recorded engine-output species (the thing to displace),
+     *                  or {@code null} if the cell is untracked.
+     */
+    static boolean isDisplacement(Material live, Material incumbent) {
+        if (live == null) return false;
+        if (incumbent == null) return true;           // untracked cell — enqueue for durability
+        return !live.id().equals(incumbent.id());     // different species → displace-and-inject
+    }
+
+    /**
+     * Pure capture step for placement injection (folded from the former {@code PlacementCapture#capture}).
+     * Given the live placed material and the recorded incumbent material at a cell, enqueue a placement
+     * intent iff it is a displacement ({@link #isDisplacement}). The intent carries the NEW species' id +
+     * {@code defaultMass} seed + seed temperature (material default, else biome ambient) — the same values
+     * {@code ColumnAssembler} would have used, now owned by the engine.
+     */
+    static void capturePlacement(PendingInjections queue, Identifier dim, int cx, int cz, int cell,
+                                 Material live, Material incumbent, float biomeAmbientK) {
+        if (!isDisplacement(live, incumbent)) {
+            return;
+        }
+        float temp = live.hasDefaultTemperature() ? live.defaultTemperature() : biomeAmbientK;
+        queue.enqueue(dim, cx, cz, cell, live.id(), live.defaultMass(), temp);
+    }
+
+    /**
+     * Removal-aware capture entry point used by the live reconciler (folded from the former
+     * {@code PlacementCapture#captureOrCancelStaleRemoval}). When the cell has a same-window removal pending
+     * AND the placed species equals the recorded incumbent (a re-place of the SAME thing — a player
+     * break+replace, OR a fluid re-asserting over a transient air-level edit that the air-override turned
+     * into a removal), the removal is STALE: cancel it and enqueue nothing. Cancelling — rather than letting
+     * the lone removal stand or force-injecting the species — is the fix for BOTH failure modes:
+     * <ul>
+     *   <li>letting the removal stand stomps a solid's engine cell to vacuum under a still-solid durable
+     *       identity → neighbours flow THROUGH the phantom hole;</li>
+     *   <li>force-injecting the placement (a fresh {@code defaultMass}) FABRICATES mass for a movable fluid
+     *       every time it re-asserts over a transient removal (the mass-doubling regression).</li>
+     * </ul>
+     * The cancelled cell keeps its durable identity + stored mass; no injection is emitted. Any OTHER case
+     * (different species = a genuine displacement, or no pending removal) delegates unchanged to
+     * {@link #capturePlacement}.
+     */
+    static void captureOrCancelStaleRemoval(PendingInjections queue, Identifier dim, int cx, int cz,
+                                            int cell, Material live, Material incumbent,
+                                            float biomeAmbientK) {
+        if (live != null && incumbent != null && live.id().equals(incumbent.id())
+                && queue.hasPendingRemoval(dim, cx, cz, cell)) {
+            queue.cancelRemoval(dim, cx, cz, cell);
+            return;
+        }
+        capturePlacement(queue, dim, cx, cz, cell, live, incumbent, biomeAmbientK);
     }
 
     /** Persist the placed block's first-touch material as the cell's durable {@link SectionStore} identity
@@ -244,7 +314,7 @@ final class BlockChangeCapture {
             }
         }
         String decision;
-        if (PlacementInjectionPolicy.isDisplacement(live, incumbent)) {
+        if (isDisplacement(live, incumbent)) {
             decision = "ENQUEUE inject=" + liveId;
         } else if (live == null) {
             decision = "SKIP live-null (non-ORGE block / no material)";

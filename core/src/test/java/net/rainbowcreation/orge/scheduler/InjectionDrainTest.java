@@ -122,7 +122,7 @@ class InjectionDrainTest {
 
     /**
      * Same-window break+replace-SAME-solid regression (the flow-through-a-phantom-hole bug). The capture
-     * layer ({@link PlacementCapture#captureOrCancelStaleRemoval}) CANCELS the stale break removal for a
+     * layer ({@link BlockChangeCapture#captureOrCancelStaleRemoval}) CANCELS the stale break removal for a
      * same-species re-place, so the queue ends EMPTY: the drain touches nothing, the cell keeps its
      * durable solid identity + stored mass (no vacuum stomp → no flow-through, no injection → no mass
      * fabrication). This drains the post-cancel empty queue to prove the drain is a no-op on that cell.
@@ -135,7 +135,7 @@ class InjectionDrainTest {
         int middle = 5 + 16 * 70 + 6144 * 4;
         PendingInjections pi = new PendingInjections();
         pi.enqueueRemoval(DIM, 0, 0, middle);                                       // same-window BREAK
-        PlacementCapture.captureOrCancelStaleRemoval(pi, DIM, 0, 0, middle, stone, stone, 295f); // re-place
+        BlockChangeCapture.captureOrCancelStaleRemoval(pi, DIM, 0, 0, middle, stone, stone, 295f); // re-place
 
         List<PendingInjections.Intent> queued = pi.peekColumn(DIM, 0, 0);
         assertTrue(queued.isEmpty(), "the same-species re-place cancelled the removal → nothing queued");
