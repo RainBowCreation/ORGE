@@ -91,6 +91,7 @@ public final class ServerStoreWriteSink implements ThermalWriteSink {
         // never clamped).
         float e = DerivedTemperature.encode(kelvin, data.massAt(cell), data.materialAt(cell));
         data.setEnthalpy(cell, e);
+        data.markExternalEdit(); // guard the edit from a stale in-flight write-back clobbering it
         store.put(key, data);
         if (wake != null) wake.wakeThermalSection(dimension, key); // a temp edit re-runs conduction
     }
@@ -106,6 +107,7 @@ public final class ServerStoreWriteSink implements ThermalWriteSink {
         // resolvable species behind (keeps the stored cell consistent if a snapshot interleaves).
         establishSpecies(data, dimension, key, cell);
         data.setMass(cell, kg);
+        data.markExternalEdit(); // guard the edit from a stale in-flight write-back clobbering it
         store.put(key, data);
         if (wake != null) wake.wakeFlowSection(dimension, key); // a mass edit re-runs advection
     }

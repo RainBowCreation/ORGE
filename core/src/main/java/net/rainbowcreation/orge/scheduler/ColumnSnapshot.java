@@ -266,6 +266,9 @@ final class ColumnSnapshot {
             float[] temps;
             if (store != null && store.hasSection(key)) {
                 SectionData sd = store.get(key);
+                // Stamp the edit-epoch: the write-back of THIS cycle will skip the section if an
+                // external edit (/orge set) lands after this read, so it can't clobber the edit.
+                sd.markSnapshot();
                 java.util.function.Function<Identifier, Material> lookup =
                         id -> mats.registry().get(id).orElse(null);
                 boolean hasMaterials = sd.hasMaterials();

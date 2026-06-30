@@ -76,6 +76,13 @@ final class ColumnWriteBack {
             char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
 
             SectionData data = store.get(key);
+            // Stale-write-back guard: if an external edit (/orge set) landed after this cycle's
+            // snapshot read the section, this result was computed from pre-edit input — persisting it
+            // would clobber the edit. Skip the section; the edit is re-snapshotted + simulated next
+            // cycle. (Self-healing: next snapshot re-stamps the epoch, so the skip is one cycle only.)
+            if (data.editedSinceSnapshot()) {
+                continue;
+            }
             // S6 (law §6/§7): store the engine's AUTHORITATIVE extensive energy eOut (the S5-threaded
             // ColumnResult.enthalpy) UNCLAMPED. E is extensive [J]; the [0,6000] StepValidator clamp is a
             // KELVIN range and would destroy mid-plateau energy (E ≫ 6000 J) — it must NEVER touch E.

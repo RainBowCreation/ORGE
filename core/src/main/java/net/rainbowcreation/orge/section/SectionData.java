@@ -51,6 +51,15 @@ public final class SectionData {
     private float[] p;    // dynamic pressure (Pa-ish gauge, >=0); null until first pressure write/array request
     private float[] swapReady; // §5.3 swap-cadence accumulator (law #7 bookkeeping, dimensionless >=0); null until first write/array request; IN-MEMORY ONLY, NOT serialized
 
+    // [edit-epoch guard] IN-MEMORY ONLY (not serialized, not in equals). The async scheduler reads a
+    // section in the snapshot and writes the engine result back a cycle later. An EXTERNAL edit
+    // (/orge set, etc.) made into that window would be clobbered by the stale write-back. So an
+    // external edit bumps {@code editEpoch}; the snapshot stamps {@code snapshotEpoch} via
+    // {@link #markSnapshot()}; the write-back skips a section where {@link #editedSinceSnapshot()} —
+    // the edit survives and is re-snapshotted (and simulated) next cycle. Plain longs, server-thread.
+    private long editEpoch = 0L;
+    private long snapshotEpoch = 0L;
+
     private SectionData(Form form, float uniformEnthalpy, float uniformMass,
                         float[] enthalpy, float[] mass) {
         this.form = form;
@@ -199,6 +208,28 @@ public final class SectionData {
     public void setMass(int i, float v) {
         promote();
         mass[i] = v;
+    }
+
+    // -------------------------------------------------------------------------
+    // Edit-epoch guard (in-memory; protects an external edit from a stale write-back)
+    // -------------------------------------------------------------------------
+
+    /** Record an EXTERNAL edit (e.g. {@code /orge set}) — makes this section diverge from any snapshot
+     *  already taken, so a stale in-flight write-back skips it instead of clobbering the edit. */
+    public void markExternalEdit() {
+        editEpoch++;
+    }
+
+    /** Stamp the current edit state as "seen by this snapshot" (called when the scheduler reads the
+     *  section into a cycle's column batch). */
+    public void markSnapshot() {
+        snapshotEpoch = editEpoch;
+    }
+
+    /** Whether an external edit landed after the last {@link #markSnapshot()} — the write-back of that
+     *  snapshot's cycle must NOT persist over this section (its engine input is stale). */
+    public boolean editedSinceSnapshot() {
+        return editEpoch != snapshotEpoch;
     }
 
     // -------------------------------------------------------------------------
