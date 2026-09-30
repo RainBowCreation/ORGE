@@ -99,6 +99,9 @@ final class BlockChangeCapture {
      *  Shared wake path: PLACE/BREAK/FILL_BUCKET all route here; the event-driven break→vacuum path is
      *  introduced separately (Task G2) — this method records the live (post-event) block as-is. */
     private void captureBlockChange(Identifier dim, int blockX, int blockY, int blockZ) {
+        if (LiveMaterials.inSelfWrite()) {
+            return; // ORGE's own repaint of an engine species — never a player placement/removal
+        }
         MinecraftServer srv = serverSource.get();
         if (srv == null) {
             if (InjectDebug.on() && InjectDebug.throttle("bail-server", 500)) {
