@@ -1,5 +1,6 @@
 package net.rainbowcreation.orge.scheduler;
 
+import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
 
 import java.util.List;
@@ -301,11 +302,26 @@ public final class StepValidator {
                     if (!(after[i] > b) && (after[i] < -cellEps || after[i] > b + cellEps)) {
                         bound = false;
                     }
-                    sumAfter[out] += after[i];
+                }
+                // A PHASE relabel (out is in's min/max target — the engine relabels in DECODE, after every
+                // flux of the step moved this mass as species `in`) is a conversion, not a transport: it
+                // is ledger-neutral, so the after mass is credited to the INPUT species' sum. Any other
+                // species change still credits the output species (fabrication stays caught).
+                int credit = isPhaseRelabel(in, out, lut) ? in : out;
+                if (credit != 0 && isTracked(lut.get(credit))) {
+                    sumAfter[credit] += after[i];
                 }
             }
             totalCells += after.length;
             return bound;
+        }
+
+        /** True when {@code out} is {@code in}'s phase target (min/max target id) — an engine relabel. */
+        private static boolean isPhaseRelabel(int in, int out, List<Material> lut) {
+            if (in == 0 || out == 0 || in == out) return false;
+            Material from = lut.get(in);
+            Identifier to = lut.get(out).id();
+            return to.equals(from.minTarget()) || to.equals(from.maxTarget());
         }
 
         /**
