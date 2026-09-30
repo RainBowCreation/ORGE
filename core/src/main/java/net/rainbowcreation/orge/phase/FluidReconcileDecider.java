@@ -62,6 +62,35 @@ public final class FluidReconcileDecider {
                                 int currentBucket,
                                 boolean currentIsLiquid,
                                 boolean currentIsAir) {
+        return decide(worldMaterial, outMat, massKg, currentBucket, currentIsLiquid, currentIsAir, false);
+    }
+
+    /**
+     * As {@link #decide(Material, Material, float, int, boolean, boolean)}, plus the engine-species
+     * paint rule. The engine owns every phase change (it relabels, keeping mass + E); Java only draws
+     * what the engine reports. When the world block still shows the species this step STARTED from
+     * ({@code worldShowsInput} — so nothing external edited it since the snapshot) and the engine
+     * reports a DIFFERENT species, that change is drawn: a species that does not flow gets its
+     * representative block outright; a species that flows takes the level path below with the §7
+     * contact whitelist bypassed (the block being replaced is the engine's own previous species).
+     *
+     * @param worldShowsInput true when the live block still renders this step's INPUT species (the
+     *                        adapter's stale-write guard); false never paints a species change
+     */
+    public static Action decide(Material worldMaterial,
+                                Material outMat,
+                                float massKg,
+                                int currentBucket,
+                                boolean currentIsLiquid,
+                                boolean currentIsAir,
+                                boolean worldShowsInput) {
+        boolean speciesChanged = worldShowsInput && outMat != null && worldMaterial != null
+                && !sameSpecies(outMat, worldMaterial);
+        if (speciesChanged && !outMat.movable()) {
+            Identifier repr = outMat.representativeBlock();
+            return repr == null ? Action.SKIP : new Action(Kind.PLACE, repr, 0);
+        }
+
         // Reconcile a cell when EITHER the world block is a managed fluid OR the engine says it is now
         // a fluid (wetting an air cell). Skip cells that are and stay non-fluid.
         boolean worldIsFluid = worldMaterial != null && worldMaterial.movable();
@@ -92,7 +121,7 @@ public final class FluidReconcileDecider {
 
         // §7 contact whitelist (Decision 7): place only over air or over a managed fluid block; never
         // stomp a solid the phase-changer produced (water+lava→obsidian etc.). (Steam is air-covered.)
-        if (!currentIsAir && !currentIsLiquid) {
+        if (!currentIsAir && !currentIsLiquid && !speciesChanged) {
             return Action.SKIP;
         }
 

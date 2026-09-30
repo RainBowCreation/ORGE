@@ -106,4 +106,79 @@ class FluidReconcileDeciderTest {
                 stone(), water(), 1000f, FluidReconcileLogic.REMOVE, false, false);
         assertEquals(FluidReconcileDecider.Kind.SKIP, a.kind());
     }
+
+    // ── engine-species paint rule (Java never decides species; it draws what the engine reports) ──
+
+    /** Movable lava, full reference 2650 kg, repr minecraft:lava. */
+    private static Material lava() {
+        return Material.builder(orge("lava"))
+                .thermalConductivity(1.5f).heatCapacity(1150f).molarMass(0.065f)
+                .defaultMass(2650f).defaultTemperature(1400f).viscosity(500f)
+                .representativeBlock(mc("lava"))
+                .build();
+    }
+
+    /** Movable gas whose repr block does not exist (downgrades to air at the registry boundary). */
+    private static Material steam() {
+        return Material.builder(orge("steam"))
+                .thermalConductivity(0.025f).heatCapacity(2080f).molarMass(0.018f)
+                .defaultMass(0.6f).defaultTemperature(400f).viscosity(1.3e-5f)
+                .representativeBlock(mc("steam"))
+                .build();
+    }
+
+    /** Immovable catch-all for unmapped blocks (oak_log etc.). */
+    private static Material genericSolid() {
+        return Material.builder(orge("generic_solid"))
+                .thermalConductivity(2f).heatCapacity(840f).molarMass(0.06f)
+                .defaultMass(2500f).defaultTemperature(290f)
+                .representativeBlock(mc("stone"))
+                .build();
+    }
+
+    @Test
+    void engineSolidifiedLavaIsPaintedAsStone() {
+        // The engine relabeled lava -> stone (keep mass + E); the world still shows the input lava.
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                lava(), stone(), 2650f, 0, true, false, true);
+        assertEquals(FluidReconcileDecider.Kind.PLACE, a.kind());
+        assertEquals(mc("stone"), a.block());
+    }
+
+    @Test
+    void engineMeltedStoneIsPaintedAsLavaBypassingTheWhitelist() {
+        // stone -> lava: the live block is a solid, but it is the engine's own previous species.
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                stone(), lava(), 2700f, FluidReconcileLogic.REMOVE, false, false, true);
+        assertEquals(FluidReconcileDecider.Kind.PLACE, a.kind());
+        assertEquals(mc("lava"), a.block());
+        assertEquals(0, a.renderLevel());
+    }
+
+    @Test
+    void staleEngineSpeciesNeverStompsAnExternallyChangedBlock() {
+        // A player placed stone after the snapshot (world no longer shows the input species): the
+        // engine's stale "water" output must not overwrite it.
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                stone(), water(), 1000f, FluidReconcileLogic.REMOVE, false, false, false);
+        assertEquals(FluidReconcileDecider.Kind.SKIP, a.kind());
+    }
+
+    @Test
+    void boiledWaterIsPaintedWithSteamsReprBlock() {
+        // water -> steam: steam's repr block downgrades to air at the adapter; the decider just asks
+        // for steam's repr (the adapter's setIfChanged then no-ops once the cell shows air).
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                water(), steam(), 0.6f, 0, true, false, true);
+        assertEquals(FluidReconcileDecider.Kind.PLACE, a.kind());
+        assertEquals(mc("steam"), a.block());
+    }
+
+    @Test
+    void unmappedBlockWithUnchangedSpeciesIsNotPainted() {
+        // oak_log reads as generic_solid on both sides -> no species change -> untouched.
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                genericSolid(), genericSolid(), 2500f, FluidReconcileLogic.REMOVE, false, false, true);
+        assertEquals(FluidReconcileDecider.Kind.SKIP, a.kind());
+    }
 }

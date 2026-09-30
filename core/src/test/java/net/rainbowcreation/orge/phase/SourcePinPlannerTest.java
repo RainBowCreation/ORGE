@@ -23,26 +23,18 @@ class SourcePinPlannerTest {
     }
 
     @Test
-    void pinnedNotTransitionedIsReset() {
+    void pinnedCellIsReset() {
         IntFunction<Material> cells = i -> (i == 5) ? pinned(1400f) : plain();
-        List<SourcePinPlanner.Reset> r = SourcePinPlanner.plan(cells, List.of());
+        List<SourcePinPlanner.Reset> r = SourcePinPlanner.plan(cells);
         assertEquals(1, r.size());
         assertEquals(5, r.get(0).cellIndex());
         assertEquals(1400f, r.get(0).temperatureK(), 1e-4f);
     }
 
     @Test
-    void pinnedButTransitionedIsSkipped() {
-        IntFunction<Material> cells = i -> (i == 5) ? pinned(1400f) : plain();
-        List<SourcePinPlanner.Reset> r = SourcePinPlanner.plan(
-                cells, List.of(new PhasePlanner.Transition(5,
-                        Identifier.fromNamespaceAndPath("minecraft", "stone"))));
-        assertTrue(r.isEmpty());
-    }
-
-    @Test
     void nonPinnedNeverReset() {
+        // A source the engine relabeled away reads as its new (unpinned) species ⇒ not re-pinned.
         IntFunction<Material> cells = i -> plain();
-        assertTrue(SourcePinPlanner.plan(cells, List.of()).isEmpty());
+        assertTrue(SourcePinPlanner.plan(cells).isEmpty());
     }
 }

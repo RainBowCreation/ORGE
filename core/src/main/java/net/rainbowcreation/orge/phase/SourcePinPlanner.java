@@ -8,13 +8,12 @@ import java.util.List;
 import java.util.function.IntFunction;
 
 /**
- * The conditional re-pin pass (engine-audit C): after the §7 phase plan is computed,
- * every cell that is a {@code pinned} material AND did <em>not</em> transition this step
- * is reset to its {@code default_temperature}. A source overwhelmed past its own threshold
- * transitions (it appears in {@code transitions}) and is therefore left alone — the pin is a
- * restoring force, not a lock. Pure — the per-cell material lookup is injected; callers pass the
- * engine's post-swap species ({@link EngineOutSpecies}, live-block fallback), and a pinned source is
- * Dirichlet (the engine never moves it) so a surviving source still reads as its source material.
+ * The re-pin pass (engine-audit C): every cell whose engine out-species is a {@code pinned}
+ * material is reset to its {@code default_temperature}. The engine owns every phase change (it
+ * relabels in DECODE); a source the engine relabeled away this step reads as its NEW species and is
+ * therefore not re-pinned — the pin is a restoring force, not a lock. Pure — the per-cell material
+ * lookup is injected; callers pass the engine's post-step species ({@link EngineOutSpecies},
+ * live-block fallback).
  */
 public final class SourcePinPlanner {
 
@@ -23,17 +22,9 @@ public final class SourcePinPlanner {
 
     private SourcePinPlanner() {}
 
-    public static List<Reset> plan(IntFunction<Material> cellMaterial,
-                                   List<PhasePlanner.Transition> transitions) {
-        boolean[] transitioned = new boolean[SectionData.CELLS];
-        for (PhasePlanner.Transition t : transitions) {
-            transitioned[t.cellIndex()] = true;
-        }
+    public static List<Reset> plan(IntFunction<Material> cellMaterial) {
         List<Reset> out = new ArrayList<>();
         for (int i = 0; i < SectionData.CELLS; i++) {
-            if (transitioned[i]) {
-                continue;
-            }
             Material m = cellMaterial.apply(i);
             if (m.pinned() && m.hasDefaultTemperature()) {
                 out.add(new Reset(i, m.defaultTemperature()));
