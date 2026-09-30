@@ -95,6 +95,9 @@ public final class Scheduler {
      *  replaces {@link #ADVECTION_TICKS} as the cadence; {@code fixedDt} {@code <= 0} = AUTO (real time). */
     private int ticksPerStep = ADVECTION_TICKS;
     private double fixedDt = 0;
+    /** {@code /orge perf} timing metrics; {@code pendingDt} is the in-flight step's simulated dt. */
+    private final StepMetrics metrics = new StepMetrics();
+    private double pendingDt;
 
     /** The in-flight cycle's column inputs (captured at submit) + the engine's per-column outputs
      *  (set inside the runner task before it returns; read by {@link #complete} after isDone()). The
@@ -165,6 +168,7 @@ public final class Scheduler {
         // sub-cycles + interleaves heat→flow internally (spec 2026-06-02 A5/B1).
         tickCounter++;
         ticksSinceLastDispatch++;
+        metrics.onRealTick();
         boolean boundary = (tickCounter % ticksPerStep == 0);
         if (state == State.AWAITING) {
             ticksSinceSubmit++;
@@ -175,6 +179,7 @@ public final class Scheduler {
             } else if (ticksSinceSubmit >= TICKS_PER_STEP * 2) {
                 pending.cancel();
                 worker.reportLate();
+                metrics.onCancel();
                 toIdle();
             }
             return; // never submit in the same tick we serviced an in-flight step
@@ -213,6 +218,7 @@ public final class Scheduler {
         final List<net.rainbowcreation.orge.engine.EngineInjection> injections = batch.injections();
         pendingDrained = batch.drained();
         final double dt = nextDt();
+        pendingDt = dt;
         if (InjectDebug.on() && !injections.isEmpty()) {
             InjectDebug.LOG.info("[dispatch] injections={} drained={} dt={}",
                     injections.size(), pendingDrained.size(), dt);
@@ -260,6 +266,10 @@ public final class Scheduler {
 
     public int ticksPerStep() { return ticksPerStep; }
 
+    public StepMetrics metrics() { return metrics; }
+
+    public int range() { return worker.range(); }
+
     public void setTicksPerStep(int ticks) {
         if (ticks < 1 || ticks > 200) throw new IllegalArgumentException("ticksPerStep must be 1..200: " + ticks);
         ticksPerStep = ticks;
@@ -301,6 +311,7 @@ public final class Scheduler {
             // engine.lastStepMillis() is the off-thread native step; logged for audit only — it
             // does NOT drive the throttle (that would be blind to the dominant server-thread cost).
             worker.noteStep(serverThreadMillis, metDeadline);
+            metrics.onComplete(engine.lastStepMillis(), serverThreadMillis, ticksSinceSubmit, metDeadline, pendingDt);
             toIdle();
         }
     }
@@ -352,6 +363,7 @@ public final class Scheduler {
                         pendingDrained.size());
             }
             LOGGER.warn("[ORGE] region step mass not conserved (per-species); holding {} columns this cycle", n);
+            metrics.onHeld();
             return; // HELD — drained intents stay queued for the next try (durability)
         }
         for (int i = 0; i < n; i++) {

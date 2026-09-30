@@ -19,6 +19,7 @@ import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.scheduler.InjectDebug;
 import net.rainbowcreation.orge.scheduler.Scheduler;
+import net.rainbowcreation.orge.scheduler.StepMetrics;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.ArrayList;
@@ -80,6 +81,10 @@ public final class OrgeCommands {
                         .executes(ctx -> debug(ctx, null))
                         .then(Commands.literal("on").executes(ctx -> debug(ctx, true)))
                         .then(Commands.literal("off").executes(ctx -> debug(ctx, false))))
+                .then(Commands.literal("perf")
+                        .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
+                        .executes(ctx -> perf(ctx, false))
+                        .then(Commands.literal("reset").executes(ctx -> perf(ctx, true))))
                 .then(Commands.literal("step")
                         .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
                         .executes(this::step)
@@ -100,6 +105,30 @@ public final class OrgeCommands {
                                             scheduler.setFixedDt(Double.parseDouble(Float.toString(FloatArgumentType.getFloat(ctx, "seconds"))));
                                             return step(ctx);
                                         })))));
+    }
+
+    /**
+     * {@code /orge perf [reset]} (op): does the engine keep up with real time? Prints native/server step
+     * cost, latency vs the step interval budget, step counters, sim/real ratio, range and a verdict.
+     */
+    private int perf(CommandContext<CommandSourceStack> ctx, boolean reset) {
+        StepMetrics m = scheduler.metrics();
+        if (reset) m.reset();
+        int ticks = scheduler.ticksPerStep();
+        double budgetMs = ticks * 50.0;
+        double timeScale = scheduler.onPaceDt() / (ticks / 20.0);
+        String[] lines = {
+                String.format("ORGE perf%s: native %.1f ms (ema %.1f, max %.1f) | server %.1f ms (ema %.1f)",
+                        reset ? " (reset)" : "", m.nativeLastMs, m.nativeEmaMs, m.nativeMaxMs, m.serverLastMs, m.serverEmaMs),
+                String.format("latency %d ticks (ema %.1f) | budget %.0f ms/step (%d ticks) | range %d",
+                        m.latencyLastTicks, m.latencyEmaTicks, budgetMs, ticks, scheduler.range()),
+                String.format("steps %d completed, %d late, %d cancelled, %d held | sim/real %.3f (%.1f s / %.1f s)",
+                        m.completed, m.late, m.cancelled, m.held, m.ratio(), m.simSeconds, m.realTicks / 20.0),
+                m.keepingUp(budgetMs, timeScale) ? "verdict: keeping up"
+                        : "verdict: falling behind — try /orge step ticks <larger> or lower range"
+        };
+        for (String line : lines) ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+        return Command.SINGLE_SUCCESS;
     }
 
     /**

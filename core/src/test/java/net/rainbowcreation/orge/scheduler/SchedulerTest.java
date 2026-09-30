@@ -433,4 +433,33 @@ class SchedulerTest {
         s.setFixedDt(0); // AUTO
         assertEquals(0.25, s.onPaceDt(), 0.0);
     }
+
+    @Test
+    void completedStepCountsAndAccumulatesSimTime() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = true; s.onServerTick(true);
+        assertEquals(1, s.metrics().completed);
+        assertEquals(0.25, s.metrics().simSeconds, 1e-12);
+        assertEquals(6, s.metrics().realTicks);
+        s.onServerTick(false);
+        assertEquals(6, s.metrics().realTicks, "frozen ticks are not real time");
+    }
+
+    @Test
+    void cancelledStepCounts() {
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = false;
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick(true);
+        assertEquals(1, s.metrics().cancelled);
+        assertEquals(0, s.metrics().completed);
+    }
 }
