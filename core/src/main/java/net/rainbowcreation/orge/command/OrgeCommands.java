@@ -3,6 +3,7 @@ package net.rainbowcreation.orge.command;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -17,6 +18,8 @@ import net.minecraft.server.permissions.PermissionCheck;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.scheduler.InjectDebug;
+import net.rainbowcreation.orge.scheduler.Scheduler;
+import net.rainbowcreation.orge.scheduler.StepMetrics;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.ArrayList;
@@ -36,9 +39,13 @@ public final class OrgeCommands {
     /** Owns the {@code /orge get-live} toggle state, raycast and action-bar render; the dispatcher only delegates. */
     private final LiveReadoutManager live;
 
-    public OrgeCommands(OrgeCommandLogic logic, LiveReadoutManager live) {
+    /** The live scheduler whose step cadence/dt {@code /orge step} reads and tunes. */
+    private final Scheduler scheduler;
+
+    public OrgeCommands(OrgeCommandLogic logic, LiveReadoutManager live, Scheduler scheduler) {
         this.logic = logic;
         this.live = live;
+        this.scheduler = scheduler;
     }
 
     public void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -73,7 +80,68 @@ public final class OrgeCommands {
                         .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
                         .executes(ctx -> debug(ctx, null))
                         .then(Commands.literal("on").executes(ctx -> debug(ctx, true)))
-                        .then(Commands.literal("off").executes(ctx -> debug(ctx, false)))));
+                        .then(Commands.literal("off").executes(ctx -> debug(ctx, false))))
+                .then(Commands.literal("perf")
+                        .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
+                        .executes(ctx -> perf(ctx, false))
+                        .then(Commands.literal("reset").executes(ctx -> perf(ctx, true))))
+                .then(Commands.literal("step")
+                        .requires(Commands.hasPermission(new PermissionCheck.Require(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))))
+                        .executes(this::step)
+                        .then(Commands.literal("ticks")
+                                .then(Commands.argument("n", IntegerArgumentType.integer(1, 200))
+                                        .executes(ctx -> {
+                                            scheduler.setTicksPerStep(IntegerArgumentType.getInteger(ctx, "n"));
+                                            return step(ctx);
+                                        })))
+                        .then(Commands.literal("dt")
+                                .then(Commands.literal("auto").executes(ctx -> {
+                                    scheduler.setFixedDt(0);
+                                    return step(ctx);
+                                }))
+                                .then(Commands.argument("seconds", FloatArgumentType.floatArg(0.01f, 2.0f))
+                                        .executes(ctx -> {
+                                            // via decimal string: widening 0.01f to double gives 0.0099999… (< the 0.01 floor)
+                                            scheduler.setFixedDt(Double.parseDouble(Float.toString(FloatArgumentType.getFloat(ctx, "seconds"))));
+                                            return step(ctx);
+                                        })))));
+    }
+
+    /**
+     * {@code /orge perf [reset]} (op): does the engine keep up with real time? Prints native/server step
+     * cost, latency vs the step interval budget, step counters, sim/real ratio, range and a verdict.
+     */
+    private int perf(CommandContext<CommandSourceStack> ctx, boolean reset) {
+        StepMetrics m = scheduler.metrics();
+        if (reset) m.reset();
+        int ticks = scheduler.ticksPerStep();
+        double budgetMs = ticks * 50.0;
+        double timeScale = scheduler.onPaceDt() / (ticks / 20.0);
+        String[] lines = {
+                String.format("ORGE perf%s: native %.1f ms (ema %.1f, max %.1f) | server %.1f ms (ema %.1f)",
+                        reset ? " (reset)" : "", m.nativeLastMs, m.nativeEmaMs, m.nativeMaxMs, m.serverLastMs, m.serverEmaMs),
+                String.format("latency %d ticks (ema %.1f) | budget %.0f ms/step (%d ticks) | range %d",
+                        m.latencyLastTicks, m.latencyEmaTicks, budgetMs, ticks, scheduler.range()),
+                String.format("steps %d completed, %d late, %d cancelled, %d held | sim/real %.3f (%.1f s / %.1f s)",
+                        m.completed, m.late, m.cancelled, m.held, m.ratio(), m.simSeconds, m.realTicks / 20.0),
+                m.keepingUp(budgetMs, timeScale) ? "verdict: keeping up"
+                        : "verdict: falling behind — try /orge step ticks <larger> or lower range"
+        };
+        for (String line : lines) ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    /**
+     * {@code /orge step [ticks <n> | dt <seconds|auto>]} (op): reports (after any change) the runtime
+     * step cadence, dt mode and resulting time-scale = dt / (ticksPerStep/20). Runtime-only; resets on restart.
+     */
+    private int step(CommandContext<CommandSourceStack> ctx) {
+        int ticks = scheduler.ticksPerStep();
+        double dt = scheduler.onPaceDt();
+        String line = String.format("ORGE step: every %d ticks, dt %s %.3f s, time-scale %.3fx",
+                ticks, scheduler.fixedDt() > 0 ? "fixed" : "auto →", dt, dt / (ticks / 20.0));
+        ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+        return Command.SINGLE_SUCCESS;
     }
 
     /**

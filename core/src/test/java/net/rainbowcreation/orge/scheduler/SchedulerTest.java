@@ -369,4 +369,97 @@ class SchedulerTest {
         tickCompleting(s, runner, 6);
         assertEquals(1, w.range(), "an over-budget server-thread snapshot drops the range from 2 to 1");
     }
+
+    // ---- /orge step runtime knobs ----
+
+    @Test
+    void autoDtAtDefaultsMatchesLegacyConstants() {
+        assertEquals(Scheduler.ADVECTION_DT_SECONDS, Scheduler.stepDt(5, 5, 0), 0.0, "on pace = 0.25");
+        assertEquals(Scheduler.ADVECTION_DT_SECONDS, Scheduler.stepDt(2, 5, 0), 0.0, "floored at 0.25");
+        assertEquals(0.35, Scheduler.stepDt(7, 5, 0), 1e-12, "real-time catch-up");
+        assertEquals(Scheduler.MAX_CATCHUP_SECONDS, Scheduler.stepDt(15, 5, 0), 0.0, "capped at 0.5");
+    }
+
+    @Test
+    void autoDtScalesWithTicksPerStep() {
+        assertEquals(0.5, Scheduler.stepDt(10, 10, 0), 1e-12);
+        assertEquals(1.0, Scheduler.stepDt(40, 10, 0), 1e-12, "cap = 2 x base");
+    }
+
+    @Test
+    void fixedDtIsOnPaceAndCapsAtTwiceOnOverrun() {
+        assertEquals(0.5, Scheduler.stepDt(10, 10, 0.5), 1e-12, "on pace = F");
+        assertEquals(0.75, Scheduler.stepDt(15, 10, 0.5), 1e-12, "overrun scales F by elapsed/ticksPerStep");
+        assertEquals(1.0, Scheduler.stepDt(40, 10, 0.5), 1e-12, "capped at 2F");
+    }
+
+    @Test
+    void cadenceHonoursTicksPerStepAndDtFollows() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        s.setTicksPerStep(10);
+        for (int i = 0; i < 9; i++) s.onServerTick(true);
+        assertEquals(0, world.snapshots, "no submit before the 10-tick boundary");
+        s.onServerTick(true);
+        assertEquals(1, world.snapshots, "submit at tick 10");
+        runner.done = true; s.onServerTick(true);
+        assertEquals(0.5, engine.calls.get(0).dt, 1e-12, "AUTO at 10 ticks -> 0.5 s");
+    }
+
+    @Test
+    void ticksPerStepOneSubmitsEveryTick() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(deltaEngine(5f, 1.0), world, runner, worker());
+        s.setTicksPerStep(1);
+        s.onServerTick(true);
+        assertEquals(1, world.snapshots, "submit on tick 1");
+        // Each servicing tick consumes the in-flight step; submit occurs on the next tick.
+        for (int i = 0; i < 4; i++) { runner.done = true; s.onServerTick(true); s.onServerTick(true); }
+        assertEquals(5, world.snapshots, "every idle tick is a boundary at ticksPerStep=1");
+    }
+
+    @Test
+    void knobsRejectOutOfRange() {
+        Scheduler s = new Scheduler(new RecordingEngine(), new FakeWorld(), new FakeRunner(), worker());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> s.setTicksPerStep(0));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> s.setTicksPerStep(201));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> s.setFixedDt(2.5));
+        s.setFixedDt(0.01);
+        s.setFixedDt(0); // AUTO
+        assertEquals(0.25, s.onPaceDt(), 0.0);
+    }
+
+    @Test
+    void completedStepCountsAndAccumulatesSimTime() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = true; s.onServerTick(true);
+        assertEquals(1, s.metrics().completed);
+        assertEquals(0.25, s.metrics().simSeconds, 1e-12);
+        assertEquals(6, s.metrics().realTicks);
+        s.onServerTick(false);
+        assertEquals(6, s.metrics().realTicks, "frozen ticks are not real time");
+    }
+
+    @Test
+    void cancelledStepCounts() {
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = false;
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick(true);
+        assertEquals(1, s.metrics().cancelled);
+        assertEquals(0, s.metrics().completed);
+    }
 }
