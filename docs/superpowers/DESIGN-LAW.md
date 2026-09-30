@@ -17,6 +17,11 @@ blessed it. #0 is rewritten below as the absolute no-branch rule — **no classi
 every float is a continuous weight/limit and every regime falls out by branchless saturating math. Forbidden
 symbols: `is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS/PR_LIQUID/PR_SOLID`, any
 `switch(state)`, any `if` on a material category or a threshold of a material-derived value.
+**Amended 2026-09-30 (v4.4 — SOFT MASS WINDOW + UNIVERSAL YIELD): the user ratified** (session approval of
+`specs/2026-09-30-phase-change-mass-window-proposal.md`): #8 — natural solids are finite-`μ` + finite-`τ_y`
+(only truly immovable blocks keep `+INF`), and `τ_y` gates EVERY mass motion (flow, expansion, swap), not
+only the swap; #9 — `min`/`max` are a SOFT window held by a steep EOS wall, a relabel always keeps mass +
+`E`, and the "not even for one tick" clause is replaced by INV-SOFTWIN. Pre-amendment text in git history.
 
 ---
 
@@ -118,8 +123,12 @@ symbols: `is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS/PR_L
    0 in every `max == default` case, so χ→0 falls out). **`χ` is NEVER compared to a threshold and NEVER
    used to classify** — there is no "gas means χ > c". It enters formulas ONLY as a continuous multiplier
    (`χ·…`, `(1−χ)·…`). `molarMass` is the EOS input (#9). `viscosity` is the rate / movability axis (`+INF` = frozen);
-   `yieldStress` is the threshold axis — a **force threshold [N]** (`0` for fluids, finite for granular,
-   `+INF` for solids; the move gate compares net face force against `max(τ_y,i, τ_y,j)`, N vs N).
+   `yieldStress` is the threshold axis — a **force threshold [N]**, the minimum force for ANY mass motion
+   (flow, expansion into a new cell, swap): `0` (or tiny) for fluids, finite for granular, **finite and large
+   for natural solids** (stone, ice — they rest because ordinary forces are below yield, and flow when a big
+   enough force, e.g. the over-max wall of #9, exceeds it). `viscosity = +INF` / `τ_y = +INF` is reserved for
+   truly immovable blocks (bedrock, barrier). Every move gate compares net face force against
+   `max(τ_y,i, τ_y,j)`, N vs N, as the saturating weight `max(0, F − τ_y)` — never a classification.
 
 9. **Mass moves, never vanishes.** Inside the domain mass only *moves* — conservative antisymmetric flux
    (donor-budget + receiver-room clamps) or a permutation swap. The only source/sink is the caller's
@@ -132,14 +141,15 @@ symbols: `is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS/PR_L
    deleted. A `no_escape` detection seam fires on that case (empty body for now) for future handling; the
    default is do-nothing, never destroy.
 
-   **Every cell is mass-legal: `min ≤ m ≤ max` or `m = 0`** — never a sub-min or over-max cell, *from any
-   path*, not even for one tick. Enforced at every flow, relabel, and eviction site: flow's cohesion/room
-   gates already leave a donor `≥ min` or fully drained and a receiver `≤ max`; a **relabel** (phase change
-   or empty-cell adoption) is **forbidden when the carried mass `< min(target)`** — the cell keeps its
-   species/mass/`E` until it legally clears the target min (keep-`E`, so blocking conserves energy exactly);
-   a **relabel into a lower-`max` species** (e.g. water→ice) must **evict its excess in the same pass** to a
-   legal neighbor (mass + `E` carried, obeying both bounds) or **defer** if no legal target exists — never
-   sit over-max.
+   **Soft mass window (v4.4, INV-SOFTWIN).** `min`/`max` are NOT hard gates: the EOS carries a steep
+   **wall** outside the window — a push `K·max(0, m − max)` above `max` and a cohesive pull
+   `K·(1−χ)·max(0, min − m)` below `min` (gases carry no cohesion) — and is exactly the unmodified EOS inside
+   it. A **relabel** (phase change) ALWAYS happens once its threshold is crossed, keeping mass and `E`
+   (ΔE ≡ 0); an out-of-window result is driven back by the wall through ordinary flow, gated by `τ_y` (#8).
+   Flow itself never pushes a cell further out of its window (donor/receiver clamps stay). Invariant: every
+   cell stays within a hard safety band `0 ≤ m ≤ max + H`, and an excursion outside
+   `[min, max]` is non-increasing while the cell has a legal partner to exchange with; an isolated
+   out-of-window cell may rest out-of-window (energy exact, species correct).
 
 ---
 
