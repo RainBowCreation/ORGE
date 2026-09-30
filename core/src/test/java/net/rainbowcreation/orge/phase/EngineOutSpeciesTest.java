@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * lava↓/water↑. After the swap the top cell carries water's cool temperature, but the live block is
  * still lava (the reconciler rewrites blocks only AFTER the phase changer). Sourcing the cell's
  * material from the live block paired it with the swapped-in cool temperature, so the phase rule
- * ({@code PhasePlanner#targetMaterial}) read {@code cool < lava.minTemp} and froze the risen water
+ * (the former Java phase planner's threshold rule) read {@code cool < lava.minTemp} and froze the risen water
  * into {@code lava.minTarget} = stone.
  * The fix sources material from {@code matOut}, so the top cell reads as water (no transition).</p>
  */

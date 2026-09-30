@@ -2,7 +2,6 @@ package net.rainbowcreation.orge;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
-import net.rainbowcreation.orge.phase.PhasePlanner;
 import net.rainbowcreation.orge.phase.SourcePinPlanner;
 import org.junit.jupiter.api.Test;
 import java.util.List;
@@ -78,7 +77,7 @@ class AuditScenarioTest {
 
             // (2) phase change on post-step temps (all cells)
             for (int i = 0; i < n; i++) {
-                Optional<Identifier> target = PhasePlanner.targetMaterial(t[i], matAt.apply(i));
+                Optional<Identifier> target = targetMaterial(t[i], matAt.apply(i));
                 if (target.isPresent()) {
                     block[i] = target.get();
                     if (target.get().equals(ORGE_STEAM)) {
@@ -89,7 +88,7 @@ class AuditScenarioTest {
 
             // (3) conditional re-pin: a still-pinned cell that did not transition snaps back.
             //     (A cell that transitioned away from lava is no longer "lava" here, so it is
-            //      not re-pinned — mirroring SourcePinPlanner's "pinned AND not transitioned".)
+            //      not re-pinned — mirroring SourcePinPlanner: a pinned out-species is re-pinned.)
             for (int i = 0; i < n; i++) {
                 if (block[i].getPath().equals("lava")) {
                     t[i] = matAt.apply(i).defaultTemperature();
@@ -108,9 +107,20 @@ class AuditScenarioTest {
     @Test
     void sourcePinPlannerHoldsLavaWhenNoTransition() {
         java.util.function.IntFunction<Material> cells = i -> (i == 0) ? lava() : water();
-        List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cells, List.of());
+        List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(cells);
         assertFalse(resets.isEmpty());
         assertEquals(0, resets.get(0).cellIndex());
         assertEquals(1400f, resets.get(0).temperatureK(), 1e-3f);
+    }
+
+    /** The §7 threshold rule (the engine's DECODE relabel), inlined for this 1-D scenario model. */
+    private static Optional<Identifier> targetMaterial(float temperatureK, Material current) {
+        if (current.maxTarget() != null && temperatureK > current.maxTemp()) {
+            return Optional.of(current.maxTarget());
+        }
+        if (current.minTarget() != null && temperatureK < current.minTemp()) {
+            return Optional.of(current.minTarget());
+        }
+        return Optional.empty();
     }
 }

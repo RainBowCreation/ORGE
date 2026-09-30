@@ -19,7 +19,27 @@ import net.rainbowcreation.orge.material.MaterialRegistry;
  */
 public final class LiveMaterials {
 
+    /** Depth of ORGE's own in-progress world writes (server-thread confined). While > 0 every block
+     *  change the loader wake hooks report was made BY ORGE (reconciler repaint of an engine species),
+     *  never by a player — the placement capture must not read it as a displacement/removal. */
+    private static int selfWriteDepth;
+
     private LiveMaterials() {}
+
+    /** Run {@code write} (an ORGE-originated world write) with the self-write guard raised. */
+    public static void selfWrite(Runnable write) {
+        selfWriteDepth++;
+        try {
+            write.run();
+        } finally {
+            selfWriteDepth--;
+        }
+    }
+
+    /** True while ORGE's own world write is on the stack (see {@link #selfWrite}). */
+    public static boolean inSelfWrite() {
+        return selfWriteDepth > 0;
+    }
 
     /** The {@link Material} a block FIRST-TOUCHES to (spec Part 1). Blockstate is irrelevant. */
     public static Material materialFor(Block block, MaterialRegistry registry) {

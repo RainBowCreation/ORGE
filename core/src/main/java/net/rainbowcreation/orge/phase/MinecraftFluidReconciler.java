@@ -28,7 +28,8 @@ import net.rainbowcreation.orge.section.SubchunkKey;
  * vanilla {@code minecraft:water}/{@code lava} render LEVEL ({@link FluidReconcileLogic}): mass ≈ 0
  * removes the managed fluid block (→ air); otherwise it places the material's representative block
  * with the computed {@code LiquidBlock.LEVEL}. Writes use {@link Block#UPDATE_CLIENTS} only (no
- * neighbour/physics cascade), exactly like {@link MinecraftPhaseChanger}. Server-thread only;
+ * neighbour/physics cascade), raised under {@link LiveMaterials#selfWrite} so the placement capture never
+ * reads them as a player edit. Server-thread only;
  * mirrors that class's server-binding + section-read pattern and reuses {@link LiveMaterials}.
  *
  * <p>Cells already matching their target state are skipped to avoid churn. Mass is read from
@@ -54,10 +55,11 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
     @Override
     public void reconcile(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut) {
-        reconcile(entry.dimension(), entry.key(), outMaterial, outLut);
+        reconcile(entry.dimension(), entry.key(), entry.task().matIx(), outMaterial, outLut);
     }
 
-    private void reconcile(Identifier dim, SubchunkKey key, char[] outMaterial, List<Material> outLut) {
+    private void reconcile(Identifier dim, SubchunkKey key, char[] inMaterial,
+                           char[] outMaterial, List<Material> outLut) {
         MinecraftServer srv = this.server;
         if (srv == null) {
             return;
@@ -96,9 +98,12 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
             // call (fluid test, level math, species-aware throttle, §7 whitelist, repr-block pick).
             boolean currentIsLiquid = current.getBlock() instanceof LiquidBlock;
+            // Stale-write guard for the species paint: this step's INPUT species (null = vacuum/unknown).
+            Material inMat = EngineOutSpecies.resolve(inMaterial, outLut, i, null);
             FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
                     worldMaterial, outMat, data.massAt(i),
-                    bucketOfWorldBlock(current), currentIsLiquid, current.isAir());
+                    bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
+                    worldShowsSpecies(current, worldMaterial, inMat));
             if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
                 continue;
             }
@@ -128,8 +133,26 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
     private static void setIfChanged(ServerLevel level, BlockPos pos,
                                      BlockState current, BlockState desired) {
         if (!current.equals(desired)) {
-            level.setBlock(pos, desired, Block.UPDATE_CLIENTS);
+            LiveMaterials.selfWrite(() -> level.setBlock(pos, desired, Block.UPDATE_CLIENTS));
         }
+    }
+
+    /**
+     * True when the live block still renders {@code species} — its first-touch material is that
+     * species, or it IS that species' representative block (steam draws as air, whose first-touch is
+     * orge:air). A null species (vacuum/unknown input) is shown by air. False means something outside
+     * the engine (a player, a command) changed the block after this step's snapshot: the engine output
+     * is stale there and must not be painted over it.
+     */
+    private static boolean worldShowsSpecies(BlockState current, Material worldMaterial, Material species) {
+        if (species == null) {
+            return current.isAir();
+        }
+        if (worldMaterial != null && species.id().equals(worldMaterial.id())) {
+            return true;
+        }
+        Identifier repr = species.representativeBlock();
+        return repr != null && current.getBlock() == BuiltInRegistries.BLOCK.getValue(repr);
     }
 
     /** The render bucket the world block currently shows: REMOVE for non-fluid, else its LEVEL. */
