@@ -91,6 +91,11 @@ public final class Scheduler {
     private int ticksSinceLastDispatch;
     private StepRunner.Handle pending;
 
+    /** Runtime step knobs ({@code /orge step}; server-thread, reset on restart). {@code ticksPerStep}
+     *  replaces {@link #ADVECTION_TICKS} as the cadence; {@code fixedDt} {@code <= 0} = AUTO (real time). */
+    private int ticksPerStep = ADVECTION_TICKS;
+    private double fixedDt = 0;
+
     /** The in-flight cycle's column inputs (captured at submit) + the engine's per-column outputs
      *  (set inside the runner task before it returns; read by {@link #complete} after isDone()). The
      *  StepRunner stays typed to {@link StepResult}; the column results ride this field, made visible by
@@ -160,7 +165,7 @@ public final class Scheduler {
         // sub-cycles + interleaves heat→flow internally (spec 2026-06-02 A5/B1).
         tickCounter++;
         ticksSinceLastDispatch++;
-        boolean boundary = (tickCounter % ADVECTION_TICKS == 0);
+        boolean boundary = (tickCounter % ticksPerStep == 0);
         if (state == State.AWAITING) {
             ticksSinceSubmit++;
             if (pending.isDone()) {
@@ -233,14 +238,44 @@ public final class Scheduler {
         state = State.AWAITING;
     }
 
-    /** Simulated seconds for the next combined step: real time since the last dispatch (ticks/20),
-     *  floored at the base quantum and capped at the catch-up ceiling (spec 2026-06-02 B4). */
     private double nextDt() {
-        double secs = ticksSinceLastDispatch / 20.0;      // real seconds since the last dispatched step
-        if (secs < ADVECTION_DT_SECONDS) secs = ADVECTION_DT_SECONDS;
-        if (secs > MAX_CATCHUP_SECONDS)  secs = MAX_CATCHUP_SECONDS;
+        return stepDt(ticksSinceLastDispatch, ticksPerStep, fixedDt);
+    }
+
+    /**
+     * Simulated seconds for the next combined step (spec 2026-06-02 B4). AUTO ({@code fixedDt <= 0}):
+     * real time since the last dispatch (ticks/20), floored at base = ticksPerStep/20 and capped at
+     * 2×base — at the default 5 ticks exactly {@link #ADVECTION_DT_SECONDS}/{@link #MAX_CATCHUP_SECONDS}.
+     * FIXED F: base = F, scaled by elapsed/ticksPerStep on overrun, same [base, 2×base] clamp. F ≠
+     * ticksPerStep/20 is a deliberate time-scale.
+     */
+    static double stepDt(int ticksSinceLastDispatch, int ticksPerStep, double fixedDt) {
+        boolean auto = fixedDt <= 0;
+        double base = auto ? ticksPerStep / 20.0 : fixedDt;
+        double secs = auto ? ticksSinceLastDispatch / 20.0 : fixedDt * ticksSinceLastDispatch / ticksPerStep;
+        if (secs < base) secs = base;
+        if (secs > 2 * base) secs = 2 * base;
         return secs;
     }
+
+    public int ticksPerStep() { return ticksPerStep; }
+
+    public void setTicksPerStep(int ticks) {
+        if (ticks < 1 || ticks > 200) throw new IllegalArgumentException("ticksPerStep must be 1..200: " + ticks);
+        ticksPerStep = ticks;
+    }
+
+    /** Fixed step dt in seconds, or {@code <= 0} when AUTO (real time). */
+    public double fixedDt() { return fixedDt; }
+
+    /** Set a fixed dt (0.01..2.0 s), or {@code <= 0} for AUTO. */
+    public void setFixedDt(double seconds) {
+        if (seconds > 0 && (seconds < 0.01 || seconds > 2.0)) throw new IllegalArgumentException("stepDt must be 0.01..2.0: " + seconds);
+        fixedDt = seconds;
+    }
+
+    /** The on-pace dt the current knobs produce (for display). */
+    public double onPaceDt() { return stepDt(ticksPerStep, ticksPerStep, fixedDt); }
 
     private void complete(boolean metDeadline) {
         // Time the server-thread phase of this cycle (write-back + §9 + phase/reconcile). Summed

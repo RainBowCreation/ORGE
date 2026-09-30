@@ -324,7 +324,7 @@ public final class Orge {
             return activeSet.isAsleep(dim, key) ? LiveStatus.DORMANT : LiveStatus.ACTIVE;
         };
         LiveReadoutManager liveReadout = new LiveReadoutManager(commandLogic, statusSource);
-        OrgeCommands orgeCommands = new OrgeCommands(commandLogic, liveReadout);
+        OrgeCommands orgeCommands = new OrgeCommands(commandLogic, liveReadout, scheduler);
         CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) ->
                 orgeCommands.register(dispatcher));
         // /orge get-live paints each toggled player's crosshair cell to the action bar every tick.
