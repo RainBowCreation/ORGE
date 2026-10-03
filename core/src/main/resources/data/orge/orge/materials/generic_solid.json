@@ -7,6 +7,6 @@
   "representative_block": "minecraft:stone",
   "emissivity": 0.9,
   "thermal_expansion": 2e-05,
-  "viscosity": 1e9,
-  "yield_stress": 1e7
+  "viscosity": 1e21,
+  "yield_stress": 1.4e8
 }

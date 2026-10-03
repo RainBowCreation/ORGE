@@ -12,6 +12,6 @@
   "latent_heat_max": 4.0e5,
   "max_temp": 1450,
   "max_target": "orge:lava",
-  "viscosity": 1e9,
-  "yield_stress": 1e8
+  "viscosity": 1e21,
+  "yield_stress": 1.4e8
 }

@@ -12,6 +12,6 @@
   "latent_heat_max": 3.34e5,
   "max_temp": 273,
   "max_target": "orge:water",
-  "viscosity": 1e4,
-  "yield_stress": 1e5
+  "viscosity": 1e13,
+  "yield_stress": 2e6
 }

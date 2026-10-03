@@ -186,7 +186,7 @@ class FluidReconcileDeciderTest {
     private static Material yieldingStone() {
         return Material.builder(orge("stone"))
                 .thermalConductivity(2.5f).heatCapacity(800f).molarMass(0.065f)
-                .defaultMass(2700f).defaultTemperature(290f).viscosity(1e9f).yieldStress(1e8f)
+                .defaultMass(2700f).defaultTemperature(290f).viscosity(1e21f).yieldStress(1.4e8f)
                 .representativeBlock(mc("stone"))
                 .build();
     }

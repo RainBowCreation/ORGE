@@ -124,8 +124,8 @@ class AllMaterialsLoadTest {
     void genericSolidIsFrozen() throws Exception {
         MaterialRegistry reg = loadAll();
         Material gs = reg.get(orge("generic_solid")).orElseThrow();
-        assertEquals(1e9f, gs.viscosity(), 1e3f, "generic_solid post-yield μ");
-        assertEquals(1e7f, gs.yieldStress(), 1f, "generic_solid τ_y");
+        assertEquals(1e21f, gs.viscosity(), 1e15f, "generic_solid post-yield μ (granite, real)");
+        assertEquals(1.4e8f, gs.yieldStress(), 1f, "generic_solid τ_y (granite UCS)");
         assertFalse(gs.movable(), "τ_y ≫ its own weight ⇒ not movable at rest");
     }
 
@@ -284,10 +284,10 @@ class AllMaterialsLoadTest {
         // --- movability invariant (law #8 v4.4: movable iff finite μ AND own weight beats τ_y)
         assertFalse(stone.movable(), "stone is an immovable solid at rest");
         assertFalse(ice.movable(),   "ice is an immovable solid at rest");
-        assertEquals(1e9f, stone.viscosity(), 1e3f, "stone post-yield μ (finite, law #8 v4.4)");
-        assertEquals(1e8f, stone.yieldStress(), 1f, "stone τ_y");
-        assertEquals(1e4f, ice.viscosity(), 1e-2f, "ice post-yield μ (game-scale)");
-        assertEquals(1e5f, ice.yieldStress(), 1e-2f, "ice τ_y");
+        assertEquals(1e21f, stone.viscosity(), 1e15f, "stone post-yield μ (crustal granite, real)");
+        assertEquals(1.4e8f, stone.yieldStress(), 1f, "stone τ_y (granite UCS ≈136 MPa × 1 m²)");
+        assertEquals(1e13f, ice.viscosity(), 1e7f, "ice post-yield μ (glacier ice, real)");
+        assertEquals(2e6f, ice.yieldStress(), 1f, "ice τ_y (freshwater ice UCS near 0 °C)");
         assertTrue(water.movable(), "water is a movable fluid");
         assertTrue(lava.movable(),  "lava is a movable fluid");
         assertTrue(air.movable(),   "air is a movable gas");

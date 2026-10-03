@@ -53,11 +53,11 @@ class MaterialFluidTest {
         // (defaultMass·g) never beats τ_y, so stone/ice are not movable at rest (never fluid-painted).
         String stone = """
                 { "thermal_conductivity": 2.5, "heat_capacity": 800, "molar_mass": 0.065,
-                  "default_mass": 2700, "default_temperature": 290, "viscosity": 1e9, "yield_stress": 1e8 }
+                  "default_mass": 2700, "default_temperature": 290, "viscosity": 1e21, "yield_stress": 1.4e8 }
                 """;
         String ice = """
                 { "thermal_conductivity": 2.2, "heat_capacity": 2108, "molar_mass": 0.018,
-                  "default_mass": 917, "default_temperature": 270, "viscosity": 1e4, "yield_stress": 1e5 }
+                  "default_mass": 917, "default_temperature": 270, "viscosity": 1e13, "yield_stress": 2e6 }
                 """;
         assertFalse(MaterialCodec.fromJson(ID, JsonParser.parseString(stone)).movable());
         assertFalse(MaterialCodec.fromJson(ID, JsonParser.parseString(ice)).movable());
