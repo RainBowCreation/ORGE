@@ -29,7 +29,7 @@ public final class FluidReconcileDecider {
     public enum Kind {
         /** Leave the cell untouched (non-fluid, throttled, or §7-owned). */
         SKIP,
-        /** Remove the managed fluid block (→ air). */
+        /** Remove the block (→ air): a managed fluid, or a solid the engine drained to vacuum. */
         CLEAR,
         /** Draw {@link Action#block()} at {@link Action#renderLevel()}. */
         PLACE
@@ -43,6 +43,9 @@ public final class FluidReconcileDecider {
         private static final Action SKIP = new Action(Kind.SKIP, null, FluidReconcileLogic.REMOVE);
         private static final Action CLEAR = new Action(Kind.CLEAR, null, FluidReconcileLogic.REMOVE);
     }
+
+    /** Mass at or below which an engine-emptied solid cell counts as drained (the engine void floor). */
+    static final float DRAINED_KG = 1e-6f;
 
     private FluidReconcileDecider() {}
 
@@ -84,6 +87,32 @@ public final class FluidReconcileDecider {
                                 boolean currentIsLiquid,
                                 boolean currentIsAir,
                                 boolean worldShowsInput) {
+        return decide(worldMaterial, outMat, massKg, currentBucket, currentIsLiquid, currentIsAir,
+                worldShowsInput, false);
+    }
+
+    /**
+     * As above, plus the drained-solid rule. Under universal yield (law #8) a solid that yields can
+     * drain its whole mass into a neighbour (e.g. a thin ice puddle merging into the next), so the engine
+     * reports the cell as vacuum. The level path never clears a non-fluid block, so that solid would stay
+     * drawn forever. When the engine held THIS cell as the species the world still shows
+     * ({@code worldShowsInput}), reported it empty ({@code engineEmptied}: out-species index 0) and its
+     * mass is ~0, the block is removed. Untracked terrain never matches (no engine input species).
+     *
+     * @param engineEmptied true when the engine's out-species for this cell is the vacuum sentinel
+     */
+    public static Action decide(Material worldMaterial,
+                                Material outMat,
+                                float massKg,
+                                int currentBucket,
+                                boolean currentIsLiquid,
+                                boolean currentIsAir,
+                                boolean worldShowsInput,
+                                boolean engineEmptied) {
+        if (engineEmptied && worldShowsInput && massKg <= DRAINED_KG && !currentIsAir
+                && worldMaterial != null && !worldMaterial.movable()) {
+            return Action.CLEAR;
+        }
         boolean speciesChanged = worldShowsInput && outMat != null && worldMaterial != null
                 && !sameSpecies(outMat, worldMaterial);
         if (speciesChanged && !outMat.movable()) {

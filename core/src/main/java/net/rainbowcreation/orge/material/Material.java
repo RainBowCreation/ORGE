@@ -70,12 +70,17 @@ public record Material(
         return !Float.isNaN(defaultTemperature);
     }
 
+    /** Gravity [m/s²] for the {@link #movable()} yield test (matches the engine's default g). */
+    static final float GRAVITY = 10.0f;
+
     /**
-     * The single movability test (spec invariant 1): a material is movable iff its viscosity
-     * is finite. Replaces every old fluid/gas/air/solid branch.
+     * The single movability test (spec invariant 1): a material is movable iff it has a finite
+     * viscosity AND its own weight beats its yield stress (law #8 v4.4: τ_y gates every mass motion).
+     * Natural solids carry a finite post-yield μ plus a large τ_y, so they are NOT movable at rest
+     * (stone, ice); only a material whose cell weight {@code defaultMass·g} exceeds τ_y flows by itself.
      */
     public boolean movable() {
-        return Float.isFinite(viscosity());
+        return Float.isFinite(viscosity()) && yieldStress() < defaultMass() * GRAVITY;
     }
 
     /** Start a fluent builder for the material {@code id}. Required setters must all be called. */

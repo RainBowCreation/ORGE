@@ -117,16 +117,16 @@ class AllMaterialsLoadTest {
     }
 
     // -------------------------------------------------------------------------
-    // (d) generic_solid has NO viscosity (frozen)
+    // (d) generic_solid is an immovable solid (law #8 v4.4: finite post-yield μ + τ_y above its weight)
     // -------------------------------------------------------------------------
 
     @Test
     void genericSolidIsFrozen() throws Exception {
         MaterialRegistry reg = loadAll();
         Material gs = reg.get(orge("generic_solid")).orElseThrow();
-        assertTrue(Float.isInfinite(gs.viscosity()),
-                "generic_solid omits viscosity => frozen (+Infinity)");
-        assertFalse(gs.movable());
+        assertEquals(1e9f, gs.viscosity(), 1e3f, "generic_solid post-yield μ");
+        assertEquals(1e7f, gs.yieldStress(), 1f, "generic_solid τ_y");
+        assertFalse(gs.movable(), "τ_y ≫ its own weight ⇒ not movable at rest");
     }
 
     // -------------------------------------------------------------------------
@@ -281,11 +281,13 @@ class AllMaterialsLoadTest {
         assertTrue(Float.isInfinite(ice.minTemp()), "ice has no min transition (minTemp = -∞)");
         assertNull(ice.minTarget(), "ice has no minTarget");
 
-        // --- movability invariant (law: movable iff finite viscosity)
-        assertFalse(stone.movable(), "stone is an immovable solid");
-        assertFalse(ice.movable(),   "ice is an immovable solid");
-        assertTrue(Float.isInfinite(stone.viscosity()), "stone viscosity = +∞ (frozen)");
-        assertTrue(Float.isInfinite(ice.viscosity()),   "ice viscosity = +∞ (frozen)");
+        // --- movability invariant (law #8 v4.4: movable iff finite μ AND own weight beats τ_y)
+        assertFalse(stone.movable(), "stone is an immovable solid at rest");
+        assertFalse(ice.movable(),   "ice is an immovable solid at rest");
+        assertEquals(1e9f, stone.viscosity(), 1e3f, "stone post-yield μ (finite, law #8 v4.4)");
+        assertEquals(1e8f, stone.yieldStress(), 1f, "stone τ_y");
+        assertEquals(1e4f, ice.viscosity(), 1e-2f, "ice post-yield μ (game-scale)");
+        assertEquals(1e5f, ice.yieldStress(), 1e-2f, "ice τ_y");
         assertTrue(water.movable(), "water is a movable fluid");
         assertTrue(lava.movable(),  "lava is a movable fluid");
         assertTrue(air.movable(),   "air is a movable gas");

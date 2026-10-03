@@ -46,4 +46,26 @@ class MaterialFluidTest {
                 """;
         assertFalse(MaterialCodec.fromJson(ID, JsonParser.parseString(json)).movable());
     }
+
+    @Test
+    void finiteViscositySolidWithYieldStressIsNotMovable() {
+        // Law #8 v4.4: natural solids carry a finite post-yield μ plus a large τ_y. Its own cell weight
+        // (defaultMass·g) never beats τ_y, so stone/ice are not movable at rest (never fluid-painted).
+        String stone = """
+                { "thermal_conductivity": 2.5, "heat_capacity": 800, "molar_mass": 0.065,
+                  "default_mass": 2700, "default_temperature": 290, "viscosity": 1e9, "yield_stress": 1e8 }
+                """;
+        String ice = """
+                { "thermal_conductivity": 2.2, "heat_capacity": 2108, "molar_mass": 0.018,
+                  "default_mass": 917, "default_temperature": 270, "viscosity": 1e4, "yield_stress": 1e5 }
+                """;
+        assertFalse(MaterialCodec.fromJson(ID, JsonParser.parseString(stone)).movable());
+        assertFalse(MaterialCodec.fromJson(ID, JsonParser.parseString(ice)).movable());
+        // a weak granular τ_y below the cell's own weight (100 kg · 10 = 1000 N) still flows
+        String sand = """
+                { "thermal_conductivity": 0.3, "heat_capacity": 800, "molar_mass": 0.06,
+                  "default_mass": 100, "default_temperature": 290, "viscosity": 10, "yield_stress": 500 }
+                """;
+        assertTrue(MaterialCodec.fromJson(ID, JsonParser.parseString(sand)).movable());
+    }
 }

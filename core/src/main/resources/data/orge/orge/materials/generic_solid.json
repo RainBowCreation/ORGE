@@ -6,5 +6,7 @@
   "default_temperature": 290,
   "representative_block": "minecraft:stone",
   "emissivity": 0.9,
-  "thermal_expansion": 2e-05
+  "thermal_expansion": 2e-05,
+  "viscosity": 1e9,
+  "yield_stress": 1e7
 }

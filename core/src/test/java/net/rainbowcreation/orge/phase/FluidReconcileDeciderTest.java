@@ -181,4 +181,41 @@ class FluidReconcileDeciderTest {
                 genericSolid(), genericSolid(), 2500f, FluidReconcileLogic.REMOVE, false, false, true);
         assertEquals(FluidReconcileDecider.Kind.SKIP, a.kind());
     }
+
+    /** Stone with law #8 v4.4 data: finite post-yield μ + large τ_y (still not movable at rest). */
+    private static Material yieldingStone() {
+        return Material.builder(orge("stone"))
+                .thermalConductivity(2.5f).heatCapacity(800f).molarMass(0.065f)
+                .defaultMass(2700f).defaultTemperature(290f).viscosity(1e9f).yieldStress(1e8f)
+                .representativeBlock(mc("stone"))
+                .build();
+    }
+
+    @Test
+    void finiteViscosityStoneIsNeverFluidPainted() {
+        // A sub-min (yielding) stone cell with finite μ must not take the fluid level path.
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                yieldingStone(), yieldingStone(), 1800f, FluidReconcileLogic.REMOVE, false, false, true, false);
+        assertEquals(FluidReconcileDecider.Kind.SKIP, a.kind());
+    }
+
+    @Test
+    void solidDrainedToVacuumByTheEngineIsCleared() {
+        // The engine held this cell as stone, the world still shows it, and it reported vacuum at ~0 kg:
+        // the yielded solid drained into a neighbour, so its block is removed.
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                yieldingStone(), yieldingStone(), 0f, FluidReconcileLogic.REMOVE, false, false, true, true);
+        assertEquals(FluidReconcileDecider.Kind.CLEAR, a.kind());
+    }
+
+    @Test
+    void untrackedOrEditedSolidIsNeverCleared() {
+        // No engine input species / world edited since the snapshot / mass still present ⇒ keep the block.
+        assertEquals(FluidReconcileDecider.Kind.SKIP, FluidReconcileDecider.decide(
+                stone(), stone(), 0f, FluidReconcileLogic.REMOVE, false, false, false, true).kind());
+        assertEquals(FluidReconcileDecider.Kind.SKIP, FluidReconcileDecider.decide(
+                stone(), stone(), 0f, FluidReconcileLogic.REMOVE, false, false, true, false).kind());
+        assertEquals(FluidReconcileDecider.Kind.SKIP, FluidReconcileDecider.decide(
+                yieldingStone(), yieldingStone(), 900f, FluidReconcileLogic.REMOVE, false, false, true, true).kind());
+    }
 }

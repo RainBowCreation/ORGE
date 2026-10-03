@@ -103,7 +103,8 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
                     worldMaterial, outMat, data.massAt(i),
                     bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
-                    worldShowsSpecies(current, worldMaterial, inMat));
+                    worldShowsSpecies(current, worldMaterial, inMat),
+                    inMat != null && outMaterial != null && outMaterial[i] == 0);
             if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
                 continue;
             }
@@ -114,7 +115,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             BlockPos pos = new BlockPos(ox + x, oy + y, oz + z);
 
             if (action.kind() == FluidReconcileDecider.Kind.CLEAR) {
-                // Decider already confirmed this cell holds a managed fluid block; remove it (→ air).
+                // Decider confirmed a managed fluid block, or a solid the engine drained; remove it (→ air).
                 setIfChanged(level, pos, current, Blocks.AIR.defaultBlockState());
                 continue;
             }
