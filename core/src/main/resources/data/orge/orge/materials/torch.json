@@ -1,10 +1,9 @@
 {
-  "thermal_conductivity": 1.0,
-  "heat_capacity": 1000,
-  "molar_mass": 0.06,
-  "default_mass": 100,
+  "thermal_conductivity": 0.127,
+  "heat_capacity": 1601,
+  "molar_mass": 0.162,
+  "default_mass": 0.2,
   "default_temperature": 800,
-  "pinned": true,
   "emissivity": 0.9,
-  "thermal_expansion": 2e-05
+  "pinned": true
 }

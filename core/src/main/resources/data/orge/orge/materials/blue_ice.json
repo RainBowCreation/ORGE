@@ -1,10 +1,18 @@
 {
-  "thermal_conductivity": 1.0,
-  "heat_capacity": 1000,
-  "molar_mass": 0.06,
-  "default_mass": 100,
+  "thermal_conductivity": 2.2,
+  "heat_capacity": 2108,
+  "molar_mass": 0.018,
+  "min_mass": 917,
+  "default_mass": 917,
+  "max_mass": 917,
   "default_temperature": 250,
-  "pinned": true,
   "emissivity": 0.97,
-  "thermal_expansion": 5e-05
+  "thermal_expansion": 5e-05,
+  "latent_heat_min": 0,
+  "latent_heat_max": 334000,
+  "max_temp": 273,
+  "max_target": "orge:water",
+  "viscosity": 1e+13,
+  "yield_stress": 2e+06,
+  "pinned": true
 }

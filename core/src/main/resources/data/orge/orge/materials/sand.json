@@ -1,0 +1,8 @@
+{
+  "thermal_conductivity": 0.27,
+  "heat_capacity": 830,
+  "molar_mass": 0.06,
+  "default_mass": 1600,
+  "default_temperature": 290,
+  "emissivity": 0.9
+}

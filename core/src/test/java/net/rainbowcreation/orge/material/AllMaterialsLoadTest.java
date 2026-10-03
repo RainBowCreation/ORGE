@@ -293,4 +293,42 @@ class AllMaterialsLoadTest {
         assertTrue(air.movable(),   "air is a movable gas");
         assertTrue(steam.movable(), "steam is a movable gas");
     }
+
+    // -------------------------------------------------------------------------
+    // (h) no new blocks: every material renders as an existing vanilla block
+    //     (steam has no block of its own; it downgrades to minecraft:air at the registry boundary)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void everyMaterialUsesAVanillaBlock() throws Exception {
+        MaterialRegistry reg = loadAll();
+        for (String stem : materialStems()) {
+            if (stem.equals("steam")) continue;
+            Identifier block = reg.get(orge(stem)).orElseThrow().representativeBlock();
+            assertNotNull(AllMaterialsLoadTest.class.getResource(
+                            "/assets/minecraft/blockstates/" + block.getPath() + ".json"),
+                    "orge:" + stem + " must use an existing vanilla block, got " + block);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // (i) a non-canonical phase source (snow → water, cobblestone → lava) must share the canonical
+    //     partner's curve (the target's min_target): same cp, latent heat and threshold, so the
+    //     chain-anchored relabel stays E-exact (law §6).
+    // -------------------------------------------------------------------------
+
+    @Test
+    void phaseSourcesShareTheirCanonicalPartnersCurve() throws Exception {
+        MaterialRegistry reg = loadAll();
+        for (String stem : materialStems()) {
+            Material m = reg.get(orge(stem)).orElseThrow();
+            if (m.maxTarget() == null) continue;
+            Identifier partnerId = reg.get(m.maxTarget()).orElseThrow().minTarget();
+            assertNotNull(partnerId, "orge:" + stem + " melts into " + m.maxTarget() + ", which has no min_target");
+            Material p = reg.get(partnerId).orElseThrow();
+            assertEquals(p.heatCapacity(), m.heatCapacity(), "orge:" + stem + " cp vs " + partnerId);
+            assertEquals(p.latentHeatMax(), m.latentHeatMax(), "orge:" + stem + " latent vs " + partnerId);
+            assertEquals(p.maxTemp(), m.maxTemp(), "orge:" + stem + " max_temp vs " + partnerId);
+        }
+    }
 }

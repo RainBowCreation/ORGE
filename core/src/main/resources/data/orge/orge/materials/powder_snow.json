@@ -1,0 +1,12 @@
+{
+  "thermal_conductivity": 0.069,
+  "heat_capacity": 2108,
+  "molar_mass": 0.018,
+  "default_mass": 100,
+  "default_temperature": 270,
+  "emissivity": 0.98,
+  "latent_heat_min": 0,
+  "latent_heat_max": 334000,
+  "max_temp": 273,
+  "max_target": "orge:water"
+}
