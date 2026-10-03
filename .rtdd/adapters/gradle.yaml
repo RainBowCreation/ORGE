@@ -1,0 +1,19 @@
+# ORGE override of the built-in gradle adapter: only `core` has tests, and integration-tagged
+# tests are excluded from `test` unless -Prtdd is passed (see core/build.gradle).
+name: gradle
+detect: ["build.gradle", "settings.gradle"]
+selection: static
+coverage: none
+subset: "./gradlew :core:test -Prtdd {tests}"
+test_flag: "--tests"
+test_selector: "*{name}"
+list: "./gradlew :core:test :core:integrationTest"
+report: junit-xml
+report_path: "core/build/test-results/test/"
+id_template: "{classname}.{name}"
+failfast_flag: "--fail-fast"
+test_for: ["core/src/test/java/{subdir}/{name}Test.java", "core/src/test/java/{subdir}/{name}Tests.java", "core/src/test/java/{subdir}/{name}IT.java", "core/src/test/java/{subdir}/{name}ReproTest.java"]
+test_globs: ["core/src/test/java/**/*.java"]
+source_globs: ["core/src/main/java/**/*.java", "core/src/test/java/**/*.java"]
+opaque: ["core/src/main/resources/**", "core/src/test/resources/**", "**/*.properties", "**/*.xml"]
+full_escalate: ["build.gradle", "core/build.gradle", "settings.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties"]

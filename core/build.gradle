@@ -73,7 +73,8 @@ def testForks = Math.max(1, (int) (Runtime.runtime.availableProcessors() / 2))
 
 test {
     useJUnitPlatform {
-        excludeTags "integration"
+        // -Prtdd: `rtdd run` names the exact classes via --tests, integration ones included.
+        if (!project.hasProperty("rtdd")) excludeTags "integration"
     }
     maxParallelForks = testForks
     maxHeapSize = "2g"
