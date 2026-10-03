@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 1.5,
+  "heat_capacity": 1480,
+  "molar_mass": 0.065,
+  "min_mass": 338,
+  "default_mass": 2700,
+  "max_mass": 2700,
+  "viscosity": 1000,
+  "default_temperature": 1573,
+  "emissivity": 0.95,
+  "thermal_expansion": 5e-05,
+  "latent_heat_min": 400000,
+  "latent_heat_max": 0,
+  "min_temp": 1473,
+  "min_target": "orge:basalt",
+  "representative_block": "minecraft:lava"
+}

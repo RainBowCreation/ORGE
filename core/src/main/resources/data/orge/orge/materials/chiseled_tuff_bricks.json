@@ -7,5 +7,8 @@
   "emissivity": 0.9,
   "thermal_expansion": 2.4e-05,
   "viscosity": 1e+21,
-  "yield_stress": 2e+07
+  "yield_stress": 2e+07,
+  "latent_heat_max": 270000,
+  "max_temp": 1173,
+  "max_target": "orge:molten_tuff"
 }

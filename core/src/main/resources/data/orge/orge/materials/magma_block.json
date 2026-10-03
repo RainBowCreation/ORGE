@@ -8,5 +8,8 @@
   "thermal_expansion": 2.4e-05,
   "viscosity": 1e+21,
   "yield_stress": 2e+08,
+  "latent_heat_max": 400000,
+  "max_temp": 1473,
+  "max_target": "orge:molten_basalt",
   "pinned": true
 }

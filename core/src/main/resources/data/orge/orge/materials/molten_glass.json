@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 1.2,
+  "heat_capacity": 1400,
+  "molar_mass": 0.06,
+  "min_mass": 300,
+  "default_mass": 2400,
+  "max_mass": 2400,
+  "viscosity": 4e+06,
+  "default_temperature": 1093,
+  "emissivity": 0.92,
+  "thermal_expansion": 5e-05,
+  "latent_heat_min": 0,
+  "latent_heat_max": 0,
+  "min_temp": 993,
+  "min_target": "orge:glass",
+  "representative_block": "minecraft:lava"
+}

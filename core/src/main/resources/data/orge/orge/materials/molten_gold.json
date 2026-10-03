@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 105,
+  "heat_capacity": 149,
+  "molar_mass": 0.197,
+  "min_mass": 2170,
+  "default_mass": 17360,
+  "max_mass": 17360,
+  "viscosity": 0.0051,
+  "default_temperature": 1437,
+  "emissivity": 0.1,
+  "thermal_expansion": 8.3e-05,
+  "latent_heat_min": 63700,
+  "latent_heat_max": 0,
+  "min_temp": 1337,
+  "min_target": "orge:gold_block",
+  "representative_block": "minecraft:lava"
+}

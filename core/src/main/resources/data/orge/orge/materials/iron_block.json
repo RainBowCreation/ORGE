@@ -5,5 +5,8 @@
   "default_mass": 7874,
   "default_temperature": 290,
   "emissivity": 0.3,
-  "thermal_expansion": 3.5e-05
+  "thermal_expansion": 3.5e-05,
+  "latent_heat_max": 247000,
+  "max_temp": 1811,
+  "max_target": "orge:molten_iron"
 }

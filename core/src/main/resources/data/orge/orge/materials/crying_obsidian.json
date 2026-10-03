@@ -5,5 +5,8 @@
   "default_mass": 2400,
   "default_temperature": 290,
   "emissivity": 0.9,
-  "thermal_expansion": 2.4e-05
+  "thermal_expansion": 2.4e-05,
+  "latent_heat_max": 0,
+  "max_temp": 1173,
+  "max_target": "orge:molten_obsidian"
 }

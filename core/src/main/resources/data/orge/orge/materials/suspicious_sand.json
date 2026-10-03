@@ -4,5 +4,8 @@
   "molar_mass": 0.06,
   "default_mass": 1600,
   "default_temperature": 290,
-  "emissivity": 0.9
+  "emissivity": 0.9,
+  "latent_heat_max": 160000,
+  "max_temp": 1986,
+  "max_target": "orge:molten_sand"
 }

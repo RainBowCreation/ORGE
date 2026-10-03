@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 40,
+  "heat_capacity": 824,
+  "molar_mass": 0.0558,
+  "min_mass": 879,
+  "default_mass": 7030,
+  "max_mass": 7030,
+  "viscosity": 0.0055,
+  "default_temperature": 1911,
+  "emissivity": 0.4,
+  "thermal_expansion": 0.00013,
+  "latent_heat_min": 247000,
+  "latent_heat_max": 0,
+  "min_temp": 1811,
+  "min_target": "orge:iron_block",
+  "representative_block": "minecraft:lava"
+}

@@ -7,5 +7,8 @@
   "emissivity": 0.9,
   "thermal_expansion": 2.4e-05,
   "viscosity": 1e+21,
-  "yield_stress": 1.8e+08
+  "yield_stress": 1.8e+08,
+  "latent_heat_max": 350000,
+  "max_temp": 1473,
+  "max_target": "orge:molten_diorite"
 }

@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 165,
+  "heat_capacity": 517,
+  "molar_mass": 0.0635,
+  "min_mass": 1000,
+  "default_mass": 8000,
+  "max_mass": 8000,
+  "viscosity": 0.004,
+  "default_temperature": 1458,
+  "emissivity": 0.15,
+  "thermal_expansion": 0.0001,
+  "latent_heat_min": 209000,
+  "latent_heat_max": 0,
+  "min_temp": 1358,
+  "min_target": "orge:copper_block",
+  "representative_block": "minecraft:lava"
+}

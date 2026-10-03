@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 1.4,
+  "heat_capacity": 1430,
+  "molar_mass": 0.06,
+  "min_mass": 275,
+  "default_mass": 2200,
+  "max_mass": 2200,
+  "viscosity": 1e+07,
+  "default_temperature": 2086,
+  "emissivity": 0.95,
+  "thermal_expansion": 5e-05,
+  "latent_heat_min": 160000,
+  "latent_heat_max": 0,
+  "min_temp": 1986,
+  "min_target": "orge:sandstone",
+  "representative_block": "minecraft:lava"
+}

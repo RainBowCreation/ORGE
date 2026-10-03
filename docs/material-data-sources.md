@@ -35,5 +35,33 @@ Not real-data (deliberate): `bedrock`, `tinted_glass` (k = 0 insulators); fictio
 (`glowstone`, `redstone_block`, `end_rod`, `nether_portal`, netherrack, end stone, soul sand…).
 Not covered: partial blocks (slabs, stairs, walls, fences), leaves, plants; they fall back to `generic_solid`.
 
+## Phase changes
+
+Each melting solid has its own molten partner (`orge:molten_<solid>`, rendered as `minecraft:lava`; no
+new block). One threshold T* both ways, so the chain-anchored relabel is E-exact and T-continuous
+(law §6; guarded by `phaseSourcesShareTheirCanonicalPartnersCurve`). Liquid window min = ρ/8.
+
+| Solid | T* (K) | L (J/kg) | Melt ρ / cp / μ (Pa·s) |
+|---|---|---|---|
+| granite | 1488 | 2.7e5 | 2300 / 1400 / 1e5 |
+| diorite, andesite, deepslate | 1473 | 3.5e5 | 2450 / 1400 / 3.5e4 (andesitic) |
+| tuff | 1173 | 2.7e5 | 2300 / 1400 / 1e8 (rhyolitic) |
+| basalt, blackstone, magma_block | 1473 | 4.0e5 | 2700 / 1480 / 1e3 |
+| sandstone, sand, quartz/amethyst (each its own melt) | 1986 | 1.6e5 (SiO2) | 2200 / 1430 / 1e7 |
+| obsidian (glass, L = 0) | 1173 | 0 | 2300 / 1400 / 1e9 |
+| glass (soda-lime softening point, L = 0) | 993 | 0 | 2400 / 1400 / 4e6 |
+| iron | 1811 | 2.47e5 | 7030 / 824 / 5.5e-3 |
+| gold | 1337 | 6.37e4 | 17360 / 149 / 5.1e-3 |
+| copper (all ages) | 1358 | 2.09e5 | 8000 / 517 / 4.0e-3 |
+
+Stone-made blocks melt into `orge:lava` (stone's chain); snow, packed and blue ice melt into water (ice's chain).
+Sources: Lesher & Spera, *Thermodynamic and transport properties of silicate melts and magma*
+(Encyclopedia of Volcanoes); melt viscosity tables (UMass Lowell petrology notes, Dingwell); CRC Handbook
+and Assael et al. reference data for liquid Fe/Cu/Au.
+
+No phase change (real process is chemistry, not melting): calcite/dripstone (calcination → CaO + CO2),
+clay/brick/terracotta/concrete (dehydration, vitrification), wood/coal/wool (pyrolysis, combustion),
+soils and mud (drying). Metals don't boil (no gas species).
+
 Known gaps: sand/gravel/mud stay rigid (cohesionless granular flow needs a friction-angle law, not τ_y);
-only stone-identical and ice-identical blocks melt (any other source would need its own chain partner).
+different molten species don't mix (immiscible, sorted by density).
