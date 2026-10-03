@@ -61,9 +61,12 @@ Liquid window min = ρ/8.
 | molten_copper | copper (all ages) | 1358 | 2.09e5 | 8000 / 517 / 4.0e-3 |
 | water | ice, packed/blue ice, snow, powder snow | 273 | 3.34e5 | |
 
-Boiling (vapor rendered as air, like steam): water → steam 373 K; molten iron → iron_vapor 3134 K
-(6.09e6 J/kg), copper → copper_vapor 2835 K (4.73e6), gold → gold_vapor 3129 K (1.65e6). Vapor: ideal gas
-at 1 atm, cp = 2.5R/M, μ Chapman–Enskog, k Eucken.
+Boiling / sublimation (vapor rendered as air, like steam): water → steam 373 K; molten iron → iron_vapor
+3134 K (6.09e6 J/kg), copper → copper_vapor 2835 K (4.73e6), gold → gold_vapor 3129 K (1.65e6) — monatomic,
+cp = 2.5R/M, k Eucken; molten quartz → silica_vapor 3220 K (1.17e7, dissociates to SiO + ½O2, mean
+M 0.040; DTIC AD0606246 total heat 6650 Btu/lb minus sensible + fusion); coal_block sublimes → carbon_vapor
+3915 K (2.28e7, mostly C3: JANAF ΔfH 820 kJ/mol). All vapors: ideal gas at 1 atm, μ Chapman–Enskog.
+Ice also covers `frosted_ice`; the `snow` layer is ⅛ of a 400 kg/m³ block (50 kg).
 
 Sources: Lesher & Spera, *Thermodynamic and transport properties of silicate melts and magma*
 (Encyclopedia of Volcanoes); melt viscosity tables (UMass Lowell petrology notes; Dingwell); Hawaiian
@@ -73,7 +76,8 @@ basalt lava rheology (150 Pa·s at 1125 °C); CRC Handbook and Assael et al. liq
 
 - **Chemistry, not phase change:** calcite/dripstone (calcination → CaO + CO2), clay/brick/terracotta/
   concrete (dehydration, vitrification), wood/coal/wool (pyrolysis, combustion), soils and mud (drying).
-- **Silicate boiling:** rock melts decompose before boiling; no vanilla block for the products.
+- **Rock-melt boiling:** basaltic/andesitic/felsic melts vaporize incongruently (no single boiling point).
+- **Liquid air** (condenses 79 K): would shift air's enthalpy zero, breaking saved worlds; not added.
 - **Cooling-rate products:** quenched felsic melt is obsidian, fast-cooled silica is glass; a phase
   pair freezes to one canonical solid.
 - **Fictional blocks:** `glowstone`, `redstone_block`, `end_rod`, `nether_portal` keep placeholder data;

@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 0.166,
+  "heat_capacity": 1740,
+  "molar_mass": 0.036,
+  "min_mass": 0.0112,
+  "default_mass": 0.112,
+  "max_mass": 1500,
+  "viscosity": 8.18e-05,
+  "default_temperature": 4015,
+  "emissivity": 0,
+  "latent_heat_min": 2.28e+07,
+  "latent_heat_max": 0,
+  "t_ref_gas": 3915,
+  "min_temp": 3915,
+  "min_target": "orge:coal_block",
+  "representative_block": "minecraft:air"
+}

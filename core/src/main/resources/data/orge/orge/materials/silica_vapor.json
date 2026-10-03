@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 0.102,
+  "heat_capacity": 972,
+  "molar_mass": 0.04,
+  "min_mass": 0.0151,
+  "default_mass": 0.151,
+  "max_mass": 2200,
+  "viscosity": 8.29e-05,
+  "default_temperature": 3320,
+  "emissivity": 0,
+  "latent_heat_min": 1.17e+07,
+  "latent_heat_max": 0,
+  "t_ref_gas": 3220,
+  "min_temp": 3220,
+  "min_target": "orge:molten_quartz",
+  "representative_block": "minecraft:air"
+}

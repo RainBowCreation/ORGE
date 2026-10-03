@@ -4,5 +4,8 @@
   "molar_mass": 0.012,
   "default_mass": 1500,
   "default_temperature": 290,
-  "emissivity": 0.8
+  "emissivity": 0.8,
+  "latent_heat_max": 2.28e+07,
+  "max_temp": 3915,
+  "max_target": "orge:carbon_vapor"
 }
