@@ -1,0 +1,11 @@
+{
+  "thermal_conductivity": 0.226,
+  "heat_capacity": 1117,
+  "molar_mass": 0.227,
+  "default_mass": 1654,
+  "default_temperature": 290,
+  "emissivity": 0.9,
+  "latent_heat_max": 94000,
+  "max_temp": 353.5,
+  "max_target": "orge:molten_tnt"
+}

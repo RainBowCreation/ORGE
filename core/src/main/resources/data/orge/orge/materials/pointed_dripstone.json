@@ -1,0 +1,11 @@
+{
+  "thermal_conductivity": 2.5,
+  "heat_capacity": 840,
+  "molar_mass": 0.1,
+  "default_mass": 260,
+  "default_temperature": 290,
+  "emissivity": 0.95,
+  "thermal_expansion": 1.5e-05,
+  "viscosity": 1e+21,
+  "yield_stress": 6e+07
+}

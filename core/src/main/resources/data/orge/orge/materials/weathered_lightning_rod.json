@@ -1,0 +1,12 @@
+{
+  "thermal_conductivity": 401,
+  "heat_capacity": 385,
+  "molar_mass": 0.0635,
+  "default_mass": 179.2,
+  "default_temperature": 290,
+  "emissivity": 0.78,
+  "thermal_expansion": 5e-05,
+  "latent_heat_max": 209000,
+  "max_temp": 1358,
+  "max_target": "orge:molten_copper"
+}

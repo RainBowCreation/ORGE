@@ -24,6 +24,12 @@ class BlockMaterialRuleTest {
         assertEquals(id("orge", "air"),   BlockMaterialRule.firstTouch(id("minecraft", "air"),   r));
     }
 
+    @Test void aliasedBlockResolvesToItsMaterial() {
+        MaterialRegistry r = registryWith("air", "generic_solid");
+        r.alias(id("minecraft", "cave_air"), id("orge", "air"));
+        assertEquals(id("orge", "air"), BlockMaterialRule.firstTouch(id("minecraft", "cave_air"), r));
+    }
+
     @Test void missFallsBackToGenericSolid() {
         MaterialRegistry r = registryWith("stone", "generic_solid");
         assertEquals(id("orge", "generic_solid"),

@@ -23,10 +23,21 @@ public final class MaterialRegistry {
             Identifier.fromNamespaceAndPath(net.rainbowcreation.orge.Orge.MOD_ID, "generic_solid");
 
     private final Map<Identifier, Material> byId = new ConcurrentHashMap<>();
+    private final Map<Identifier, Identifier> blockAliases = new ConcurrentHashMap<>();
 
     /** Register or replace a material. Used by the JSON loader and the Java API. */
     public void put(Material material) {
         byId.put(material.id(), material);
+    }
+
+    /** Bind another vanilla {@code block} to material {@code materialId} (its JSON {@code "blocks"} list). */
+    public void alias(Identifier block, Identifier materialId) {
+        blockAliases.put(block, materialId);
+    }
+
+    /** The material id a vanilla block is aliased to, if any. */
+    public Optional<Identifier> aliasOf(Identifier block) {
+        return Optional.ofNullable(blockAliases.get(block));
     }
 
     public Optional<Material> get(Identifier id) {
@@ -58,6 +69,7 @@ public final class MaterialRegistry {
 
     public void clear() {
         byId.clear();
+        blockAliases.clear();
     }
 
     // TODO(phase: materials): build the dense MaterialLUT (id -> uint16 index) the

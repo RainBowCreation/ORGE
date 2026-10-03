@@ -1,0 +1,16 @@
+{
+  "thermal_conductivity": 0.226,
+  "heat_capacity": 1314,
+  "molar_mass": 0.227,
+  "min_mass": 183,
+  "default_mass": 1465,
+  "max_mass": 1465,
+  "viscosity": 0.0095,
+  "default_temperature": 363,
+  "emissivity": 0.9,
+  "latent_heat_min": 94000,
+  "latent_heat_max": 0,
+  "min_temp": 353.5,
+  "min_target": "orge:tnt",
+  "representative_block": "minecraft:water"
+}

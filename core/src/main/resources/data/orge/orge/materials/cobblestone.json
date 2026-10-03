@@ -12,5 +12,15 @@
   "max_mass": 2700,
   "latent_heat_max": 270000,
   "max_temp": 1328,
-  "max_target": "orge:molten_granite"
+  "max_target": "orge:molten_granite",
+  "blocks": [
+    "minecraft:infested_cobblestone",
+    "minecraft:furnace",
+    "minecraft:smoker",
+    "minecraft:dispenser",
+    "minecraft:dropper",
+    "minecraft:observer",
+    "minecraft:piston",
+    "minecraft:sticky_piston"
+  ]
 }

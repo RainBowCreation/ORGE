@@ -10,5 +10,8 @@
   "yield_stress": 1.4e+08,
   "latent_heat_max": 350000,
   "max_temp": 1373,
-  "max_target": "orge:molten_andesite"
+  "max_target": "orge:molten_andesite",
+  "blocks": [
+    "minecraft:infested_deepslate"
+  ]
 }

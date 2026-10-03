@@ -14,5 +14,6 @@
   "min_temp": 273,
   "min_target": "orge:ice",
   "max_temp": 373,
-  "max_target": "orge:steam"
+  "max_target": "orge:steam",
+  "blocks": ["minecraft:bubble_column", "minecraft:kelp", "minecraft:kelp_plant", "minecraft:seagrass", "minecraft:tall_seagrass"]
 }

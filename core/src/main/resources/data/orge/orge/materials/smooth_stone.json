@@ -12,5 +12,8 @@
   "max_mass": 2700,
   "latent_heat_max": 270000,
   "max_temp": 1328,
-  "max_target": "orge:molten_granite"
+  "max_target": "orge:molten_granite",
+  "blocks": [
+    "minecraft:blast_furnace"
+  ]
 }

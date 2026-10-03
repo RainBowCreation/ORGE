@@ -1,0 +1,12 @@
+{
+  "thermal_conductivity": 80,
+  "heat_capacity": 449,
+  "molar_mass": 0.0558,
+  "default_mass": 472.44,
+  "default_temperature": 290,
+  "emissivity": 0.3,
+  "thermal_expansion": 3.5e-05,
+  "latent_heat_max": 247000,
+  "max_temp": 1811,
+  "max_target": "orge:molten_iron"
+}

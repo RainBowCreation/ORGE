@@ -4,5 +4,19 @@
   "molar_mass": 0.162,
   "default_mass": 750,
   "default_temperature": 290,
-  "emissivity": 0.9
+  "emissivity": 0.9,
+  "blocks": [
+    "minecraft:crafting_table",
+    "minecraft:cartography_table",
+    "minecraft:fletching_table",
+    "minecraft:smithing_table",
+    "minecraft:note_block",
+    "minecraft:jukebox",
+    "minecraft:bookshelf",
+    "minecraft:chiseled_bookshelf",
+    "minecraft:barrel",
+    "minecraft:beehive",
+    "minecraft:bee_nest",
+    "minecraft:composter"
+  ]
 }

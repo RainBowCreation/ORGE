@@ -1,0 +1,10 @@
+{
+  "thermal_conductivity": 80,
+  "heat_capacity": 449,
+  "molar_mass": 0.0558,
+  "default_mass": 1,
+  "default_temperature": 1300,
+  "emissivity": 0.000515,
+  "thermal_expansion": 3.5e-05,
+  "pinned": true
+}

@@ -97,7 +97,12 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
             // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
             // call (fluid test, level math, species-aware throttle, §7 whitelist, repr-block pick).
-            boolean currentIsLiquid = current.getBlock() instanceof LiquidBlock;
+            // A fluid whose own block isn't a LiquidBlock (honey renders as honey_block) is still the
+            // managed fluid block here, so it can be cleared when drained. Kelp (aliased to water) is not
+            // water's own block, so it is never stomped.
+            boolean currentIsLiquid = current.getBlock() instanceof LiquidBlock
+                    || (worldMaterial != null && worldMaterial.movable() && !current.isAir()
+                        && current.getBlock() == BuiltInRegistries.BLOCK.getValue(worldMaterial.representativeBlock()));
             // Stale-write guard for the species paint: this step's INPUT species (null = vacuum/unknown).
             Material inMat = EngineOutSpecies.resolve(inMaterial, outLut, i, null);
             FluidReconcileDecider.Action action = FluidReconcileDecider.decide(

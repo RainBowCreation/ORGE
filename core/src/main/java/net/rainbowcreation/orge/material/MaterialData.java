@@ -37,6 +37,14 @@ public final class MaterialData {
             try {
                 Material material = MaterialCodec.fromJson(id, entry.getValue());
                 into.put(material);
+                // Optional "blocks": other vanilla blocks that ARE this substance (cave_air → air,
+                // kelp → water). First touch of such a block resolves to this material.
+                JsonElement blocks = entry.getValue().getAsJsonObject().get("blocks");
+                if (blocks != null) {
+                    for (JsonElement b : blocks.getAsJsonArray()) {
+                        into.alias(Identifier.parse(b.getAsString()), id);
+                    }
+                }
             } catch (Exception e) {
                 throw new IllegalArgumentException("failed to load material " + id + ": " + e.getMessage(), e);
             }

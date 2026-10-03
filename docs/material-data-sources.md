@@ -34,6 +34,32 @@ existing vanilla block (`steam` and metal vapors → air, melts → lava). Guard
 | Wool | wool ×16 | felt k 0.05, c 1360, 300 |
 | Partial blocks | every `_slab` (½) and `_stairs` (¾) of a block above | same substance × filled volume (a double slab still reads ½) |
 
+## Block aliases (other vanilla blocks that ARE an existing material)
+
+A material JSON may list `"blocks"`: their first touch resolves to that material (one species, so a
+cave's air mixes with the sky's). `air`: cave_air, void_air, light. `water`: bubble_column, kelp,
+kelp_plant, seagrass, tall_seagrass. `stone`/`cobblestone`/stone bricks/`deepslate`: their infested_*
+twins. `oak_planks`: crafting/cartography/fletching/smithing tables, note block, jukebox, bookshelves,
+barrel, beehive, bee nest, composter. `cobblestone`: furnace, smoker, dispenser, dropper, observer,
+pistons. `smooth_stone`: blast furnace. Guarded by `blockAliasesAreVanillaAndUnique`.
+
+## More real substances
+
+| Block | Values / source |
+|---|---|
+| tnt (cast TNT) | ρ 1654, k 0.226, cp 1117 (0.254 + 7.5e-4·T cal/g·K); melts 353.5 K, ΔH_fus 21.4 kJ/mol (9.4e4 J/kg) into molten_tnt (water-rendered): ρ 1465, μ 9.5 mPa·s at 85 °C. Detonation not modeled |
+| honey_block | a real liquid (FAO): ρ 1420, cp 2700, k 0.44, μ 19 Pa·s (clover honey, 16 % water, 20 °C) |
+| raw_gold_block / raw_copper_block | native gold / copper (melt with the metal) |
+| raw_iron_block | magnetite Fe3O4: ρ 5180, k 5.1, cp 651 (JANAF) |
+| bone_block | cortical bone (IT'IS tissue DB): ρ 1908, cp 1313, k 0.32 |
+| hay_block, target | field straw bale: ρ 110, k 0.052, cp 1540 |
+| leaves | dense-crown canopy bulk density 0.4 kg/m³ dry, ×2 fresh = 0.8 kg; cp 3000; k of air; ε 0.97 |
+| grass, flowers, crops, saplings, vines, small mushrooms | ~1 kg fresh herbaceous biomass per cell; k of air; ε 0.97 |
+| anvils, cauldron, hopper, iron bars, chain, rails | iron × the vanilla model's filled volume (0.40 / 0.50 / 0.35 / 0.06 / 0.02) |
+| copper bars, chains, lightning rods, bulbs | copper (each age) × model volume (0.06 / 0.02 / 0.02 / 1) |
+| copper torch / lantern | the torch / lantern flame |
+| pointed dripstone, amethyst cluster & buds, carpets | parent material × model volume |
+
 ## Heat sources (pinned = burning fuel holds the flame temperature)
 
 Wood/pitch flame 1300 K. A torch releases ~2 kW, ~25 % radiant, so its cell's effective emissivity is
@@ -80,6 +106,12 @@ basalt lava rheology (150 Pa·s at 1125 °C); CRC Handbook and Assael et al. liq
 - **Liquid air** (condenses 79 K): would shift air's enthalpy zero, breaking saved worlds; not added.
 - **Cooling-rate products:** quenched felsic melt is obsidian, fast-cooled silica is glass; a phase
   pair freezes to one canonical solid.
+- **No source found (left on the fallback):** beeswax cp (honeycomb_block, candles), diamond's total
+  emissivity (IR-transparent), watermelon/pumpkin bulk density and conductivity (their ASHRAE freezing data
+  exists), molten magnetite density/viscosity (raw iron doesn't melt), coral skeletons, sponge, moss,
+  mushroom blocks, cactus, dried kelp, bell (bronze), chests.
+- **Waterlogged blocks** (stairs, slabs, coral…) ignore their water: treating them as water would let a
+  drain delete the block.
 - **Fictional blocks:** `glowstone`, `redstone_block`, `end_rod`, `nether_portal` keep placeholder data;
   netherrack, end stone, soul sand/soil and nether stems fall back to `generic_solid`.
 - **Deliberate:** `bedrock`, `tinted_glass` (k = 0 insulators).

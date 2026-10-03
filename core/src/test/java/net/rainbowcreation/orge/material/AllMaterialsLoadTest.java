@@ -334,4 +334,29 @@ class AllMaterialsLoadTest {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // (j) block aliases: every aliased block is a real vanilla block with no material file of its own,
+    //     bound to exactly one material; caves are air and always-submerged plants are water.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void blockAliasesAreVanillaAndUnique() throws Exception {
+        Set<String> stems = materialStems();
+        Map<String, String> seen = new java.util.HashMap<>();
+        for (String stem : stems) {
+            JsonElement blocks = resource(stem).getAsJsonObject().get("blocks");
+            if (blocks == null) continue;
+            for (JsonElement b : blocks.getAsJsonArray()) {
+                String path = Identifier.parse(b.getAsString()).getPath();
+                assertNotNull(AllMaterialsLoadTest.class.getResource("/assets/minecraft/blockstates/" + path + ".json"),
+                        "orge:" + stem + " aliases non-vanilla block " + b);
+                assertFalse(stems.contains(path), path + " has its own material file AND an alias in orge:" + stem);
+                assertNull(seen.put(path, stem), path + " aliased twice");
+            }
+        }
+        MaterialRegistry reg = loadAll();
+        assertEquals(orge("air"), BlockMaterialRule.firstTouch(Identifier.parse("minecraft:cave_air"), reg));
+        assertEquals(orge("water"), BlockMaterialRule.firstTouch(Identifier.parse("minecraft:kelp"), reg));
+    }
 }

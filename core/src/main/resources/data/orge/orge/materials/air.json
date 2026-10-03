@@ -11,5 +11,6 @@
   "thermal_expansion": 0,
   "latent_heat_min": 0,
   "latent_heat_max": 0,
-  "t_ref_gas": 288
+  "t_ref_gas": 288,
+  "blocks": ["minecraft:cave_air", "minecraft:void_air", "minecraft:light"]
 }
