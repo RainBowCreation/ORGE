@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 0.082,
+  "heat_capacity": 327,
+  "molar_mass": 0.0635,
+  "min_mass": 0.0273,
+  "default_mass": 0.273,
+  "max_mass": 8000,
+  "viscosity": 0.000168,
+  "default_temperature": 2935,
+  "emissivity": 0,
+  "latent_heat_min": 4.73e+06,
+  "latent_heat_max": 0,
+  "t_ref_gas": 2835,
+  "min_temp": 2835,
+  "min_target": "orge:molten_copper",
+  "representative_block": "minecraft:air"
+}

@@ -7,7 +7,7 @@
   "max_mass": 917,
   "default_temperature": 270,
   "emissivity": 0.97,
-  "thermal_expansion": 5e-05,
+  "thermal_expansion": 0.000153,
   "latent_heat_min": 0,
   "latent_heat_max": 334000,
   "max_temp": 273,

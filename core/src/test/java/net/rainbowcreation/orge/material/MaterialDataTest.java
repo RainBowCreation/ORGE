@@ -160,8 +160,8 @@ class MaterialDataTest {
 
         // lava.json extra fields
         Material lava = registry.get(id("orge:lava")).get();
-        assertEquals(Identifier.parse("orge:stone"),
+        assertEquals(Identifier.parse("orge:basalt"),
                 lava.minTarget(),
-                "lava.minTarget should be the orge:stone MATERIAL id");
+                "lava (basaltic melt) freezes to the orge:basalt MATERIAL id");
     }
 }

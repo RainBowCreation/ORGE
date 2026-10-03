@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 0.092,
+  "heat_capacity": 372,
+  "molar_mass": 0.0558,
+  "min_mass": 0.0217,
+  "default_mass": 0.217,
+  "max_mass": 7030,
+  "viscosity": 0.000165,
+  "default_temperature": 3234,
+  "emissivity": 0,
+  "latent_heat_min": 6.09e+06,
+  "latent_heat_max": 0,
+  "t_ref_gas": 3134,
+  "min_temp": 3134,
+  "min_target": "orge:molten_iron",
+  "representative_block": "minecraft:air"
+}

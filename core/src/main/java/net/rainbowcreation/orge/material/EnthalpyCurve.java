@@ -70,6 +70,19 @@ public final class EnthalpyCurve {
         Identifier coldId = m.minTarget();
         Material colder = (coldId == null) ? null : lookup.apply(coldId);
         if (colder == null) {
+            // NON-CANONICAL MELT SOURCE (mirrors the engine's curve_anchor): the hotter phase freezes back
+            // into ANOTHER material, so anchor from ABOVE — h(maxTemp) + latentHeatMax ≡ h_hot(maxTemp).
+            Material hot = (m.maxTarget() == null) ? null : lookup.apply(m.maxTarget());
+            if (hot != null && hot.minTarget() != null && !hot.minTarget().equals(m.id())
+                    && lookup.apply(hot.minTarget()) != null) {
+                CurveAnchor ha = curveAnchor(hot, lookup, depth + 1);
+                if (ha == CYCLE) {
+                    return CYCLE;
+                }
+                double tStar = m.maxTemp();
+                return new CurveAnchor(tStar, ha.hAnchor() + (double) hot.heatCapacity() * (tStar - ha.tAnchor())
+                        - (double) m.latentHeatMax());
+            }
             return new CurveAnchor(0.0, 0.0); // ROOT: legacy single slope
         }
         double tStar = m.minTemp();

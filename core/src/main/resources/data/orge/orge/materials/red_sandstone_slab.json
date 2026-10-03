@@ -1,0 +1,14 @@
+{
+  "thermal_conductivity": 2.4,
+  "heat_capacity": 920,
+  "molar_mass": 0.06,
+  "default_mass": 1150,
+  "default_temperature": 290,
+  "emissivity": 0.9,
+  "thermal_expansion": 3e-05,
+  "viscosity": 1e+21,
+  "yield_stress": 6e+07,
+  "latent_heat_max": 160000,
+  "max_temp": 1986,
+  "max_target": "orge:molten_quartz"
+}

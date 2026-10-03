@@ -43,10 +43,9 @@ class MaterialThreeMassJsonTest {
     void lavaHasFloorAndCap() throws Exception {
         Material l = load("lava");
         assertTrue(l.movable(), "lava JSON has viscosity -> movable");
-        // v4 §1.2 / engine_b_real_lut.hpp line 38: lava 330/2650/2650 (basaltic melt,
-        // lighter than its 2700 stone solid). Migrated from the old 400/3100 placeholders.
-        assertEquals(330f, l.minMass(), 1e-4f);
-        assertEquals(2650f, l.maxMass(), 1e-4f);
+        // Real basaltic melt 2700 kg/m³ (lighter than its 2900 basalt solid); min = ρ/8 flow levels.
+        assertEquals(338f, l.minMass(), 1e-4f);
+        assertEquals(2700f, l.maxMass(), 1e-4f);
     }
 
     @Test

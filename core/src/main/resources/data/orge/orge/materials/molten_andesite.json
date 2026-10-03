@@ -5,13 +5,13 @@
   "min_mass": 306,
   "default_mass": 2450,
   "max_mass": 2450,
-  "viscosity": 35000,
-  "default_temperature": 1573,
+  "viscosity": 100000,
+  "default_temperature": 1473,
   "emissivity": 0.95,
   "thermal_expansion": 5e-05,
   "latent_heat_min": 350000,
   "latent_heat_max": 0,
-  "min_temp": 1473,
+  "min_temp": 1373,
   "min_target": "orge:andesite",
   "representative_block": "minecraft:lava"
 }

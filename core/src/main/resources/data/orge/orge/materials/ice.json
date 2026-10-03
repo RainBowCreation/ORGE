@@ -7,11 +7,11 @@
   "max_mass": 917,
   "default_temperature": 270,
   "emissivity": 0.97,
-  "thermal_expansion": 5e-5,
+  "thermal_expansion": 0.000153,
   "latent_heat_min": 0,
-  "latent_heat_max": 3.34e5,
+  "latent_heat_max": 334000,
   "max_temp": 273,
   "max_target": "orge:water",
-  "viscosity": 1e13,
-  "yield_stress": 2e6
+  "viscosity": 1e+13,
+  "yield_stress": 2e+06
 }

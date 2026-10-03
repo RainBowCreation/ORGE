@@ -10,8 +10,10 @@
   "emissivity": 0.1,
   "thermal_expansion": 8.3e-05,
   "latent_heat_min": 63700,
-  "latent_heat_max": 0,
+  "latent_heat_max": 1.65e+06,
   "min_temp": 1337,
   "min_target": "orge:gold_block",
-  "representative_block": "minecraft:lava"
+  "representative_block": "minecraft:lava",
+  "max_temp": 3129,
+  "max_target": "orge:gold_vapor"
 }

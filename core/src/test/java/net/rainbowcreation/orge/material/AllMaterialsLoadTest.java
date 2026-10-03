@@ -199,9 +199,9 @@ class AllMaterialsLoadTest {
         assertEquals(2.1e-4f, water.thermalExpansion(), 1e-9f, "water β");
         assertEquals(5e-5f,   lava.thermalExpansion(),  1e-9f, "lava β");
         assertEquals(0.0f,    air.thermalExpansion(),   1e-9f, "air β (gas: EOS does expansion)");
-        assertEquals(2e-5f,   stone.thermalExpansion(), 1e-9f, "stone β");
+        assertEquals(2.4e-5f, stone.thermalExpansion(), 1e-9f, "stone β (granite, volumetric)");
         assertEquals(0.0f,    steam.thermalExpansion(), 1e-9f, "steam β (gas)");
-        assertEquals(5e-5f,   ice.thermalExpansion(),   1e-9f, "ice β");
+        assertEquals(1.53e-4f, ice.thermalExpansion(), 1e-9f, "ice β (volumetric 3 × 5.1e-5)");
 
         // --- latent heats J/kg (relative tol so the big numbers don't need exact float)
         // water: freeze 3.34e5, boil 2.256e6
@@ -213,9 +213,9 @@ class AllMaterialsLoadTest {
         // air: none
         assertEquals(0f, air.latentHeatMin(), 1e-6f, "air L_min = 0");
         assertEquals(0f, air.latentHeatMax(), 1e-6f, "air L_max = 0");
-        // stone: melt 4.0e5 on the max side
+        // stone: melt 2.7e5 (felsic melt) on the max side
         assertEquals(0f,     stone.latentHeatMin(), 1e-6f, "stone L_min = 0");
-        assertEquals(4.0e5f, stone.latentHeatMax(), Math.abs(4.0e5f) * 1e-4f + 1e-6f, "stone L_max (melt)");
+        assertEquals(2.7e5f, stone.latentHeatMax(), Math.abs(2.7e5f) * 1e-4f + 1e-6f, "stone L_max (melt)");
         // steam: condense 2.256e6 on the MIN side (steam's only transition is minTemp 373 -> water;
         // latentHeatMin is keyed to the minTemp/minTarget transition per real_lut.hpp + sim_engine.hpp
         // curve anchor — the engine applies the min plateau iff minTarget set AND latentHeatMin>0)
@@ -237,9 +237,9 @@ class AllMaterialsLoadTest {
         assertEquals(125f,  water.minMass(),     1e-3f, "water minMass");
         assertEquals(1000f, water.defaultMass(), 1e-3f, "water defaultMass");
         assertEquals(1000f, water.maxMass(),     1e-3f, "water maxMass");
-        assertEquals(330f,  lava.minMass(),      1e-3f, "lava minMass");
-        assertEquals(2650f, lava.defaultMass(),  1e-3f, "lava defaultMass");
-        assertEquals(2650f, lava.maxMass(),      1e-3f, "lava maxMass");
+        assertEquals(338f,  lava.minMass(),      1e-3f, "lava minMass (ρ/8)");
+        assertEquals(2700f, lava.defaultMass(),  1e-3f, "lava defaultMass (basaltic melt)");
+        assertEquals(2700f, lava.maxMass(),      1e-3f, "lava maxMass");
         assertEquals(1.0f,  air.minMass(),       1e-3f, "air minMass");
         assertEquals(1.2f,  air.defaultMass(),   1e-3f, "air defaultMass");
         assertEquals(1000f, air.maxMass(),       1e-3f, "air maxMass");
@@ -260,14 +260,14 @@ class AllMaterialsLoadTest {
         assertEquals(orge("ice"), water.minTarget(), "water minTarget");
         assertEquals(373f, water.maxTemp(), 1e-3f, "water maxTemp (integer 373)");
         assertEquals(orge("steam"), water.maxTarget(), "water maxTarget");
-        // lava: solidify 1275 -> stone; no max side
-        assertEquals(1275f, lava.minTemp(), 1e-3f, "lava minTemp");
-        assertEquals(orge("stone"), lava.minTarget(), "lava minTarget");
+        // lava (basaltic melt): solidify 1398 -> basalt; no max side
+        assertEquals(1398f, lava.minTemp(), 1e-3f, "lava minTemp (basalt solidus–liquidus midpoint)");
+        assertEquals(orge("basalt"), lava.minTarget(), "lava minTarget");
         assertTrue(Float.isInfinite(lava.maxTemp()), "lava has no max transition (maxTemp = +∞)");
         assertNull(lava.maxTarget(), "lava has no maxTarget");
-        // stone: melt 1450 -> lava; no min side
-        assertEquals(1450f, stone.maxTemp(), 1e-3f, "stone maxTemp");
-        assertEquals(orge("lava"), stone.maxTarget(), "stone maxTarget");
+        // stone: melt 1328 -> felsic melt (refreezes as granite); no min side
+        assertEquals(1328f, stone.maxTemp(), 1e-3f, "stone maxTemp");
+        assertEquals(orge("molten_granite"), stone.maxTarget(), "stone maxTarget");
         assertTrue(Float.isInfinite(stone.minTemp()), "stone has no min transition (minTemp = -∞)");
         assertNull(stone.minTarget(), "stone has no minTarget");
         // steam: condense 373 -> water; no max side
@@ -312,23 +312,26 @@ class AllMaterialsLoadTest {
     }
 
     // -------------------------------------------------------------------------
-    // (i) a non-canonical phase source (snow → water, cobblestone → lava) must share the canonical
-    //     partner's curve (the target's min_target): same cp, latent heat and threshold, so the
-    //     chain-anchored relabel stays E-exact (law §6).
+    // (i) every phase relabel is E-exact with T continuous (law §6), in BOTH directions — including a
+    //     non-canonical source (sand → molten quartz → quartz block), which anchors from above.
     // -------------------------------------------------------------------------
 
     @Test
-    void phaseSourcesShareTheirCanonicalPartnersCurve() throws Exception {
+    void everyPhaseRelabelIsTemperatureContinuous() throws Exception {
         MaterialRegistry reg = loadAll();
+        java.util.function.Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
         for (String stem : materialStems()) {
             Material m = reg.get(orge(stem)).orElseThrow();
-            if (m.maxTarget() == null) continue;
-            Identifier partnerId = reg.get(m.maxTarget()).orElseThrow().minTarget();
-            assertNotNull(partnerId, "orge:" + stem + " melts into " + m.maxTarget() + ", which has no min_target");
-            Material p = reg.get(partnerId).orElseThrow();
-            assertEquals(p.heatCapacity(), m.heatCapacity(), "orge:" + stem + " cp vs " + partnerId);
-            assertEquals(p.latentHeatMax(), m.latentHeatMax(), "orge:" + stem + " latent vs " + partnerId);
-            assertEquals(p.maxTemp(), m.maxTemp(), "orge:" + stem + " max_temp vs " + partnerId);
+            if (m.maxTarget() != null) {   // melt / boil: plateau top on m == the hot phase at T*
+                double eta = EnthalpyCurve.hOf(m, lookup, m.maxTemp()) + m.latentHeatMax();
+                float t = EnthalpyCurve.tOfEta(lookup.apply(m.maxTarget()), lookup, eta, Float.NaN);
+                assertEquals(m.maxTemp(), t, 1e-2f, "orge:" + stem + " → " + m.maxTarget() + " T jump");
+            }
+            if (m.minTarget() != null) {   // freeze / condense: plateau bottom on m == the cold phase at T*
+                double eta = EnthalpyCurve.hOf(m, lookup, m.minTemp()) - m.latentHeatMin();
+                float t = EnthalpyCurve.tOfEta(lookup.apply(m.minTarget()), lookup, eta, Float.NaN);
+                assertEquals(m.minTemp(), t, 1e-2f, "orge:" + stem + " → " + m.minTarget() + " T jump");
+            }
         }
     }
 }

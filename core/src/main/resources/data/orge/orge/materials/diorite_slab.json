@@ -1,0 +1,14 @@
+{
+  "thermal_conductivity": 2.3,
+  "heat_capacity": 800,
+  "molar_mass": 0.065,
+  "default_mass": 1425,
+  "default_temperature": 290,
+  "emissivity": 0.9,
+  "thermal_expansion": 2.4e-05,
+  "viscosity": 1e+21,
+  "yield_stress": 1.8e+08,
+  "latent_heat_max": 350000,
+  "max_temp": 1373,
+  "max_target": "orge:molten_andesite"
+}

@@ -5,13 +5,13 @@
   "min_mass": 288,
   "default_mass": 2300,
   "max_mass": 2300,
-  "viscosity": 100000,
-  "default_temperature": 1588,
+  "viscosity": 1e+07,
+  "default_temperature": 1428,
   "emissivity": 0.95,
   "thermal_expansion": 5e-05,
   "latent_heat_min": 270000,
   "latent_heat_max": 0,
-  "min_temp": 1488,
+  "min_temp": 1328,
   "min_target": "orge:granite",
   "representative_block": "minecraft:lava"
 }

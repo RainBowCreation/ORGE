@@ -1,0 +1,16 @@
+{
+  "thermal_conductivity": 2.5,
+  "heat_capacity": 800,
+  "molar_mass": 0.065,
+  "default_mass": 1350,
+  "default_temperature": 290,
+  "emissivity": 0.9,
+  "thermal_expansion": 2.4e-05,
+  "viscosity": 1e+21,
+  "yield_stress": 1.4e+08,
+  "min_mass": 1350,
+  "max_mass": 1350,
+  "latent_heat_max": 270000,
+  "max_temp": 1328,
+  "max_target": "orge:molten_granite"
+}

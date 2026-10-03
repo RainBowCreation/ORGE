@@ -9,6 +9,6 @@
   "viscosity": 1e+21,
   "yield_stress": 2e+08,
   "latent_heat_max": 400000,
-  "max_temp": 1473,
-  "max_target": "orge:molten_basalt"
+  "max_temp": 1398,
+  "max_target": "orge:lava"
 }

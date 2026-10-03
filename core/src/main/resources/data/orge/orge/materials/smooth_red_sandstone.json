@@ -10,5 +10,5 @@
   "yield_stress": 6e+07,
   "latent_heat_max": 160000,
   "max_temp": 1986,
-  "max_target": "orge:molten_sandstone"
+  "max_target": "orge:molten_quartz"
 }

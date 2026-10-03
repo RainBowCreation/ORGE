@@ -9,6 +9,6 @@
   "viscosity": 1e+21,
   "yield_stress": 2e+07,
   "latent_heat_max": 270000,
-  "max_temp": 1173,
-  "max_target": "orge:molten_tuff"
+  "max_temp": 1328,
+  "max_target": "orge:molten_granite"
 }

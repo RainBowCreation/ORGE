@@ -7,5 +7,5 @@
   "emissivity": 0.9,
   "latent_heat_max": 160000,
   "max_temp": 1986,
-  "max_target": "orge:molten_sand"
+  "max_target": "orge:molten_quartz"
 }

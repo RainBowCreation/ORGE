@@ -5,5 +5,8 @@
   "default_mass": 8960,
   "default_temperature": 290,
   "emissivity": 0.78,
-  "thermal_expansion": 5e-05
+  "thermal_expansion": 5e-05,
+  "latent_heat_max": 209000,
+  "max_temp": 1358,
+  "max_target": "orge:molten_copper"
 }

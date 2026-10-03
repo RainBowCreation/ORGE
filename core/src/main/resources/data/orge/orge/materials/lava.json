@@ -1,16 +1,16 @@
 {
   "thermal_conductivity": 1.5,
-  "heat_capacity": 1150,
+  "heat_capacity": 1480,
   "molar_mass": 0.065,
-  "min_mass": 330,
-  "default_mass": 2650,
-  "max_mass": 2650,
-  "viscosity": 500,
-  "default_temperature": 1400,
+  "min_mass": 338,
+  "default_mass": 2700,
+  "max_mass": 2700,
+  "viscosity": 150,
+  "default_temperature": 1473,
   "emissivity": 0.95,
-  "thermal_expansion": 5e-5,
-  "latent_heat_min": 4.0e5,
+  "thermal_expansion": 5e-05,
+  "latent_heat_min": 400000,
   "latent_heat_max": 0,
-  "min_temp": 1275,
-  "min_target": "orge:stone"
+  "min_temp": 1398,
+  "min_target": "orge:basalt"
 }

@@ -1,0 +1,17 @@
+{
+  "thermal_conductivity": 0.039,
+  "heat_capacity": 106,
+  "molar_mass": 0.197,
+  "min_mass": 0.0767,
+  "default_mass": 0.767,
+  "max_mass": 17360,
+  "viscosity": 0.000249,
+  "default_temperature": 3229,
+  "emissivity": 0,
+  "latent_heat_min": 1.65e+06,
+  "latent_heat_max": 0,
+  "t_ref_gas": 3129,
+  "min_temp": 3129,
+  "min_target": "orge:molten_gold",
+  "representative_block": "minecraft:air"
+}
