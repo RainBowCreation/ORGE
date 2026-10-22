@@ -635,6 +635,18 @@ verbatim):
 
 ## 12. Open decisions for the user
 
+> **RATIFIED 2026-10-22 by the user (session approval), recommended answers throughout.** The law text of
+> §10 is applied in `DESIGN-LAW.md` (v5).
+> - Q1: (c) the K-slot mixture cell, with the §10 law text.
+> - Q2: K = 4.
+> - Q3: boiling point follows pressure (`T_sat(P_atm + P)`); the stated parity deviation (deep hot water
+>   boils later) is accepted.
+> - Q4: (B) seed `ρ_water·V_pore` of water as a ledgered boundary placement on first simulation.
+> - Q5: keep the host and hide the water (no deletion).
+> - Q6: knob values as proposed (`g_vap` Penman f(u), `V_film = 1e-3 m³`, `τ_ph = 1 s`, `r_ε = 1e-6 m⁻²`,
+>   `ε_p = 1 Pa`, `K_V` = the v4.4 wall `K`).
+> - Q7: immediate rain-out accepted for Slice C; droplet-size mobility deferred.
+
 1. **Ratify (c)** and the law text in §10 (#7/#8/#9 + the consequential #2/#4/#6 edits and drift-test (e))?
 2. **K = 4 or K = 3?** K = 3 saves 6 B persisted and ~32 B transient per cell. It rules out water + air +
    vapor + one more (salt, or ice in wet soil), and the reservation rule then often holds the 3rd slot.
