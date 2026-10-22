@@ -22,6 +22,13 @@ symbols: `is_gas, is_liquid, is_solid, is_compressible, GAS_CHI_MIN, PR_GAS/PR_L
 (only truly immovable blocks keep `+INF`), and `τ_y` gates EVERY mass motion (flow, expansion, swap), not
 only the swap; #9 — `min`/`max` are a SOFT window held by a steep EOS wall, a relabel always keeps mass +
 `E`, and the "not even for one tick" clause is replaced by INV-SOFTWIN. Pre-amendment text in git history.
+**Amended 2026-10-22 (v5 — MULTI-MATERIAL CELL): the user ratified** (session approval of
+`specs/2026-10-22-multi-material-cell-proposal.md`, PR #36, option (c) the K-slot mixture cell, with the
+proposal's recommended §12 answers): #7 — a cell is a fixed composition of K = 4 `(matIx, mass)` slots
+sharing one `E`, one momentum and one `P`; #8 — five new LUT columns (`ρ_p, r, p_b, λ_BC, S_r`) and the
+continuous weights `s`, `χ_pair`, `γ`; #9 — mass conservation per component, Dalton EOS, and a per-cell
+**volume wall** (condensed matter never occupies more than the cell); consequential edits to #2/#4/#6 and
+drift test (e). Pre-amendment text in git history.
 
 ---
 
@@ -68,7 +75,9 @@ only the swap; #9 — `min`/`max` are a SOFT window held by a steep EOS wall, a 
    **Gravity** (a global acceleration `g`, set at material-table load, overridable per `step_world`) and
    the optional caller-supplied **external momentum-impulse** are applied **once, in ENCODE** (they need
    no neighbor). A cell reads only the neighbor it touches across each face for (i) — nothing global,
-   no column sums.
+   no column sums. In a multi-component cell (#7) the hydrostatic density in the face terms is the
+   intrinsic pore-fluid density `ρ_f = Σ_k (1−s_k)·m_k / V_pore` on the pore-weighted face area; a
+   skeleton's weight rests on its contacts, not on `P`.
 
 3. **The same rule acts in all 6 directions.** Up, down, and sideways are identical. A deep side-hole gushes
    because the deep cell's big `P` faces a small `P` across that face — automatically, with no special
@@ -80,7 +89,10 @@ only the swap; #9 — `min`/`max` are a SOFT window held by a steep EOS wall, a 
    move mass + heat). DECODE is per-cell **local** (derive `T`/`v`, relabel, write back) — except a
    **no-penetration clamp** may read the 1-hop snapshot neighbor to zero a velocity component pointing into
    a wall or cross-species no-flux face: a boundary condition that zeroes velocity and its derived momentum
-   (mass and `E` untouched), order-independent — never transport.
+   (mass and `E` untouched), order-independent — never transport. ENCODE also caches the component
+   volumes, saturation, capillary pressure, skeleton weights and lagged phase thresholds, and applies the
+   Darcy drag (its dissipation deposited to `E`); DECODE also performs the in-cell phase transfer and
+   empties ε-slots. All of it is local.
 
 5. **A cell moves when its net force beats its resistance.** Resistance is a *threshold*
    (yield_stress / cohesion). Viscosity is a *rate* only — never a threshold.
@@ -103,26 +115,41 @@ only the swap; #9 — `min`/`max` are a SOFT window held by a steep EOS wall, a 
    conduction pass. `ε_eff` is a **continuous function of the two faces' `ε` data** (and the deposition
    split is `ε`-weighted), so at `ε = 0` the radiative flux is **0 by arithmetic** — "gases don't radiate"
    emerges from the number, NOT from a gas test. (The `|ΔT| > 300 K` film-boiling gate is itself a threshold
-   branch and must become a branchless smooth ramp — tracked under #0.)
+   branch and must become a branchless smooth ramp — tracked under #0.) In a multi-component cell (#7)
+   advection carries `Σ_k ṁ_k·h_k(T_donor)`; the cell's conductivity and emissivity are the volume mixing
+   rules of the v5 proposal §4.8; a phase pair's threshold is `(1−χ_pair)·T_data + χ_pair·T_sat(p_ref)`,
+   lagged one tick, with `T_sat` from the pair's existing `L, cp, M, maxTemp` (no new column) and the
+   Kirchhoff gap as the jump.
 
-7. **State — store EXTENSIVE, derive INTENSIVE.** Each cell stores only conserved extensive quantities plus
-   its material and pressure: `matIx, mass, momentum (px,py,pz), enthalpy E, P` — plus two persisted
-   **bookkeeping** fields with no physical meaning (`swapReady`, the swap-cadence accumulator; `void_ix`,
-   the engine free-list index). Intensive quantities are **derived every tick, never stored**:
-   `velocity = momentum/mass`, `T = h⁻¹(E/m)`. Extensive storage makes advection structurally conservative
-   and keeps thinned cells bounded; a stored raw `v` or raw `T` is the velocity-ghost / temp-ghost drift —
-   **forbidden**.
+7. **State — store EXTENSIVE, derive INTENSIVE.** Each cell stores a **fixed composition of K slots**
+   (K = 4), each `(matIx_k, mass_k)`. An empty slot has `mass = 0`, and slots are unordered. The cell also
+   stores ONE `momentum (px,py,pz)`, ONE enthalpy `E` for the whole cell, and ONE `P`, plus persisted
+   **bookkeeping** with no physical meaning: `swapReady` and its partner key (the swap-cadence
+   accumulator) and `void_ix` (the engine free-list index). No other per-cell state, and no
+   variable-length per-cell storage.
+
+   Intensive quantities are **derived every tick, never stored**: `T` from `E = Σ_k m_k·h_k(T)` (one `T`
+   per cell); `velocity = momentum/Σ_k m_k`; the component volumes, the free/pore volume, the saturation
+   and the capillary pressure. Extensive storage makes advection structurally conservative and keeps
+   thinned cells bounded; a stored raw `v`, raw `T`, or stored saturation is drift — **forbidden**.
+   A cell with one occupied slot is exactly the one-material cell.
 
 8. **Material LUT = a fixed schema** (adding or removing a field is a law change): `heatCapacity,
    thermalConductivity, molarMass, minMass, maxMass, viscosity, defaultMass (= EOS rest density m₀),
    yieldStress, emissivity, thermalExpansion, latentHeatMin, latentHeatMax`, plus the phase quadruple
-   `minTemp→minTarget`, `maxTemp→maxTarget`, plus a per-gas `T_ref` — **kept in the engine LUT** (not
-   Java) so DECODE relabels locally. Compressibility weight: `χ = (maxMass − defaultMass)/(maxMass −
+   `minTemp→minTarget`, `maxTemp→maxTarget`, plus a per-gas `T_ref`, plus (v5) `particleDensity ρ_p`
+   (default `defaultMass`), `flowResistance r` (= 1/permeability, default 0), `airEntryPressure p_b`
+   (default 0), `poreSizeIndex λ_BC` (default 1), `residualSaturation S_r` (default 0) — **kept in the
+   engine LUT** (not Java) so DECODE relabels locally. Compressibility weight: `χ = (maxMass − defaultMass)/(maxMass −
    minMass + ε_χ)` — a **continuous weight in [0,1]**, computed with a regularized denominator so
    `maxMass == minMass` yields `χ = 0` **with no `if`-guard** (the numerator `maxMass − defaultMass` is also
    0 in every `max == default` case, so χ→0 falls out). **`χ` is NEVER compared to a threshold and NEVER
    used to classify** — there is no "gas means χ > c". It enters formulas ONLY as a continuous multiplier
-   (`χ·…`, `(1−χ)·…`). `molarMass` is the EOS input (#9). `viscosity` is the rate / movability axis (`+INF` = frozen);
+   (`χ·…`, `(1−χ)·…`). `molarMass` is the EOS input (#9). **The skeleton weight `s = r/(r + r_ε)`, the
+   pair weight `χ_pair = max(χ_k, χ_partner)` and the gas weight `γ_k = χ_k/max_j χ_j` are continuous
+   weights in [0,1] of the same kind as χ. They are NEVER compared to a threshold and NEVER used to
+   classify.** `s` decides only where fluid seeps and whose weight rests on contacts. Whether a component
+   moves is decided only by `τ_y` (per component, per face) and `viscosity`. `viscosity` is the rate / movability axis (`+INF` = frozen);
    `yieldStress` is the threshold axis — a **force threshold [N]**, the minimum force for ANY mass motion
    (flow, expansion into a new cell, swap): `0` (or tiny) for fluids, finite for granular, **finite and large
    for natural solids** (stone, ice — they rest because ordinary forces are below yield, and flow when a big
@@ -130,26 +157,40 @@ only the swap; #9 — `min`/`max` are a SOFT window held by a steep EOS wall, a 
    truly immovable blocks (bedrock, barrier). Every move gate compares net face force against
    `max(τ_y,i, τ_y,j)`, N vs N, as the saturating weight `max(0, F − τ_y)` — never a classification.
 
-9. **Mass moves, never vanishes.** Inside the domain mass only *moves* — conservative antisymmetric flux
-   (donor-budget + receiver-room clamps) or a permutation swap. The only source/sink is the caller's
-   place/break at the boundary, separately ledgered. A pushed cell with **no escape** is a **no-op**
-   (mass stays). **Every** cell carries the same EOS pushback weighted continuously by `χ`:
-   `χ · p_eos`, `p_eos = (m/M)·R·T/V − P₀` (gauge; `P₀` = rest-state pressure at `T_ref`). At `χ ≈ 1` a 700×
-   compressed pocket resists with real megapascals; at `max == default` ⇒ `χ = 0` the compression term is
-   **0 by the multiplier** (no "incompressible" branch) and the cell's relief is its pressure `P` rising
+9. **Mass moves, never vanishes — per component.** Inside the domain each component's mass only *moves*,
+   by one of three paths:
+   - ONE antisymmetric per-component face flux: the yield-gated bulk share of the momentum flux, plus a
+     volume-zero-sum slip, plus vapor exchange. Each carries donor-budget clamps and per-component AND
+     shared-volume receiver-room clamps.
+   - A whole-cell permutation swap of all K slots.
+   - An in-cell phase transfer between phase-paired slots, which is the identity on `E`.
+
+   A species with no slot free in the receiver has zero room there: it is clamped, never dropped. The
+   only sources/sinks are the caller's place/break at the boundary and the per-slot `ε_mass` residue
+   (`m_k`, `m_k·h_k(T)`), both separately ledgered. A pushed cell with **no escape** is a **no-op**
+   (mass stays).
+
+   **Every** cell carries the same EOS pushback, Dalton's law: `p_eos = Σ_k γ_k·(m_k/M_k)·R·T/V_k^free −
+   P₀,cell` (gauge; `P₀` = rest-state pressure at `T_ref`), entering `P` as `χ_cell·α_eos·(p_eos − P)`
+   (for a one-slot cell `γ = 1`, `V^free = V`, `χ_cell = χ`: the one-material term exactly). At `χ ≈ 1` a
+   700× compressed pocket resists with real megapascals; at `max == default` ⇒ `χ = 0` the compression term
+   is **0 by the multiplier** (no "incompressible" branch) and the cell's relief is its pressure `P` rising
    through the relaxation (`P` is the constraint force). Same formula, both ends of `χ`; mass is never
    deleted. A `no_escape` detection seam fires on that case (empty body for now) for future handling; the
    default is do-nothing, never destroy.
 
-   **Soft mass window (v4.4, INV-SOFTWIN).** `min`/`max` are NOT hard gates: the EOS carries a steep
-   **wall** outside the window — a push `K·max(0, m − max)` above `max` and a cohesive pull
-   `K·(1−χ)·max(0, min − m)` below `min` (gases carry no cohesion) — and is exactly the unmodified EOS inside
-   it. A **relabel** (phase change) ALWAYS happens once its threshold is crossed, keeping mass and `E`
-   (ΔE ≡ 0); an out-of-window result is driven back by the wall through ordinary flow, gated by `τ_y` (#8).
-   Flow itself never pushes a cell further out of its window (donor/receiver clamps stay). Invariant: every
-   cell stays within a hard safety band `0 ≤ m ≤ max + H`, and an excursion outside
-   `[min, max]` is non-increasing while the cell has a legal partner to exchange with; an isolated
-   out-of-window cell may rest out-of-window (energy exact, species correct).
+   **Soft mass window (v4.4, INV-SOFTWIN), per component and per cell.** `min`/`max` are NOT hard gates.
+   Each component keeps its own walls — a push `K·max(0, m_k − max_k)` above `max` and a cohesive pull
+   `K·(1−χ_k)·max(0, a_k·min_k − m_k)` below `min`, where `a_k` is the volume fraction left to `k` (gases
+   carry no cohesion) — and the cell adds a **volume wall** `K_V·max(0, Σ_k v_k − V)`: condensed matter
+   never occupies more than the cell. Inside the window the EOS is unmodified. A **phase transfer** ALWAYS
+   happens once its threshold is crossed, keeping mass and `E` (ΔE ≡ 0); if the partner has no slot, `T`
+   stays pinned at the threshold with `E` exact until one frees. An out-of-window result is driven back by
+   the walls through ordinary flow, gated by `τ_y` (#8). Flow itself never pushes a component further out
+   of its window (donor/receiver clamps stay). Invariant, per component: every component stays within a
+   hard safety band `0 ≤ m_k ≤ max_k + H`, and an excursion outside `[min_k, max_k]` is non-increasing
+   while the cell has a legal partner to exchange with; an isolated out-of-window cell may rest
+   out-of-window (energy exact, species correct).
 
 ---
 
@@ -159,9 +200,10 @@ Any spec, plan, or code that introduces **(a) a second pressure number**, **(b) 
 differs by direction**, **(c) a stored temperature treated as source-of-truth (instead of derived from
 the enthalpy curve) or a separate conduction pass**, or **(d) ANY branch keyed on state/category —
 `switch(state)`, `if (isGas/isLiquid/isSolid)`, `if (χ > c)`, `if (max == min)`, `if (μ == ∞)`, a
-`PR_GAS`-style class, or a computed flag that classifies a cell and forks on it** — is **drift. Reject it.**
+`PR_GAS`-style class, or a computed flag that classifies a cell and forks on it**, or **(e) a per-cell
+role flag (host / frame / pore / solvent) or a branch on one** — is **drift. Reject it.**
 Test (d) mechanically: the engine source must contain none of `is_gas`, `is_liquid`, `is_solid`,
-`is_compressible`, `GAS_CHI_MIN`, `PR_GAS`; and no comparison of `χ`/`viscosity`/`τ_y` against a constant
+`is_compressible`, `GAS_CHI_MIN`, `PR_GAS`, `is_frame`, `is_host`, `is_pore`, `HOST_SLOT`; and no comparison of `χ`/`viscosity`/`τ_y` against a constant
 that selects a code path. Behavior comes from continuous weights (`χ·…`) and saturating math only.
 
 > The engine's **code** still carries the `A + B` split (overburden + own-weight head, own-weight used only
