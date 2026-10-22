@@ -41,6 +41,12 @@ import net.minecraft.resources.Identifier;
  *                            block doesn't exist the registry boundary downgrades it to
  *                            {@code minecraft:air} at placement time
  * @param pinned              when true the cell temperature is held at {@code defaultTemperature} every tick
+ * @param particleDensity     ρ_p kg/m³ — density of the part fluids cannot enter (DESIGN-LAW v5 #8). Absent ⇒
+ *                            {@code 0}, read by the engine as {@code defaultMass} (the law default)
+ * @param flowResistance      r = 1/permeability, m⁻² (law v5 #8). Absent ⇒ {@code 0} (no skeleton)
+ * @param airEntryPressure    p_b Pa — Brooks–Corey air-entry pressure (law v5 #8). Absent ⇒ {@code 0}
+ * @param poreSizeIndex       λ_BC — Brooks–Corey pore-size index (law v5 #8). Absent ⇒ {@code 1}
+ * @param residualSaturation  S_r — Brooks–Corey residual saturation (law v5 #8). Absent ⇒ {@code 0}
  */
 public record Material(
         Identifier id,
@@ -63,7 +69,12 @@ public record Material(
         Identifier minTarget,
         Identifier maxTarget,
         Identifier representativeBlock,
-        boolean pinned
+        boolean pinned,
+        float particleDensity,
+        float flowResistance,
+        float airEntryPressure,
+        float poreSizeIndex,
+        float residualSaturation
 ) {
     /** True when a natural/seed/pin temperature is defined (i.e. {@code default_temperature} present). */
     public boolean hasDefaultTemperature() {
@@ -118,6 +129,11 @@ public record Material(
         private Identifier maxTarget;
         private Identifier representativeBlock;
         private boolean pinned = false;
+        private float particleDensity = 0f;    // law v5 #8 ρ_p; absent => 0 (engine reads defaultMass)
+        private float flowResistance = 0f;     // law v5 #8 r [m⁻²]; absent => 0 (no skeleton)
+        private float airEntryPressure = 0f;   // law v5 #8 p_b [Pa]; absent => 0
+        private float poreSizeIndex = 1f;      // law v5 #8 λ_BC; absent => 1
+        private float residualSaturation = 0f; // law v5 #8 S_r; absent => 0
 
         private Builder(Identifier id) {
             this.id = id;
@@ -143,6 +159,11 @@ public record Material(
         public Builder maxTarget(Identifier v) { this.maxTarget = v; return this; }
         public Builder representativeBlock(Identifier v) { this.representativeBlock = v; return this; }
         public Builder pinned(boolean v) { this.pinned = v; return this; }
+        public Builder particleDensity(float v) { this.particleDensity = v; return this; }
+        public Builder flowResistance(float v) { this.flowResistance = v; return this; }
+        public Builder airEntryPressure(float v) { this.airEntryPressure = v; return this; }
+        public Builder poreSizeIndex(float v) { this.poreSizeIndex = v; return this; }
+        public Builder residualSaturation(float v) { this.residualSaturation = v; return this; }
 
         public Material build() {
             if (thermalConductivity == null || heatCapacity == null || molarMass == null
@@ -160,7 +181,8 @@ public record Material(
             return new Material(id, thermalConductivity, heatCapacity, molarMass, defaultMass,
                     defaultTemperature, visc, minM, maxM, yieldStress,
                     emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas,
-                    minTemp, maxTemp, minTarget, maxTarget, repr, pinned);
+                    minTemp, maxTemp, minTarget, maxTarget, repr, pinned,
+                    particleDensity, flowResistance, airEntryPressure, poreSizeIndex, residualSaturation);
         }
     }
 }

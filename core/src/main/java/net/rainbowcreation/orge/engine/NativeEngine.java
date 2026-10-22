@@ -51,7 +51,10 @@ public final class NativeEngine implements OrgeEngine {
             float[] minTemp, float[] maxTemp,
             int[] minTarget, int[] maxTarget,
             float[] emissivity, float[] thermalExpansion,
-            float[] latentHeatMin, float[] latentHeatMax, float[] tRefGas);
+            float[] latentHeatMin, float[] latentHeatMax, float[] tRefGas,
+            // DESIGN-LAW v5 #8 (issue #29) — the five multi-material columns, APPENDED last.
+            float[] particleDensity, float[] flowResistance, float[] airEntryPressure,
+            float[] poreSizeIndex, float[] residualSaturation);
 
     private static native double orgeStepWorld(
             int lutEpoch,
@@ -95,7 +98,9 @@ public final class NativeEngine implements OrgeEngine {
                 L.defaultMass(), L.yieldStress(),
                 L.minTemp(), L.maxTemp(), L.minTarget(), L.maxTarget(),
                 L.emissivity(), L.thermalExpansion(),
-                L.latentHeatMin(), L.latentHeatMax(), L.tRefGas());
+                L.latentHeatMin(), L.latentHeatMax(), L.tRefGas(),
+                L.particleDensity(), L.flowResistance(), L.airEntryPressure(),
+                L.poreSizeIndex(), L.residualSaturation());
         epochMatCount.put(lutEpoch, table.size());
     }
 

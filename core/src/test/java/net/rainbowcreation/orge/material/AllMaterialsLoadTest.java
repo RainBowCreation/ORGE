@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -292,6 +293,36 @@ class AllMaterialsLoadTest {
         assertTrue(lava.movable(),  "lava is a movable fluid");
         assertTrue(air.movable(),   "air is a movable gas");
         assertTrue(steam.movable(), "steam is a movable gas");
+    }
+
+    // -------------------------------------------------------------------------
+    // (g2) DESIGN-LAW v5 #8 soil-water rows (issue #29): real grain density, permeability and Brooks–Corey
+    //      retention (docs/material-data-sources.md "Soil water"); every other material keeps the defaults.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void soilsCarryRealPorousMediumData() throws Exception {
+        MaterialRegistry reg = loadAll();
+        for (String stem : List.of("dirt", "coarse_dirt", "rooted_dirt", "grass_block", "podzol", "mycelium",
+                "farmland", "dirt_path")) {
+            Material m = reg.get(orge(stem)).orElseThrow();
+            assertEquals(2650f,    m.particleDensity(),    0f, stem + " ρ_p (mineral grains)");
+            assertEquals(2.66e12f, m.flowResistance(),     0f, stem + " r = 1/κ (loam K_s 1.32 cm/h)");
+            assertEquals(1092f,    m.airEntryPressure(),   0f, stem + " p_b (loam h_b 11.15 cm)");
+            assertEquals(0.22f,    m.poreSizeIndex(),      0f, stem + " λ_BC (loam)");
+            assertEquals(0.0583f,  m.residualSaturation(), 0f, stem + " S_r (loam θ_r/φ)");
+        }
+        for (String stem : List.of("sand", "red_sand", "suspicious_sand")) {
+            Material m = reg.get(orge(stem)).orElseThrow();
+            assertEquals(2650f,     m.particleDensity(),    0f, stem + " ρ_p (quartz grains)");
+            assertEquals(1.675e11f, m.flowResistance(),     0f, stem + " r = 1/κ (sand K_s 21 cm/h)");
+            assertEquals(711f,      m.airEntryPressure(),   0f, stem + " p_b (sand h_b 7.26 cm)");
+            assertEquals(0.592f,    m.poreSizeIndex(),      0f, stem + " λ_BC (sand)");
+            assertEquals(0.0458f,   m.residualSaturation(), 0f, stem + " S_r (sand θ_r/φ)");
+        }
+        Material water = reg.get(orge("water")).orElseThrow();
+        assertEquals(0f, water.flowResistance(), 0f, "a fluid has no skeleton (r = 0)");
+        assertEquals(0f, water.particleDensity(), 0f, "ρ_p absent => the engine reads default_mass");
     }
 
     // -------------------------------------------------------------------------

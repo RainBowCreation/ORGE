@@ -69,24 +69,32 @@ public final class MaterialCodec {
             Optional<Identifier> maxTarget,
             Optional<Identifier> minTarget,
             Optional<Identifier> representativeBlock,
-            boolean pinned
+            boolean pinned,
+            float particleDensity,
+            float flowResistance,
+            float airEntryPressure,
+            float poreSizeIndex,
+            float residualSaturation
     ) {
         // Accessors for the two-half split (DFU RecordCodecBuilder.group caps at 16 args; this
-        // body has 20 fields, so the codec is composed from CoreHalf + ThermalHalf — see below).
+        // body has 25 fields, so the codec is composed from CoreHalf + ThermalHalf — see below).
         CoreHalf core() {
             return new CoreHalf(thermalConductivity, heatCapacity, molarMass, defaultMass,
                     defaultTemperature, viscosity, minMass, maxMass, yieldStress,
                     maxTemp, minTemp, maxTarget, minTarget, representativeBlock, pinned);
         }
         ThermalHalf thermal() {
-            return new ThermalHalf(emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas);
+            return new ThermalHalf(emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas,
+                    particleDensity, flowResistance, airEntryPressure, poreSizeIndex, residualSaturation);
         }
         static BodyData join(CoreHalf c, ThermalHalf t) {
             return new BodyData(c.thermalConductivity(), c.heatCapacity(), c.molarMass(),
                     c.defaultMass(), c.defaultTemperature(), c.viscosity(), c.minMass(), c.maxMass(),
                     c.yieldStress(), t.emissivity(), t.thermalExpansion(), t.latentHeatMin(),
                     t.latentHeatMax(), t.tRefGas(), c.maxTemp(), c.minTemp(), c.maxTarget(),
-                    c.minTarget(), c.representativeBlock(), c.pinned());
+                    c.minTarget(), c.representativeBlock(), c.pinned(),
+                    t.particleDensity(), t.flowResistance(), t.airEntryPressure(), t.poreSizeIndex(),
+                    t.residualSaturation());
         }
     }
 
@@ -109,13 +117,21 @@ public final class MaterialCodec {
             boolean pinned
     ) {}
 
-    /** Second half: the v4 §1.2 / law #8 thermal columns (ε / β / latent / per-gas T_ref). */
+    /**
+     * Second half: the v4 §1.2 / law #8 thermal columns (ε / β / latent / per-gas T_ref) and the
+     * DESIGN-LAW v5 #8 porous-medium columns (ρ_p / r / Brooks–Corey p_b, λ, S_r).
+     */
     record ThermalHalf(
             float emissivity,
             float thermalExpansion,
             float latentHeatMin,
             float latentHeatMax,
-            float tRefGas
+            float tRefGas,
+            float particleDensity,
+            float flowResistance,
+            float airEntryPressure,
+            float poreSizeIndex,
+            float residualSaturation
     ) {}
 
     // -------------------------------------------------------------------------
@@ -174,7 +190,19 @@ public final class MaterialCodec {
                     Codec.FLOAT.optionalFieldOf("latent_heat_max", 0.0f)
                             .forGetter(ThermalHalf::latentHeatMax),
                     Codec.FLOAT.optionalFieldOf("t_ref_gas", 0.0f)
-                            .forGetter(ThermalHalf::tRefGas)
+                            .forGetter(ThermalHalf::tRefGas),
+                    // DESIGN-LAW v5 #8 — multi-material cell columns, law defaults when absent
+                    // (ρ_p 0 ⇒ the engine reads defaultMass; r 0 = no skeleton; Brooks–Corey 0 / 1 / 0).
+                    Codec.FLOAT.optionalFieldOf("particle_density", 0.0f)
+                            .forGetter(ThermalHalf::particleDensity),
+                    Codec.FLOAT.optionalFieldOf("flow_resistance", 0.0f)
+                            .forGetter(ThermalHalf::flowResistance),
+                    Codec.FLOAT.optionalFieldOf("air_entry_pressure", 0.0f)
+                            .forGetter(ThermalHalf::airEntryPressure),
+                    Codec.FLOAT.optionalFieldOf("pore_size_index", 1.0f)
+                            .forGetter(ThermalHalf::poreSizeIndex),
+                    Codec.FLOAT.optionalFieldOf("residual_saturation", 0.0f)
+                            .forGetter(ThermalHalf::residualSaturation)
             ).apply(instance, ThermalHalf::new)
     );
 
@@ -236,6 +264,11 @@ public final class MaterialCodec {
                 .latentHeatMin(bd.latentHeatMin())
                 .latentHeatMax(bd.latentHeatMax())
                 .tRefGas(bd.tRefGas())
+                .particleDensity(bd.particleDensity())
+                .flowResistance(bd.flowResistance())
+                .airEntryPressure(bd.airEntryPressure())
+                .poreSizeIndex(bd.poreSizeIndex())
+                .residualSaturation(bd.residualSaturation())
                 .pinned(bd.pinned());
         bd.viscosity().ifPresent(b::viscosity);
         bd.minMass().ifPresent(b::minMass);

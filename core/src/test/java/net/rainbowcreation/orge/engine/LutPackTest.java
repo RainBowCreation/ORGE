@@ -73,10 +73,13 @@ class LutPackTest {
         Set<String> names = Arrays.stream(comps).map(RecordComponent::getName).collect(Collectors.toSet());
         // The full 17-column v4 §1.2 schema: eight base physics floats + the 5 new physics floats
         // (emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas) + the phase quadruple
-        // (minTemp, maxTemp floats; minTarget, maxTarget int matIx) + matCount.
+        // (minTemp, maxTemp floats; minTarget, maxTarget int matIx) + the five DESIGN-LAW v5 #8
+        // multi-material columns (particleDensity, flowResistance, Brooks–Corey p_b / λ / S_r) + matCount.
         assertEquals(Set.of("cond", "heatCap", "molar", "minMass", "maxMass", "visc", "defaultMass",
                         "yieldStress", "emissivity", "thermalExpansion", "latentHeatMin", "latentHeatMax",
-                        "tRefGas", "minTemp", "maxTemp", "minTarget", "maxTarget", "matCount"), names);
+                        "tRefGas", "minTemp", "maxTemp", "minTarget", "maxTarget",
+                        "particleDensity", "flowResistance", "airEntryPressure", "poreSizeIndex",
+                        "residualSaturation", "matCount"), names);
         // The dropped flag/legacy arrays must not exist.
         for (String banned : List.of("fluid", "gas", "air", "fullMass", "minFlow")) {
             assertFalse(names.contains(banned), "LutArrays must not carry '" + banned + "'");
@@ -84,7 +87,8 @@ class LutPackTest {
         long floats = Arrays.stream(comps).filter(c -> c.getType() == float[].class).count();
         long intArrays = Arrays.stream(comps).filter(c -> c.getType() == int[].class).count();
         long ints = Arrays.stream(comps).filter(c -> c.getType() == int.class).count();
-        assertEquals(15, floats, "eight base physics floats + 5 new (ε,β,Lmin,Lmax,Tref) + minTemp + maxTemp");
+        assertEquals(20, floats,
+                "eight base physics floats + 5 (ε,β,Lmin,Lmax,Tref) + minTemp + maxTemp + 5 law v5 #8 columns");
         assertEquals(2, intArrays, "minTarget + maxTarget (resolved matIx)");
         assertEquals(1, ints, "matCount");
     }
@@ -104,6 +108,35 @@ class LutPackTest {
         assertEquals(L.matCount(), L.latentHeatMin().length);
         assertEquals(L.matCount(), L.latentHeatMax().length);
         assertEquals(L.matCount(), L.tRefGas().length);
+    }
+
+    @Test
+    void packEmitsTheFiveLawV5PorousColumnsWithoutSwapping() {
+        // Distinct values so a transposed pack fails (issue #29: real loam data).
+        Material loam = Material.builder(Identifier.fromNamespaceAndPath("orge", "dirt"))
+                .thermalConductivity(1.0f).heatCapacity(1480f).molarMass(0.06f)
+                .defaultMass(1500f).defaultTemperature(290f)
+                .particleDensity(2650f).flowResistance(2.66e12f).airEntryPressure(1092f)
+                .poreSizeIndex(0.22f).residualSaturation(0.0583f)
+                .build();
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, loam));
+        assertEquals(2650f,    L.particleDensity()[1],    0f,     "particleDensity ρ_p");
+        assertEquals(2.66e12f, L.flowResistance()[1],     0f,     "flowResistance r");
+        assertEquals(1092f,    L.airEntryPressure()[1],   0f,     "airEntryPressure p_b");
+        assertEquals(0.22f,    L.poreSizeIndex()[1],      0f,     "poreSizeIndex λ_BC");
+        assertEquals(0.0583f,  L.residualSaturation()[1], 0f,     "residualSaturation S_r");
+        assertEquals(L.matCount(), L.particleDensity().length);
+        assertEquals(L.matCount(), L.residualSaturation().length);
+    }
+
+    @Test
+    void absentLawV5ColumnsPackAsTheLawDefaults() {
+        LutArrays L = LutArrays.pack(List.of(MaterialLut.VACUUM, frozen()));
+        assertEquals(0f, L.particleDensity()[1],    0f, "absent ρ_p => 0 (engine reads defaultMass)");
+        assertEquals(0f, L.flowResistance()[1],     0f, "absent r => 0 (no skeleton)");
+        assertEquals(0f, L.airEntryPressure()[1],   0f, "absent p_b => 0");
+        assertEquals(1f, L.poreSizeIndex()[1],      0f, "absent λ_BC => 1");
+        assertEquals(0f, L.residualSaturation()[1], 0f, "absent S_r => 0");
     }
 
     @Test
