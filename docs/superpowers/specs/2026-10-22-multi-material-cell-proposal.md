@@ -702,3 +702,67 @@ range 0.35–0.45); dirt 1500/2650 → 0.43 (real 0.40–0.50); gravel 1800/2650
 | 5 | Data: `ρ_p, r, p_b, λ_BC, S_r` rows + sources | low |
 
 Step 1 alone must be a no-op on every existing world (parity), so it can land before the physics.
+
+---
+
+## 15. Slice B1 implementation record (issue #26)
+
+Engine state, one-component equivalence and per-component conservation. Engine commit on
+ORGE-ENGINE `issue/26` (merged into its `rebuild`), gitlink bumped in the ORGE PR that closes #26.
+
+### 15.1 What landed
+
+| Law v5 item | Where | Notes |
+|---|---|---|
+| #7 state: K = 4 `(matIx_k, mass_k)` slots, one `E`, one momentum, one `P` | `sim_engine.hpp` `Chunk::slotIx/slotMass` (slots 1..3), slot 0 = `matIx/mass_kg` | Fixed SoA planes, no per-cell allocation. Slot 0 keeps its historical name; no slot is special to the physics. Canonical storage order (sorted by species) is bookkeeping only. |
+| #7 derived `T` from `E = Σ m_k·h_k(T)` | `orge_enthalpy::mix_T` / `mix_E` | Exact inverse of the mixture curve: one slope `C = Σ m_k cp_k`, one jump `m_k·L` per phase threshold, folded as `T ← min(T, max(t_j, T − J_j/C))` over the sorted breakpoints. A one-component cell reads `h⁻¹(E/m)` unchanged. |
+| #8 five new LUT columns | `Material::particleDensity, flowResistance, airEntryPressure, poreSizeIndex, residualSaturation` | Appended with the law defaults (`ρ_p = defaultMass` via `particle_density()`). Not yet consumed (slip / Darcy / Brooks–Corey are B4/B5) and not yet sent over JNI registration (the data rows land with those slices). |
+| #9 ONE per-component face flux, bulk term | `resolve_world` R2 commit, `CellAccum::dmk` | `f_k = y_k·ṁ` with the donor's mass fractions; one float per component written ± to both sides, so per-species mass is antisymmetric exactly like grand mass. |
+| #9 whole-cell swap of all K slots | `mix_end` (swap branch) | The parcel's slots arrive verbatim from the partner's pre-step composition. |
+| #9 in-cell phase transfer, identity on `E` | `mix_end` | A component whose band the cell's one `T` has left relabels in place to its phase target. `E` is never touched (ΔE ≡ 0); chain anchoring keeps `T` continuous. |
+| #9 ε-slot residue | `mix_end`, `World::boundaryMassEps` | `m_k < ε_mass` leaves with `m_k·h_k(T)` to `World::boundaryE`. |
+| #9 Dalton EOS + `χ_cell` | `mix_material` | `p_abs = Σ γ_k n_k R T / V_free,k`, mole-weighted `P₀,cell`, realized exactly through the mixture row's effective molar mass and reference temperature, so the unchanged `p_eos_v4` / stiffness / anchor read the law value. `χ_cell = chi(mixture row)`. |
+| #4 locality | `snapshot_world_mmc` (ENCODE side), `mix_end` (DECODE side) | Both per-cell; `mix_end`'s swap branch reads the 1-hop partner exactly like DECODE's swap. |
+| JNI | `orgeStepWorld` | 4 arrays appended: slots 1..3 species + mass in/out, `((c·3) + (k−1))·CHUNK_N + i`. Null or short = one-material cells. `tout` reads the mixture `T` for a multi-component cell. Java: `ColumnTask/ColumnResult.slotIx/slotMass`, `RegionMarshaller.SLOT_N`, `EngineMarshaller.Kernel`. |
+
+**How a multi-component cell runs the same kernels.** It enters the snapshot with its total mass
+`M = Σ m_k`, velocity `p/M`, its own per-cell mixture material (`cell_mat`), and a per-step
+composition label (one LUT row per distinct species set) as its species identity. Every kernel reads
+`cell_mat()`; a one-material cell reads its LUT row, so it is bit-identical. Same-label faces flux
+(bulk term), a vacuum receiver adopts the label, different labels are no-flux and exchange by the
+whole-cell swap: today's "cross-species moves only by swap" with *species* generalized to *species set*.
+
+### 15.2 Memory and kernels (C2)
+
+| | today | B1 (K = 4) |
+|---|---|---|
+| persisted B/cell | 38 | **56** (+18: 3 × (u16 + f32)) |
+| transient B/cell, every step | ~37 | +32 (`CellAccum::dmk`, 4 × f64) |
+| transient, multi-component cells only | — | `mixRow` 4 B/cell in a chunk that holds one, + per such cell `MixComp` 52 B + `Material` row ~88 B |
+
+**Kernel count delta: 0.** It stays `6 + 2·N_relax`: the composition snapshot rides ENCODE, the bulk
+component shares ride R2's existing commit, the composition pass rides DECODE. A World with no
+multi-component cell takes exactly today's path (`MmcPlan.active == false`).
+
+### 15.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_mmc_state_test.cpp` (cheap tier), real LUT:
+(A) a one-material scene forced through the multi-component path is bit-identical for 40 ticks;
+(B) a multi-component cell elsewhere leaves a one-material region bit-identical;
+(C) 56 B persisted per cell, canonical slots;
+(D) `T` derived from `E` on the mixture curve, a scribbled `T` never survives, a component's band pins `T`;
+(E) a water + air body falling and spreading through a sealed box for 60 ticks: grand mass, H₂O and air
+(Σ over every slot + ε ledger) and grand energy exact every tick, moved mass carries the donor's composition;
+(F) a moving two-component cell pours into vacuum along all 6 directions with identical moved mass,
+composition and carried momentum;
+(G) per-component boil, ΔE ≡ 0, `T` continuous; (H) swap carries all slots; (I) ε-slot ledger;
+(J) placement over a multi-component incumbent ledgers every component.
+`engine_b_inv_universal_test` scans for the drift-test (e) tokens.
+
+### 15.4 Deliberately not in B1
+
+Slip (term 2), vapor exchange (term 3), the P1/P2 partial transfer at `T_sat`, Darcy drag,
+Brooks–Corey retention, slot routing between *different* species sets (§4.6) and the per-component
+walls beyond the mixture window: B3 (evaporation/condensation), B4 (infiltration), B5 (flow through
+blocks). Persistence (v6 codec + v5 reader) is B2. The placement path ledgers a multi-component
+incumbent instead of relocating it.

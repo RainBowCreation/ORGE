@@ -26,6 +26,8 @@ class EngineMarshallerTest {
         char[] matIx, matOut, injSpecies;
         float[] mass, tIn, vxIn, vyIn, vzIn, pIn, eIn, swapReadyIn, injMass, injTemp;
         float[] tOut, massOut, vxOut, vyOut, vzOut, pOut, eOut, swapReadyOut, ledgerOut;
+        char[] slotIxIn, slotIxOut;
+        float[] slotMassIn, slotMassOut;
 
         @Override
         public double step(int lutEpoch, int nCols, int[] cx, int[] cz,
@@ -37,8 +39,12 @@ class EngineMarshallerTest {
                            int injCount, int[] injColumn, int[] injCell,
                            char[] injSpecies, float[] injMass, float[] injTemp,
                            float[] ledgerOut,
-                           float[] eIn, float[] swapReadyIn, float[] eOut, float[] swapReadyOut) {
+                           float[] eIn, float[] swapReadyIn, float[] eOut, float[] swapReadyOut,
+                           char[] slotIxIn, float[] slotMassIn, char[] slotIxOut, float[] slotMassOut) {
             this.calls++;
+            this.slotIxIn = slotIxIn; this.slotMassIn = slotMassIn;
+            this.slotIxOut = slotIxOut; this.slotMassOut = slotMassOut;
+            for (int i = 0; i < slotIxOut.length; i++) { slotIxOut[i] = (char) ((i + 3) & 0xFFFF); slotMassOut[i] = 0.25f + i; }
             this.lutEpoch = lutEpoch; this.nCols = nCols; this.passes = passes; this.dtSeconds = dtSeconds;
             this.cx = cx; this.cz = cz; this.matIx = matIx; this.mass = mass; this.tIn = tIn;
             this.vxIn = vxIn; this.vyIn = vyIn; this.vzIn = vzIn; this.pIn = pIn;
@@ -103,6 +109,36 @@ class EngineMarshallerTest {
         assertEquals(300f + N + probe, c1.temperature()[probe]);
         assertEquals(5000f + N + probe, c1.enthalpy()[probe]);
         assertEquals(40f + N + probe, c1.p()[probe]);
+    }
+
+    /** DESIGN-LAW v5 #7 (issue #26): the composition slots 1..K−1 cross the seam in both directions,
+     *  each column's SLOT_N block at c·SLOT_N (slot k at (k−1)·CHUNK_N inside it). */
+    @Test
+    void compositionSlots_flattenAndSliceRoundTrip() {
+        final int S = RegionMarshaller.SLOT_N;
+        char[] six = new char[S]; float[] sm = new float[S];
+        int cell = idx(4, 200, 9);
+        six[cell] = 3; sm[cell] = 0.6f;                         // slot 1: 0.6 kg of species 3
+        six[2 * N + cell] = 5; sm[2 * N + cell] = 0.01f;        // slot 3: 0.01 kg of species 5
+        ColumnTask a = column(0, 0, 0f);
+        ColumnTask b = new ColumnTask(1, 0, new char[N], new float[N], new float[N],
+                new float[N], new float[N], new float[N], new float[N], new float[N], new float[N], six, sm);
+        EngineMarshaller m = new EngineMarshaller();
+        RecordingKernel k = new RecordingKernel();
+        RegionStepResult r = m.step(List.of(a, b), 1, 0, 0.05, OrgeEngine.PASS_ADVECTION, List.of(), k);
+
+        assertEquals(2 * S, k.slotIxIn.length);
+        assertEquals(2 * S, k.slotMassIn.length);
+        assertEquals(0f, k.slotMassIn[cell], "column 0 carries no second component");
+        assertEquals(3, k.slotIxIn[S + cell]);
+        assertEquals(0.6f, k.slotMassIn[S + cell]);
+        assertEquals(5, k.slotIxIn[S + 2 * N + cell]);
+        assertEquals(0.01f, k.slotMassIn[S + 2 * N + cell]);
+
+        ColumnResult c1 = r.columns().get(1);
+        assertEquals(S, c1.slotIx().length);
+        assertEquals((char) ((S + cell + 3) & 0xFFFF), c1.slotIx()[cell]);
+        assertEquals(0.25f + S + cell, c1.slotMass()[cell]);
     }
 
     @Test
