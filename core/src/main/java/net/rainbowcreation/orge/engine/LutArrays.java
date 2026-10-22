@@ -37,6 +37,8 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
                         int[] minTarget, int[] maxTarget,
                         float[] emissivity, float[] thermalExpansion,
                         float[] latentHeatMin, float[] latentHeatMax, float[] tRefGas,
+                        float[] particleDensity, float[] flowResistance, float[] airEntryPressure,
+                        float[] poreSizeIndex, float[] residualSaturation,
                         int matCount) {
 
     /** No phase transition on that side: matches the engine {@code MAT_NO_TARGET} sentinel (0xFFFF). */
@@ -58,6 +60,8 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
         int[] minTarget = new int[m], maxTarget = new int[m];
         float[] emissivity = new float[m], thermalExpansion = new float[m];
         float[] latentHeatMin = new float[m], latentHeatMax = new float[m], tRefGas = new float[m];
+        float[] particleDensity = new float[m], flowResistance = new float[m], airEntryPressure = new float[m];
+        float[] poreSizeIndex = new float[m], residualSaturation = new float[m];
         for (int i = 0; i < m; i++) {
             Material mat = lut.get(i);
             cond[i] = mat.thermalConductivity();
@@ -80,10 +84,17 @@ public record LutArrays(float[] cond, float[] heatCap, float[] molar,
             latentHeatMin[i] = mat.latentHeatMin();
             latentHeatMax[i] = mat.latentHeatMax();
             tRefGas[i] = mat.tRefGas();
+            // DESIGN-LAW v5 #8 porous-medium columns; absent => the law defaults on the Material.
+            particleDensity[i] = mat.particleDensity();
+            flowResistance[i] = mat.flowResistance();
+            airEntryPressure[i] = mat.airEntryPressure();
+            poreSizeIndex[i] = mat.poreSizeIndex();
+            residualSaturation[i] = mat.residualSaturation();
         }
         return new LutArrays(cond, heatCap, molar, minMass, maxMass, visc, defaultMass, yieldStress,
                 minTemp, maxTemp, minTarget, maxTarget,
-                emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas, m);
+                emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas,
+                particleDensity, flowResistance, airEntryPressure, poreSizeIndex, residualSaturation, m);
     }
 
     /** Resolve a phase-target id to its LUT slot ({@code matIx}); null / unknown ⇒ {@link #NO_TARGET}. */

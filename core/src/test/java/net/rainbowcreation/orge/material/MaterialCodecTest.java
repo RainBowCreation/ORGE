@@ -167,6 +167,52 @@ class MaterialCodecTest {
     }
 
     // -------------------------------------------------------------------------
+    // (b5) DESIGN-LAW v5 #8 porous-medium columns decode when present, law defaults when absent (#29)
+    // -------------------------------------------------------------------------
+    @Test
+    void lawV5PorousColumnsParseWhenPresent() {
+        String json = """
+                {
+                  "thermal_conductivity": 0.27,
+                  "heat_capacity": 830.0,
+                  "molar_mass": 0.06,
+                  "default_mass": 1600.0,
+                  "default_temperature": 290.0,
+                  "particle_density": 2650,
+                  "flow_resistance": 1.675e11,
+                  "air_entry_pressure": 711,
+                  "pore_size_index": 0.592,
+                  "residual_saturation": 0.0458
+                }
+                """;
+        Material m = MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json));
+        assertEquals(2650f, m.particleDensity(), 0f, "particle_density");
+        assertEquals(1.675e11f, m.flowResistance(), 0f, "flow_resistance");
+        assertEquals(711f, m.airEntryPressure(), 0f, "air_entry_pressure");
+        assertEquals(0.592f, m.poreSizeIndex(), 0f, "pore_size_index");
+        assertEquals(0.0458f, m.residualSaturation(), 0f, "residual_saturation");
+    }
+
+    @Test
+    void lawV5PorousColumnsDefaultWhenAbsent() {
+        String json = """
+                {
+                  "thermal_conductivity": 1.0,
+                  "heat_capacity": 500.0,
+                  "molar_mass": 0.018,
+                  "default_mass": 1000.0,
+                  "default_temperature": 290.0
+                }
+                """;
+        Material m = MaterialCodec.fromJson(TEST_ID, JsonParser.parseString(json));
+        assertEquals(0f, m.particleDensity(), 0f, "particle_density absent => 0 (engine reads default_mass)");
+        assertEquals(0f, m.flowResistance(), 0f, "flow_resistance absent => 0 (no skeleton)");
+        assertEquals(0f, m.airEntryPressure(), 0f, "air_entry_pressure absent => 0");
+        assertEquals(1f, m.poreSizeIndex(), 0f, "pore_size_index absent => 1");
+        assertEquals(0f, m.residualSaturation(), 0f, "residual_saturation absent => 0");
+    }
+
+    // -------------------------------------------------------------------------
     // (c) Partial targets: max_temp + max_target present, no min phase
     // -------------------------------------------------------------------------
     @Test

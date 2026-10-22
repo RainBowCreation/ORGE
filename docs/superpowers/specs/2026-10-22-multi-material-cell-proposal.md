@@ -766,3 +766,56 @@ Brooks–Corey retention, slot routing between *different* species sets (§4.6) 
 walls beyond the mixture window: B3 (evaporation/condensation), B4 (infiltration), B5 (flow through
 blocks). Persistence (v6 codec + v5 reader) is B2. The placement path ledgers a multi-component
 incumbent instead of relocating it.
+
+---
+
+## 16. Slice B4 implementation record (issue #29)
+
+Infiltration of water into dirt/sand as pore water, and drainage back out. Engine commit on ORGE-ENGINE
+`issue/29` (merged into its `rebuild`), gitlink bumped in the ORGE PR that closes #29.
+
+### 16.1 What landed
+
+| Law v5 item | Where | Notes |
+|---|---|---|
+| #9 per-component face flux, slip term (2), liquid part | `engine_b.hpp` `seep_world` (RESOLVE micro-passes S1 / S1.5 / S2) + `seep_apply` (DECODE side) | Darcy flux of each condensed component down its potential `Φ = P − (1−χ)·p_c + ρ·g·y`, upwind Brooks–Corey `k_r`, face resistance `½(r_cell,i + r_cell,j) + r_ε`, pore-weighted area `A_f`, law #8 yield gate `ψ` per component per face. Weighted by the skeleton weight `w_s = max(s_i, s_j)` — `s` decides only where fluid seeps (law #8). A `μ = +INF` skeleton has mobility 0 by arithmetic and never moves. |
+| #9 boundary face | `seep_intent` | The receiver's potential blends continuously into law #2's half-cell ghost by its own liquid weight `w = clamp(v/V_film, 0, 1)`: a dry receiver (cave, dry soil) is a seepage face — saturated soil drips only while `p_c < ½·ρ_w·g·Δx`. |
+| #9 donor budget, per component | S1 | `σ_k = min(1, budget_k/Σ_faces f_k)`, budget = the component's mass after this tick's bulk flux (the bulk flux spends first). |
+| #9 receiver room, per component AND shared volume | S1.5 | `room_k = max_k − m_k` (after bulk inflow) and the volume wall `V − Σ v_k`; scale `ρ'_k·((1−χ_k)·ρ'_V + χ_k)`. Pore water is capped at the pore volume (sand 396 kg, loam 434 kg) by the wall, with no "pore capacity" rule. |
+| §4.6 slot routing | S1.5 | One new slot granted per receiver per tick to the largest inbound species (tie → lower matIx), never the last free slot while a resident component's phase partner is absent. A species without a slot has room 0: clamped, never dropped. |
+| #6 advection | S2 | The seeping mass carries `f·h_k(T_donor)` and `f·u_donor`; every face writes the same double ± to both sides. |
+| #4 locality | `seep_world` / `seep_apply` | Every pass reads only its own cell and the 6 face neighbours; each cell sums its own six faces (order-independent). `seep_apply` touches only its own cell's accumulators. Kernel count: the three micro-passes ride RESOLVE, the apply rides DECODE. |
+| #8 data | `docs/material-data-sources.md` "Soil water"; `materials/*.json`; `Material` / `MaterialCodec` / `LutArrays` / `NativeEngine` / `orge_jni.cpp` | The five v5 columns now cross the JNI registration. Loam (dirt family) and sand rows carry real ρ_p, κ, Brooks–Corey `p_b, λ, S_r` (Rawls, Brakensiek & Saxton 1982; Blake & Hartge 1986). |
+
+### 16.2 Choices made in this slice (documented, not law changes)
+
+- **Brooks–Corey suction cap.** `p_c = min(1.5 MPa, p_b·(S_e + ε_S)^(−1/λ))`: Brooks–Corey diverges at
+  `S_e = 0`; the cap is the permanent wilting point (FAO-56, −1500 kPa), the dry end of real soils.
+- **Skeleton pore pressure.** A skeleton cell is closed to the bulk flux and carries no relaxed `P`, so
+  its pore liquid's potential is its suction alone (no positive pore pressure in soil yet).
+- **Gas slip deferred.** A gas component is weighted out by `(1−χ)`; the counter-current air slip of
+  term (2) (§4.5's volume-zero-sum projection) is not in this slice — today's soil pores hold no air
+  component, so water enters empty pore volume. Lands with B5 (flow through blocks).
+- **Faces skipped exactly.** A LUT with no `r > 0` row, and any face whose weight
+  `max(s_i, s_j)·(mob_i + mob_j)` is exactly zero, carries an exact zero and is not visited.
+- **ε rule after seepage.** DECODE's ε / vacuum rules run before the seepage is applied, so `seep_apply`
+  applies the same rule to the post-seepage composition: a sub-ε component leaves to the ledger with
+  `m_k·h_k(T)`, a cell drained below ε empties whole (its E to `boundaryE`). A seepage intent below
+  `ε_mass` is 0 and a slot is granted only to an inbound amount of at least `ε_mass` (the bulk flux's
+  value floor), so a gas's `(1−χ)`-weighted trickle never opens a slot.
+- **No wicking into bone-dry soil.** A receiver with no liquid of `k` reads the half-cell ghost
+  (§4.5 boundary face), not its own suction, so unsaturated soil does not wick into bone-dry soil beside
+  it; it does once the receiver holds a film. Ponded water and saturated soil still enter dry soil.
+
+### 16.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_mmc_infiltration_test.cpp` (cheap tier), real LUT + `add_real_soils`:
+(A) a water layer on dry sand: pore water rises, free water falls by the same mass, the sand component
+untouched in every cell, grand / per-species (H₂O over every slot + ε ledger, sand) mass and grand energy
+exact every tick; (B) the same on loam, slower than sand (real `K_s`); (C) saturated sand over an empty
+cave drains into it; (D) saturated sand over dry sand drains into it; (E) a nearly saturated sand layer
+under a 6 m pond fills to its pore volume and no further (the volume wall); (F) pore water that freezes
+in the tick it drains is debited from its ice; (G) a fully drained film leaves no sub-ε residue, orphan
+E or non-physical T; (H) air on dry sand opens no trickle slot. RED on the base engine (11 failures),
+GREEN with the change; (G)/(H) were found by an adversarial review and are RED before its fix. Java: `LutPackTest`, `MaterialCodecTest`, `AllMaterialsLoadTest`
+(`soilsCarryRealPorousMediumData`).

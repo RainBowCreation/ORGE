@@ -7,5 +7,10 @@
   "emissivity": 0.9,
   "latent_heat_max": 160000,
   "max_temp": 1986,
-  "max_target": "orge:molten_quartz"
+  "max_target": "orge:molten_quartz",
+  "particle_density": 2650,
+  "flow_resistance": 1.675e11,
+  "air_entry_pressure": 711,
+  "pore_size_index": 0.592,
+  "residual_saturation": 0.0458
 }

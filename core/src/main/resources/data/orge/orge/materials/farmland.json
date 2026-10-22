@@ -4,5 +4,10 @@
   "molar_mass": 0.06,
   "default_mass": 1500,
   "default_temperature": 290,
-  "emissivity": 0.92
+  "emissivity": 0.92,
+  "particle_density": 2650,
+  "flow_resistance": 2.66e12,
+  "air_entry_pressure": 1092,
+  "pore_size_index": 0.22,
+  "residual_saturation": 0.0583
 }

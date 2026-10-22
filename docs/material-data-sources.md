@@ -34,6 +34,36 @@ existing vanilla block (`steam` and metal vapors → air, melts → lava). Guard
 | Wool | wool ×16 | felt k 0.05, c 1360, 300 |
 | Partial blocks | every `_slab` (½) and `_stairs` (¾) of a block above | same substance × filled volume (a double slab still reads ½) |
 
+## Soil water (DESIGN-LAW v5 #8 porous-medium columns)
+
+Water soaks into dirt and sand as pore water and drains back out; the soil block itself never moves
+(engine seepage, issue #29). Only soils declare these columns; every other material keeps the law
+defaults (`particle_density` = `default_mass`, `flow_resistance` 0 = no skeleton, Brooks–Corey 0 / 1 / 0).
+
+| Blocks | `particle_density` ρ_p | porosity φ = 1 − ρ_b/ρ_p | `flow_resistance` r = 1/κ | `air_entry_pressure` p_b | `pore_size_index` λ | `residual_saturation` S_r |
+|---|---|---|---|---|---|---|
+| dirt, coarse/rooted dirt, grass_block, podzol, mycelium, farmland, dirt_path (loam) | 2650 kg/m³ | 0.434 (pore volume 0.434 m³ ⇒ 434 kg water saturated) | 2.66e12 m⁻² (κ 3.75e-13 m²) | 1092 Pa | 0.220 | 0.0583 |
+| sand, red_sand, suspicious_sand | 2650 kg/m³ | 0.396 (396 kg water saturated) | 1.675e11 m⁻² (κ 5.97e-12 m²) | 711 Pa | 0.592 | 0.0458 |
+
+- **ρ_p:** mineral (quartz) grain density 2.65 g/cm³ — Blake & Hartge 1986, *Particle density*, Methods of
+  Soil Analysis Pt 1, ch. 14. Porosity is derived, not a column: loam 0.434 (real 0.40–0.50), sand 0.396
+  (real 0.35–0.45); Rawls et al. give total porosity 0.463 / 0.437.
+- **r:** intrinsic permeability κ = K_s·μ_w/(ρ_w·g) from the saturated hydraulic conductivity K_s of
+  Rawls, Brakensiek & Saxton 1982, *Estimation of soil water properties*, Trans. ASAE 25(5):1316, Table 2
+  (loam 1.32 cm/h, sand 21.0 cm/h), with water at 20 °C (μ_w 1.002e-3 Pa·s, ρ_w 998 kg/m³, g 9.81).
+- **p_b, λ:** Brooks & Corey 1964 (Hydrology Paper 3, Colorado State Univ.) bubbling pressure h_b and
+  pore-size index, geometric means from Rawls et al. 1982 Table 2: loam h_b 11.15 cm, λ 0.220; sand
+  h_b 7.26 cm, λ 0.592; p_b = ρ_w·g·h_b.
+- **S_r:** residual water content over total porosity, Rawls et al. 1982 Table 2: loam 0.027/0.463, sand
+  0.020/0.437.
+- **Engine knobs** (proposal §12 Q6, not material data): r_ε = 1e-6 m⁻², film volume 1e-3 m³; the
+  Brooks–Corey suction is capped at the permanent wilting point, 1500 kPa (FAO-56, Allen et al. 1998).
+
+Real rates this gives (Darcy, g = 10): a ponded loam cell takes water at 2·K_s ≈ 7.3e-6 m/s through its
+first half-cell path, sand ≈ 1.2e-4 m/s; dry soil sucks faster (Brooks–Corey suction) until it nears
+saturation. Saturated soil over a cave drips only while its suction is below the half-cell head
+½·ρ_w·g·Δx (a seepage face).
+
 ## Block aliases (other vanilla blocks that ARE an existing material)
 
 A material JSON may list `"blocks"`: their first touch resolves to that material (one species, so a
