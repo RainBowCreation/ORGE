@@ -8,24 +8,38 @@ package net.rainbowcreation.orge.engine;
  *  truth carrier; {@code temperature} is the derived-Kelvin diagnostic).</p> */
 public record ColumnResult(char[] matIx, float[] mass, float[] temperature,
                            float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
-                           float[] enthalpy) {
+                           float[] enthalpy, char[] slotIx, float[] slotMass) {
 
-    // ---- Convenience constructors: each delegates DIRECTLY to the canonical 9-channel constructor
+    // {@code slotIx/slotMass} = DESIGN-LAW v5 #7 composition slots 1..K−1 returned by the engine (same
+    // layout as {@link ColumnTask#slotIx()}).
+
+    // ---- Convenience constructors: each delegates DIRECTLY to the canonical 11-channel constructor
     // above, zero-filling exactly the trailing channels it omits (a zero-momentum / zero-energy resting
-    // cell is the correct default). No tower — no convenience constructor delegates to another. ----
+    // one-material cell is the correct default). No tower — no convenience constructor delegates to
+    // another. ----
+
+    /** Convenience — composition slots 1..K−1 empty (every cell a one-material cell). */
+    public ColumnResult(char[] matIx, float[] mass, float[] temperature,
+                        float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
+                        float[] enthalpy) {
+        this(matIx, mass, temperature, momX, momY, momZ, p, swapReady, enthalpy,
+             new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
+    }
 
     /** Convenience — enthalpy (absolute E [J]) channel zero-filled to CHUNK_N. */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature,
                         float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady) {
         this(matIx, mass, temperature, momX, momY, momZ, p, swapReady,
-             new float[RegionMarshaller.CHUNK_N]);
+             new float[RegionMarshaller.CHUNK_N],
+             new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
     }
 
     /** Convenience — swapReady + enthalpy channels zero-filled to CHUNK_N. */
     public ColumnResult(char[] matIx, float[] mass, float[] temperature,
                         float[] momX, float[] momY, float[] momZ, float[] p) {
         this(matIx, mass, temperature, momX, momY, momZ, p,
-             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N]);
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
+             new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
     }
 
     /** Convenience — pressure + swapReady + enthalpy channels zero-filled to CHUNK_N. */
@@ -33,7 +47,8 @@ public record ColumnResult(char[] matIx, float[] mass, float[] temperature,
                         float[] momX, float[] momY, float[] momZ) {
         this(matIx, mass, temperature, momX, momY, momZ,
              new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
-             new float[RegionMarshaller.CHUNK_N]);
+             new float[RegionMarshaller.CHUNK_N],
+             new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
     }
 
     /** Convenience — momentum + pressure + swapReady + enthalpy channels zero-filled to CHUNK_N
@@ -42,6 +57,7 @@ public record ColumnResult(char[] matIx, float[] mass, float[] temperature,
         this(matIx, mass, temperature,
              new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
              new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
-             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N]);
+             new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N],
+             new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
     }
 }

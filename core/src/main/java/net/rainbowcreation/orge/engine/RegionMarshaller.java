@@ -14,6 +14,10 @@ import java.util.List;
 public final class RegionMarshaller {
     public static final int CHUNK_W = 16, CHUNK_H = 384, CHUNK_D = 16;
     public static final int CHUNK_N = CHUNK_W * CHUNK_H * CHUNK_D; // 98304
+    /** DESIGN-LAW v5 #7: composition slots per cell (engine {@code MMC_K}); slot 0 is matIx/mass. */
+    public static final int MMC_K = 4;
+    /** Length of one column's slot-1..K−1 channel: index {@code (k−1)·CHUNK_N + cell}. */
+    public static final int SLOT_N = (MMC_K - 1) * CHUNK_N;
 
     /** Engine-column strides: idx = x + COL_Y_STRIDE*engineY + COL_Z_STRIDE*z. */
     private static final int COL_Y_STRIDE = CHUNK_W;            // 16   (one row of x)
@@ -42,7 +46,8 @@ public final class RegionMarshaller {
     public record Flat(int nCols, int[] cx, int[] cz,
                        char[] matIx, float[] mass, float[] tIn,
                        float[] pxIn, float[] pyIn, float[] pzIn, float[] pIn,
-                       float[] swapReadyIn, float[] eIn) {}
+                       float[] swapReadyIn, float[] eIn,
+                       char[] slotIxIn, float[] slotMassIn) {}
 
     public static Flat flatten(List<ColumnTask> cols) {
         int n = cols.size();
@@ -56,6 +61,8 @@ public final class RegionMarshaller {
         float[] pIn = new float[n * CHUNK_N];
         float[] swapReadyIn = new float[n * CHUNK_N];
         float[] eIn = new float[n * CHUNK_N];
+        char[] slotIxIn = new char[n * SLOT_N];
+        float[] slotMassIn = new float[n * SLOT_N];
         for (int c = 0; c < n; c++) {
             ColumnTask t = cols.get(c);
             if (t.matIx().length != CHUNK_N || t.mass().length != CHUNK_N || t.temperature().length != CHUNK_N)
@@ -71,13 +78,19 @@ public final class RegionMarshaller {
             System.arraycopy(t.p(), 0, pIn, base, CHUNK_N);
             System.arraycopy(t.swapReady(), 0, swapReadyIn, base, CHUNK_N);
             System.arraycopy(t.enthalpy(), 0, eIn, base, CHUNK_N);
+            // v5 #7 composition slots: the engine's per-column layout is ((c·(K−1)) + (k−1))·CHUNK_N + i,
+            // i.e. each column's SLOT_N block placed at c·SLOT_N.
+            System.arraycopy(t.slotIx(), 0, slotIxIn, c * SLOT_N, SLOT_N);
+            System.arraycopy(t.slotMass(), 0, slotMassIn, c * SLOT_N, SLOT_N);
         }
-        return new Flat(n, cx, cz, matIx, mass, tIn, pxIn, pyIn, pzIn, pIn, swapReadyIn, eIn);
+        return new Flat(n, cx, cz, matIx, mass, tIn, pxIn, pyIn, pzIn, pIn, swapReadyIn, eIn,
+                        slotIxIn, slotMassIn);
     }
 
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
                                            float[] pxOut, float[] pyOut, float[] pzOut,
-                                           float[] pOut, float[] swapReadyOut, float[] eOut, int nCols) {
+                                           float[] pOut, float[] swapReadyOut, float[] eOut,
+                                           char[] slotIxOut, float[] slotMassOut, int nCols) {
         List<ColumnResult> out = new ArrayList<>(nCols);
         for (int c = 0; c < nCols; c++) {
             int base = c * CHUNK_N;
@@ -99,14 +112,26 @@ public final class RegionMarshaller {
             System.arraycopy(pOut,    base, ps,  0, CHUNK_N);
             System.arraycopy(swapReadyOut, base, sr, 0, CHUNK_N);
             System.arraycopy(eOut,    base, es,  0, CHUNK_N);
-            out.add(new ColumnResult(mi, ms, tt, pxs, pys, pzs, ps, sr, es));
+            char[] si = new char[SLOT_N];
+            float[] sm = new float[SLOT_N];
+            System.arraycopy(slotIxOut,   c * SLOT_N, si, 0, SLOT_N);
+            System.arraycopy(slotMassOut, c * SLOT_N, sm, 0, SLOT_N);
+            out.add(new ColumnResult(mi, ms, tt, pxs, pys, pzs, ps, sr, es, si, sm));
         }
         return out;
     }
 
-    // ---- Convenience slice overloads: every one routes DIRECTLY through the canonical 10-arg slice
+    // ---- Convenience slice overloads: every one routes DIRECTLY through the canonical 12-arg slice
     // above, zero-filling exactly the trailing channels it omits. No tower (no overload delegates to
     // another overload) — the channel layout lives in one place. ----
+
+    /** Convenience: composition slots 1..K−1 empty (one-material cells). */
+    public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
+                                           float[] pxOut, float[] pyOut, float[] pzOut,
+                                           float[] pOut, float[] swapReadyOut, float[] eOut, int nCols) {
+        return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, swapReadyOut, eOut,
+                     new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
+    }
 
     /** Convenience: enthalpy (absolute E [J]) channel zero-filled. swapReady supplied.
      *  Used by callers that don't thread eOut. */
@@ -115,7 +140,7 @@ public final class RegionMarshaller {
                                            float[] pOut, float[] swapReadyOut, int nCols) {
         int total = nCols * CHUNK_N;
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, swapReadyOut,
-                     new float[total], nCols);
+                     new float[total], new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
     /** Convenience: swapReady + enthalpy channels zero-filled. Momentum + pressure supplied. */
@@ -124,7 +149,8 @@ public final class RegionMarshaller {
                                            float[] pOut, int nCols) {
         int total = nCols * CHUNK_N;
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut,
-                     new float[total], new float[total], nCols);
+                     new float[total], new float[total],
+                     new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
     /** Convenience: pressure + swapReady + enthalpy channels zero-filled. Momentum supplied. */
@@ -132,7 +158,8 @@ public final class RegionMarshaller {
                                            float[] pxOut, float[] pyOut, float[] pzOut, int nCols) {
         int total = nCols * CHUNK_N;
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut,
-                     new float[total], new float[total], new float[total], nCols);
+                     new float[total], new float[total], new float[total],
+                     new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
     /** Convenience: momentum + pressure + swapReady + enthalpy channels zero-filled. Used by tests that
@@ -140,7 +167,8 @@ public final class RegionMarshaller {
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut, int nCols) {
         int total = nCols * CHUNK_N;
         float[] zeros = new float[total];
-        return slice(matOut, massOut, tOut, zeros, zeros, zeros, zeros, zeros, new float[total], nCols);
+        return slice(matOut, massOut, tOut, zeros, zeros, zeros, zeros, zeros, new float[total],
+                     new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
     private RegionMarshaller() {}

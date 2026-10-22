@@ -26,6 +26,9 @@ public final class ScratchPool {
     private float[] swapReadyIn  = new float[0];
     private float[] eOut         = new float[0];
     private float[] swapReadyOut = new float[0];
+    // DESIGN-LAW v5 #7: composition slots 1..K−1 out channels.
+    private char[]  slotIxOut   = new char[0];
+    private float[] slotMassOut = new float[0];
 
     /** The single grow rule (DESIGN §10 Decision 13c): return {@code buf} when it already holds at least
      *  {@code n} slots, else a fresh {@code float[n]}. Every per-channel accessor below is a one-line
@@ -83,4 +86,10 @@ public final class ScratchPool {
 
     /** Swap-cadence accumulator output channel ({@code swapReadyOut}). Captured from the native. */
     public float[] swapReadyOut(int n) { return swapReadyOut = grow(swapReadyOut, n); }
+
+    /** Composition slot-species output channel (slots 1..K−1, law v5 #7). Captured from the native. */
+    public char[] slotIxOut(int n) { return slotIxOut = grow(slotIxOut, n); }
+
+    /** Composition slot-mass output channel (slots 1..K−1, law v5 #7). Captured from the native. */
+    public float[] slotMassOut(int n) { return slotMassOut = grow(slotMassOut, n); }
 }

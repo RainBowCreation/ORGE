@@ -43,7 +43,9 @@ public final class EngineMarshaller {
                 char[] injSpecies, float[] injMass, float[] injTemp,
                 float[] ledgerOut,
                 float[] eIn, float[] swapReadyIn,
-                float[] eOut, float[] swapReadyOut);
+                float[] eOut, float[] swapReadyOut,
+                char[] slotIxIn, float[] slotMassIn,
+                char[] slotIxOut, float[] slotMassOut);
     }
 
     // Empty injection channel until Plan 2 wires the placement queue. With injCount==0 the native skips
@@ -126,6 +128,11 @@ public final class EngineMarshaller {
         // §5.3 accumulator. Both captured from the native into reusable scratch.
         float[] eOut = scratch.eOut(total);
         float[] swapReadyOut = scratch.swapReadyOut(total);
+        // DESIGN-LAW v5 #7 composition slots 1..K−1 (slot 0 = matIx/mass): in from ColumnTask.slotIx/slotMass,
+        // out into reusable scratch. The engine writes every slot it is given room for.
+        int slotTotal = f.nCols() * RegionMarshaller.SLOT_N;
+        char[] slotIxOut = scratch.slotIxOut(slotTotal);
+        float[] slotMassOut = scratch.slotMassOut(slotTotal);
 
         lastStepMillis = kernel.step(
                 lutEpoch,
@@ -134,7 +141,8 @@ public final class EngineMarshaller {
                 passes, dtSeconds, tOut, massOut, matOut,
                 vxOut, vyOut, vzOut, pOut,
                 injCount, injCol, injCell, injSp, injMs, injTp, ledgerOut,
-                eIn, swapReadyIn, eOut, swapReadyOut);
+                eIn, swapReadyIn, eOut, swapReadyOut,
+                f.slotIxIn(), f.slotMassIn(), slotIxOut, slotMassOut);
 
         float[] injected = new float[matCount];
         float[] sealedLoss = new float[matCount];
@@ -149,7 +157,8 @@ public final class EngineMarshaller {
             System.arraycopy(ledgerOut, 3 * matCount, sealedE, 0, matCount);
         }
         return new RegionStepResult(
-                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, eOut, f.nCols()),
+                RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, eOut,
+                        slotIxOut, slotMassOut, f.nCols()),
                 injected, sealedLoss, injectedE, sealedE);
     }
 
