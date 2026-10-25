@@ -819,3 +819,68 @@ in the tick it drains is debited from its ice; (G) a fully drained film leaves n
 E or non-physical T; (H) air on dry sand opens no trickle slot. RED on the base engine (11 failures),
 GREEN with the change; (G)/(H) were found by an adversarial review and are RED before its fix. Java: `LutPackTest`, `MaterialCodecTest`, `AllMaterialsLoadTest`
 (`soilsCarryRealPorousMediumData`).
+
+---
+
+## 17. Slice B3 implementation record (issue #28)
+
+Evaporation of water into an air cell and condensation back. Engine commit on ORGE-ENGINE `issue/28`
+(merged into its `rebuild`), gitlink bumped in the ORGE PR that closes #28.
+
+### 17.1 What landed
+
+| Law v5 item | Where | Notes |
+|---|---|---|
+| #6 phase threshold `(1−χ_pair)·T_data + χ_pair·T_sat(p_ref)` with the Kirchhoff gap | `sim_engine.hpp` `orge_enthalpy::mix_bands` / `mix_T` | `p_ref = χ_k·p_k + (1−χ_k)·(P_atm + P)`, `p_k` the component's Dalton partial pressure. The inverse reads the thresholds at the lagged T, then once more at the T it gives. A χ_pair = 0 pair (ice↔water, stone↔lava) is bit-identical to B1 (`G = L` exactly). |
+| §4.7 saturation curve from existing columns | `orge_enthalpy::phase_pair`, `p_sat`, `T_sat` | Clausius–Clapeyron + Kirchhoff, inverse = constant-L closed form + 2 Newton steps; finite for every pair (NaN-safe clamps), `p_sat(T_b) = P_atm` and `T_sat(P_atm) = T_b` exactly. |
+| #9 path 3 / §4.7 P1: in-cell phase transfer at the moving threshold | `engine_b.hpp` `mix_end` | The share of a band the cell's E has paid moves to the phase partner (lever rule), capped by a fixed 12-step bisection at the largest share that leaves the component on its own re-read threshold — a vapor's dew point falls as it condenses, so the lagged lever share would over-condense. ΔE ≡ 0 (E is not touched). Shares are floored to the slots' mass lattice so both float masses change exactly. No slot for the partner: the band stays open (T pinned, E exact) until the whole component relabels in place. |
+| #9 face flux term (3), vapor exchange (§4.7 P3) | `engine_b.hpp` `vap_world` (RESOLVE micro-passes V1 / V1.5 / V2) + `vap_apply` (DECODE) | Per face, two liquid\|gas interfaces, `e(a,b) = w_liq,a·w_gas,b·(p_sat,a − p_v,b)`: evaporation (liquid c leaves a, lands as vapor h in b) or condensation (vapor leaves b, lands on a's liquid), `F = χ_pair·g_vap·A·dt·|e|`. Every piece carries `h_hot(T_donor)`: the donor pays the latent heat, a vapor landing on liquid releases it. Donor budget above the component's cohesive floor `(1−χ_k)·a_k·min_k` after the bulk flux and seepage; per-species + shared-volume receiver room; one slot grant per tick with the §4.6 reservation, after seepage's grant. |
+| #9 exactness at float32 storage | `vap_quantize`, `mass_lattice` | A tick's exchange (~1e-5 kg) is below the float32 spacing of a full cell (1000 kg: 6.1e-5 kg). Every committed piece is a multiple of the face's mass lattice (a power of two ≥ the float spacing of every slot value either cell takes this tick), so both float masses change exactly; the sub-lattice remainder is dithered by a stateless hash of (donor, receiver, pair, species, tick) — unbiased, deterministic, identical on both sides. |
+| §12 Q6 knob `g_vap` | `G_VAP_PENMAN` = 3.0e-8 kg·m⁻²·s⁻¹·Pa⁻¹; `Globals::g_vap` default **0** | Penman's still-air f(u=0); `docs/material-data-sources.md` "Evaporation and condensation". 0 switches the exchange off exactly. The engine default stays 0 until #41 (see 17.2); the tests run the Penman value. |
+
+### 17.2 Choices made in this slice (documented, not law changes)
+
+- **The exchange is off by default (`g_vap = 0`) until #41.** Vapor makes an air cell the species set
+  `{air, steam}`. B1 lets a species set take part in neither the bulk flux with a *different* set nor the
+  §6.3 displacement, so with the exchange on, water stops leveling through the humid air it creates
+  (`engine_b_horizontal_flow_test` LEVEL2-AIR: 4 cells instead of 9) and a sealed air pocket under water
+  loses its rest (`engine_b_gas_test` INV-GAS, INV-AL). Shipping that would stop water flowing beside every
+  lake, so the knob ships at 0 and the physics is verified at the Penman value in its own test. Turning
+  it on is one line once §4.6 routing reaches the bulk flux and the displacement (#41, with B5 #30).
+- **Interface weights instead of `p*` mixing.** §4.7 writes the face drive as `p*_i − p*_j` with
+  `p* = w_liq·p_sat + (1−w_liq)·p_v`. Between a liquid cell and a gas cell this is the same value; but
+  between two cells that both hold liquid and no gas it drives a heat-pipe exchange through a liquid, and
+  it lands vapor in a cell with no gas to carry it. The slice uses the two liquid\|gas interfaces of the
+  face instead (the liquid of one side against the gas of the other, gas weight `w_gas` = the cell's moles
+  of gas over a 1 mm film of gas at P_atm). No liquid on one side or no gas on the other is an exact 0:
+  water beside vacuum or stone does not evaporate.
+- **P2 (in-cell sub-saturation evaporation) is not in this slice.** Liquid that condensed inside an air cell
+  (fog) re-evaporates only across a face into drier gas. Lands with Slice C3 (daytime evaporation).
+- **Gas↔gas vapor diffusion is not in this slice.** Humid air shares its vapor with dry air through the
+  bulk flux and the swap; different species sets do not bulk-flux yet (B1 §15.4), so a humid cell over
+  water saturates in place.
+- **One-material cells keep `T_data`.** A pure water cell still boils at 373 K and a pure steam cell
+  condenses there (the one-material curve `T_of_eta`); the moving threshold applies to composition cells
+  (the mixture curve). Boiling-point elevation in a pure deep-water cell (§12 Q3) is follow-up work.
+- **Humid air is its own species set.** Until the bulk term routes between different sets (§4.6, with B5), a
+  humid cell exchanges with dry air only by the swap; composition-label numbering can also couple
+  tie-breaks across a World. Both filed as #41 (with P2 and one-material boiling-point elevation).
+- **A full receiver takes no condensate.** A water cell at `maxMass` has no room; condensation lands on a
+  water cell below its max (or condenses in the air cell itself once it reaches the dew point).
+
+### 17.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_mmc_vapor_test.cpp` (cheap tier), real LUT: (A) a 300 K water cell under dry air
+evaporates 3.66e-3 kg in 30 s (Penman 3.35e-3), the water loses exactly what the air gains, the vapor carries
+m·h_steam(T_water) (latent included) and the water is cooler than its g_vap = 0 twin; (B) humid air at rest
+above its dew point keeps its vapor; cooled through a ledgered sink it condenses 0.010 kg in place, T rides
+T_sat(p_v) within 0.004 K and ends 20 K above the sensible-only path; (C) humid air over 280 K water
+condenses 1.2e-3 kg onto it, which gains exactly the vapor and its m·h_steam; (D) water beside vacuum does
+not evaporate; (E) the saturation curve vs IAPWS-95; (F) humid air already holding four species cannot
+open a slot for its condensate: T stays pinned on the dew point for 34 ticks with E exact, then the whole
+vapor relabels in place; (G) water over dry sand with pore air seeps and evaporates into the same cell in
+the same tick (both slot grants). Grand mass, H₂O and air exact to the bit (G: to the f32 storage standard,
+seepage rounds), grand energy to 1e-5 J every tick. RED on the base engine: no vapor ever appears over
+water, and humid air at 300 K condenses at once and jumps to 336.7 K. `rlut::grand_mass` /
+`species_mass` now sum every slot (law v5 #7). With the engine default (`g_vap = 0`) every other cheap-tier
+test is unchanged (same failing checks as the base, none new).

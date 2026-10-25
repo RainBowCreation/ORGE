@@ -148,6 +148,27 @@ Sources: Lesher & Spera, *Thermodynamic and transport properties of silicate mel
 (Encyclopedia of Volcanoes); melt viscosity tables (UMass Lowell petrology notes; Dingwell); Hawaiian
 basalt lava rheology (150 Pa·s at 1125 °C); CRC Handbook and Assael et al. liquid-metal reference data.
 
+## Evaporation and condensation (DESIGN-LAW v5 #6/#9, no new column)
+
+Water evaporates from a liquid surface into the air of the neighbouring cell (the air cell carries the
+vapor as a `steam` component) and vapor condenses back: onto colder water across a face, or in place when
+humid air cools to its dew point (engine vapor exchange + dew-point phase transfer, issue #28). Nothing new
+is declared per material: the saturation curve of a phase pair comes from the pair's existing columns.
+
+- **Saturation pressure:** integrated Clausius–Clapeyron with Kirchhoff's L(T) = L + Δcp·(T_b − T), from
+  the cold phase's `max_temp` T_b and `latent_heat_max` L, Δcp = cp_liquid − cp_vapor and the vapor's
+  `molar_mass`. For water this gives 1.31 / 2.48 / 3.73 kPa at 283.15 / 293.15 / 300 K against IAPWS-95
+  1.23 / 2.34 / 3.54 kPa (Wagner & Pruß 2002, *J. Phys. Chem. Ref. Data* 31:387): +5 to +7 %, exact at
+  373 K. A pair's threshold is (1 − χ_pair)·T_data + χ_pair·T_sat(p): water boils at T_sat(P_atm + P), its
+  vapor condenses at the dew point T_sat(p_v); ice↔water (χ_pair 0) stays at 273 K.
+- **Exchange conductance** (engine knob `g_vap`, proposal §12 Q6, not material data): Penman's still-air
+  wind function f(u = 0) = 2.6 mm·day⁻¹·kPa⁻¹ (Penman 1948, *Proc. R. Soc. A* 193:120; Shuttleworth 1993,
+  *Handbook of Hydrology* ch. 4) = 3.0e-8 kg·m⁻²·s⁻¹·Pa⁻¹. A 300 K lake under dry air loses 1.1e-4
+  kg·m⁻²·s⁻¹ (≈ 270 W/m² of latent heat), a real warm-water evaporation rate. The engine ships the knob at
+  0 until humid air can flow with dry air (#41); the face exchange is then switched on at this value.
+- The other vapor pairs (iron, copper, gold, silica, carbon) use the same curve; their p_sat at ordinary
+  temperatures is negligible, so they only exchange when hot.
+
 ## Not modeled
 
 - **Chemistry, not phase change:** calcite/dripstone (calcination → CaO + CO2), clay/brick/terracotta/
