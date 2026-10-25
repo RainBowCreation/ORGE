@@ -60,7 +60,17 @@ class SchedulerTest {
         /** Optional server-thread cost injected into snapshotColumns() to exercise the wall-time throttle. */
         long snapshotSleepMillis;
 
+        /** Sky forcing passes (dt each) and the forcing/snapshot call order. */
+        final List<Double> forcingDts = new ArrayList<>();
+        final List<String> events = new ArrayList<>();
+
+        @Override public void applySurfaceForcing(double dtSeconds) {
+            forcingDts.add(dtSeconds);
+            events.add("force");
+        }
+
         @Override public ColumnBatch snapshotColumns(int range) {
+            events.add("snapshot");
             snapshots++;
             if (snapshotSleepMillis > 0) {
                 long end = System.nanoTime() + snapshotSleepMillis * 1_000_000L;
@@ -461,5 +471,50 @@ class SchedulerTest {
         for (int i = 0; i < Scheduler.TICKS_PER_STEP * 2; i++) s.onServerTick(true);
         assertEquals(1, s.metrics().cancelled);
         assertEquals(0, s.metrics().completed);
+    }
+
+    // ---- Sky forcing pass (issue #32, spec 2026-10-25 §4) ----
+
+    @Test
+    void skyForcingRunsOncePerSecondBeforeTheSnapshot() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        tickCompleting(s, runner, Scheduler.TICKS_PER_STEP - 1);
+        assertTrue(world.forcingDts.isEmpty(), "no pass before a second has elapsed");
+        tickCompleting(s, runner, 1);                       // tick 20: a boundary, IDLE
+        assertEquals(List.of(1.0), world.forcingDts, "one pass forcing exactly one second");
+        int force = world.events.lastIndexOf("force");
+        assertEquals("snapshot", world.events.get(force + 1), "the pass runs before this step's snapshot");
+        tickCompleting(s, runner, 3 * Scheduler.TICKS_PER_STEP);
+        assertEquals(List.of(1.0, 1.0, 1.0, 1.0), world.forcingDts, "once per second, every second");
+    }
+
+    @Test
+    void skyForcingWaitsForTheInFlightStepAndForcesTheWholeElapsedTime() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP - 5; i++) s.onServerTick();   // submit at tick 5, never done
+        runner.done = false;
+        for (int i = 0; i < 10; i++) s.onServerTick();                             // tick 20 passes in flight
+        assertTrue(world.forcingDts.isEmpty(), "never forces while a step is in flight (its write-back would clobber E)");
+        runner.done = true;
+        s.onServerTick();                                                          // tick 26: complete → IDLE
+        for (int i = 0; i < 4; i++) s.onServerTick();                             // ticks 27..30: next boundary
+        assertEquals(List.of(30 / 20.0), world.forcingDts, "the late pass forces all 30 elapsed ticks");
+    }
+
+    @Test
+    void frozenTicksDoNotCountTowardTheSkyForcing() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        for (int i = 0; i < 100; i++) s.onServerTick(false);
+        tickCompleting(s, runner, Scheduler.TICKS_PER_STEP);
+        assertEquals(List.of(1.0), world.forcingDts, "a frozen world's sun stands still");
     }
 }

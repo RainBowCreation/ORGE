@@ -2,7 +2,9 @@ package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.rainbowcreation.orge.engine.ColumnResult;
+import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
@@ -10,6 +12,7 @@ import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Live {@link ThermalWorld} over a running {@link MinecraftServer} (DESIGN §8; whole-region rewire
@@ -52,12 +55,23 @@ public final class MinecraftThermalWorld implements ThermalWorld {
      *  sink, drained at snapshot, cleared on a successful write-back. */
     private final PendingInjections pendingInjections = new PendingInjections();
 
+    /** The sky forcing pass's boundary energy ledger (spec 2026-10-25). Server-thread-confined. */
+    private final SurfaceForcing surfaceForcing = new SurfaceForcing();
+
+    /** One column of the most recent batch, by address only (the batch's arrays are not retained). */
+    private record BatchColumn(Identifier dimension, int cx, int cz) {}
+
+    /** The columns of the most recent batch (active + apron): the set the sky forcing pass forces. */
+    private List<BatchColumn> lastBatchColumns = List.of();
+
+    private final SectionStoreManager stores;
     private final BlockChangeCapture blockChangeCapture;
     private final ColumnSnapshot columnSnapshot;
     private final ColumnWriteBack columnWriteBack;
 
     public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials,
                                  ActiveSet activeSet) {
+        this.stores = stores;
         this.blockChangeCapture = new BlockChangeCapture(
                 stores, cellMaterials, activeSet, pendingInjections, this::server);
         this.columnSnapshot = new ColumnSnapshot(
@@ -99,7 +113,49 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     // Server thread only — delegated to the snapshot / write-back modules.
     @Override
     public ColumnBatch snapshotColumns(int range) {
-        return columnSnapshot.snapshotColumns(range);
+        ColumnBatch batch = columnSnapshot.snapshotColumns(range);
+        recordBatchColumns(batch.entries());
+        return batch;
+    }
+
+    /** The sky forcing pass (spec 2026-10-25 §4): each level's climate from its dimension, day time and
+     *  rain, over that dimension's columns of the last batch. */
+    @Override
+    public void applySurfaceForcing(double dtSeconds) {
+        MinecraftServer srv = this.server;
+        if (srv == null) {
+            return;
+        }
+        Function<Identifier, Material> lookup = id -> ActiveMaterials.current().registry().get(id).orElse(null);
+        for (ServerLevel level : srv.getAllLevels()) {
+            applySurfaceForcing(level.dimension().identifier(), level.getDayTime(), level.getRainLevel(1f),
+                    dtSeconds, lookup);
+        }
+    }
+
+    /** Force {@code dim}'s columns of the last batch under its climate (package seam for the headless suite). */
+    void applySurfaceForcing(Identifier dim, long dayTime, float rainLevel, double dtSeconds,
+                             Function<Identifier, Material> lookup) {
+        SectionStore store = stores.store(dim);
+        SurfaceForcing.Climate climate = SurfaceForcing.Climate.forDimension(dim, dayTime, rainLevel).orElse(null);
+        if (store == null || climate == null) {
+            return; // no store, or a dimension with no sky (the Nether)
+        }
+        for (BatchColumn e : lastBatchColumns) {
+            if (dim.equals(e.dimension()) && store.isLoaded(e.cx(), e.cz())) {
+                surfaceForcing.applyColumn(dim, store, e.cx(), e.cz(), climate, dtSeconds, lookup);
+            }
+        }
+    }
+
+    /** The sky forcing ledger: cumulative boundary energy per dimension. */
+    public SurfaceForcing surfaceForcing() { return surfaceForcing; }
+
+    /** Test seam: the columns the next forcing pass reaches (the live path records them at snapshot). */
+    void setLastBatchColumnsForTest(List<ColumnEntry> columns) { recordBatchColumns(columns); }
+
+    private void recordBatchColumns(List<ColumnEntry> entries) {
+        lastBatchColumns = entries.stream().map(e -> new BatchColumn(e.dimension(), e.cx(), e.cz())).toList();
     }
 
     @Override
