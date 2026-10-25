@@ -69,7 +69,8 @@ public final class ColumnAssembler {
      *        {@code ρ_water·V_pore} of its host (0 elsewhere). Seeded as a second component (proposal §12
      *        Q4 (B)) when {@code seedWaterlog} — the section was never simulated, or it was loaded from the
      *        pre-composition format, whose waterlogged blocks carried no water (seeded once) — and into a
-     *        genuinely new cell (the seed gate below).</li>
+     *        genuinely new cell (the seed gate below). Every seed is a boundary placement
+     *        ({@link WaterlogSeeding}).</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
@@ -136,6 +137,14 @@ public final class ColumnAssembler {
 
     public static ColumnTask assemble(int cx, int cz, MaterialLut lut, MaterialRegistry registry,
                                       SectionSource src) {
+        return assemble(cx, cz, lut, registry, src, new WaterlogSeeding.Seeds());
+    }
+
+    /** {@link #assemble(int, int, MaterialLut, MaterialRegistry, SectionSource)}, recording into
+     *  {@code waterlog} the water + enthalpy each section's waterlogged blocks were seeded with, for the
+     *  write-back to book as a boundary placement (issue #60). */
+    public static ColumnTask assemble(int cx, int cz, MaterialLut lut, MaterialRegistry registry,
+                                      SectionSource src, WaterlogSeeding.Seeds waterlog) {
         int N = RegionMarshaller.CHUNK_N;
         char[] matIx = new char[N];
         float[] mass = new float[N];
@@ -242,9 +251,12 @@ public final class ColumnAssembler {
                                 ? inE
                                 : (m == null || seeded <= 0f) ? 0.0
                                   : EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
-                        // The seeded water enters at the cell's temperature (E is extensive: Σ m_k·h_k(T)).
+                        // The seeded water enters at the cell's temperature (E is extensive: Σ m_k·h_k(T)),
+                        // recorded as stored so its boundary ledger closes exactly (issue #60).
                         if (seedWater) {
-                            enthalpy[ci] += EnthalpyCurve.cellE(wl, water, lookup, temp[ci]);
+                            double before = enthalpy[ci];
+                            enthalpy[ci] = before + EnthalpyCurve.cellE(wl, water, lookup, temp[ci]);
+                            waterlog.add(sectionY, wl, enthalpy[ci] - before);
                         }
                     }
                 }

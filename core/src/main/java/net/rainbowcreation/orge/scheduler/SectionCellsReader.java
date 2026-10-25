@@ -62,7 +62,8 @@ final class SectionCellsReader {
         float[] temps;
         if (store != null && store.hasSection(key)) {
             SectionData sd = store.get(key);
-            seedWaterlog = sd.consumeLegacyOneComponent();
+            // A legacy (pre-composition) section seeds until its write-back clears the mark (issue #60).
+            seedWaterlog = sd.isLegacyOneComponent();
             // Stamp the edit-epoch: the write-back of THIS cycle will skip the section if an
             // external edit (/orge set) lands after this read, so it can't clobber the edit.
             sd.markSnapshot();

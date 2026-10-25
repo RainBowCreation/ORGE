@@ -40,16 +40,25 @@ final class ColumnWriteBack {
     private final Supplier<FluidReconciler> reconcilerSource;
     private final Supplier<PhaseChanger> phaseChangerSource;
     private final Supplier<List<Material>> lutSource;
+    private final WaterlogSeeding waterlogSeeding;
 
     ColumnWriteBack(SectionStoreManager stores, CellMaterialTracker cellMaterials, ActiveSet activeSet,
                     Supplier<FluidReconciler> reconcilerSource, Supplier<PhaseChanger> phaseChangerSource,
                     Supplier<List<Material>> lutSource) {
+        this(stores, cellMaterials, activeSet, reconcilerSource, phaseChangerSource, lutSource,
+             new WaterlogSeeding());
+    }
+
+    ColumnWriteBack(SectionStoreManager stores, CellMaterialTracker cellMaterials, ActiveSet activeSet,
+                    Supplier<FluidReconciler> reconcilerSource, Supplier<PhaseChanger> phaseChangerSource,
+                    Supplier<List<Material>> lutSource, WaterlogSeeding waterlogSeeding) {
         this.stores = stores;
         this.cellMaterials = cellMaterials;
         this.activeSet = activeSet;
         this.reconcilerSource = reconcilerSource;
         this.phaseChangerSource = phaseChangerSource;
         this.lutSource = lutSource;
+        this.waterlogSeeding = waterlogSeeding;
     }
 
     // Server thread only.
@@ -141,6 +150,10 @@ final class ColumnWriteBack {
             writeBackSlots(data, result, sectionY, lut);
             data.demoteIfUniform();
             store.put(key, data);
+            // The waterlogged-block water this section's assembly seeded is now in the store: book it as a
+            // boundary placement (issue #60), and a legacy section has had its one seed.
+            waterlogSeeding.book(entry.dimension(), entry.waterlog(), sectionY);
+            data.consumeLegacyOneComponent();
 
             // Reconstruct the per-section entry the §10/§7 seams consume (input geometry + this section's
             // engine output species). recordCellMaterials/noteSettle/reconcile/phase mirror the
