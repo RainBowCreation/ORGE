@@ -146,6 +146,17 @@ day's loss — `(494 W/m² / σ)^¼ ≈ 305 K` for an isolated Overworld surface
 air and ground shares the sun. The End relaxes toward 2.725 K and the per-pass floor never takes a cell
 below it.
 
+## Rain (mass seeding, issue #33)
+
+Not material data: the rain the same once-per-second sky pass seeds into each `(x, z)` column's most
+exposed cell (`RainSeeding`, spec `superpowers/specs/2026-10-25-rain-mass-seeding.md`). Every kilogram and
+its enthalpy are booked in the rain's boundary ledgers.
+
+| Quantity | Value | Source |
+|---|---|---|
+| Rain intensity | 5.1 mm/h = 1.4167·10⁻³ kg/(m²·s), × `Level.getRainLevel(1)`; Overworld only | AMS *Glossary of Meteorology*, "Rain": light ≤ 2.5 mm/h, moderate 2.6–7.6 mm/h, heavy > 7.6 mm/h — the middle of the moderate band |
+| Rain temperature | 287.15 K (14.0 °C) | drops fall at the wet-bulb temperature (Gosnell, Fairall & Webster 1995, *Sensible heat flux of rainfall in the tropical ocean*, JGR 100(C9):18437); air under rain is near saturation, so wet bulb ≈ air temperature, taken as the 1961–90 global mean surface air temperature 14.0 °C (Jones, New, Parker, Martin & Rigor 1999, *Surface air temperature and its changes over the past 150 years*, Rev. Geophys. 37(2):173) |
+
 ## Phase changes
 
 Each composition class melts into ONE real melt (rendered as `minecraft:lava`) and refreezes into its
