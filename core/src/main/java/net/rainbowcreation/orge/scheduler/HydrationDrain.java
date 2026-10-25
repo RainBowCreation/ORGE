@@ -170,7 +170,7 @@ public final class HydrationDrain {
             return false;
         }
         float cellMass = data.cellMassAt(cell);
-        float e0 = data.enthalpyAt(cell);
+        double e0 = data.enthalpyAt(cell);
         double t = derivedT(data, cell, lookup);
         Identifier id = after > 0f ? water.id() : MaterialPalette.VACUUM_ID; // an empty slot is (orge:vacuum, 0)
         if (k == 0) {
@@ -180,12 +180,12 @@ public final class HydrationDrain {
             data.setSlot(k, cell, id, after);
         }
         float remaining = data.cellMassAt(cell);
-        float e1 = remaining > 0f ? (float) (e0 - drained * EnthalpyCurve.hOf(water, lookup, (float) t)) : 0f;
+        double e1 = remaining > 0f ? e0 - drained * EnthalpyCurve.hOf(water, lookup, (float) t) : 0.0;
         data.setEnthalpy(cell, e1);
         float keep = remaining / cellMass; // the water leaves at the cell's velocity (cellMass > 0: it held water)
         data.setMomentum(cell, data.momXAt(cell) * keep, data.momYAt(cell) * keep, data.momZAt(cell) * keep);
         massLedger.computeIfAbsent(dim, d -> new HashMap<>()).merge(water.id(), -drained, Double::sum);
-        energyLedger.merge(dim, (double) e1 - (double) e0, Double::sum);
+        energyLedger.merge(dim, e1 - e0, Double::sum);
         return true;
     }
 
