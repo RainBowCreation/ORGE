@@ -311,4 +311,84 @@ class SectionDataTest {
         assertEquals(999_000f, s.enthalpyAt(99),
                 "full() adopts array by reference — mutation of source visible via enthalpyAt");
     }
+
+    // -------------------------------------------------------------------------
+    // Composition slots 1..K-1 (DESIGN-LAW v5 #7; issue #27)
+    // -------------------------------------------------------------------------
+
+    private static final net.minecraft.resources.Identifier WATER =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "water");
+    private static final net.minecraft.resources.Identifier SAND =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "sand");
+
+    @Test
+    void slotsMatchTheEngineCompositionWidth() {
+        assertEquals(net.rainbowcreation.orge.engine.RegionMarshaller.MMC_K, SectionData.SLOTS,
+                "section slots must equal the engine's K (law v5 #7)");
+        assertEquals(net.rainbowcreation.orge.engine.RegionMarshaller.SLOT_N / 24, SectionData.SLOT_CELLS,
+                "a section's slot layer is 1/24 of a column's slot channel");
+    }
+
+    @Test
+    void freshSectionIsOneComponentEverywhere() {
+        SectionData s = SectionData.uniform(300f, 1000f);
+        assertFalse(s.hasSlots());
+        for (int k = 1; k < SectionData.SLOTS; k++) {
+            assertEquals(0f, s.slotMassAt(k, 42));
+            assertEquals(MaterialPalette.VACUUM_ID, s.slotMaterialAt(k, 42));
+        }
+        assertEquals(1000f, s.cellMassAt(42), "M = m_0 for a one-component cell");
+        net.minecraft.resources.Identifier[] ids = new net.minecraft.resources.Identifier[SectionData.SLOT_CELLS];
+        float[] m = new float[SectionData.SLOT_CELLS];
+        s.copySlotsInto(ids, m);
+        assertNull(ids[0], "no layer ⇒ copy leaves the caller's empty default");
+        assertEquals(SectionData.Form.UNIFORM, s.form(), "reading slots never promotes");
+    }
+
+    @Test
+    void setSlotStoresIdAndMassAndSumsCellMass() {
+        SectionData s = SectionData.uniform(300f, 1600f);
+        s.setMaterialAt(7, SAND);
+        s.setSlot(1, 7, WATER, 320f);
+        s.setSlot(3, 7, SAND, 2.5f);
+        assertTrue(s.hasSlots());
+        assertEquals(SectionData.Form.FULL, s.form(), "a slot write promotes to FULL");
+        assertEquals(WATER, s.slotMaterialAt(1, 7));
+        assertEquals(320f, s.slotMassAt(1, 7));
+        assertEquals(MaterialPalette.VACUUM_ID, s.slotMaterialAt(2, 7), "untouched slot is empty");
+        assertEquals(0f, s.slotMassAt(2, 7));
+        assertEquals(1600f + 320f + 2.5f, s.cellMassAt(7), "M = Σ_k m_k");
+        assertEquals(1600f, s.massAt(7), "slot 0 untouched");
+
+        net.minecraft.resources.Identifier[] ids = new net.minecraft.resources.Identifier[SectionData.SLOT_CELLS];
+        float[] m = new float[SectionData.SLOT_CELLS];
+        s.copySlotsInto(ids, m);
+        assertEquals(WATER, ids[7]);
+        assertEquals(320f, m[7]);
+        assertEquals(MaterialPalette.VACUUM_ID, ids[SectionData.CELLS + 7]);
+        assertEquals(SAND, ids[2 * SectionData.CELLS + 7]);
+        assertEquals(2.5f, m[2 * SectionData.CELLS + 7]);
+    }
+
+    @Test
+    void slotIndexOutsideOneToKMinusOneIsRejected() {
+        SectionData s = SectionData.uniform(300f, 1000f);
+        assertThrows(IllegalArgumentException.class, () -> s.setSlot(0, 0, WATER, 1f), "slot 0 is massAt/materialAt");
+        assertThrows(IllegalArgumentException.class, () -> s.slotMassAt(SectionData.SLOTS, 0));
+    }
+
+    @Test
+    void occupiedSlotBlocksDemotionAndEmptiedLayerIsReleased() {
+        SectionData s = SectionData.uniform(300f, 1000f);
+        s.setSlot(2, 9, WATER, 5f);
+        assertFalse(s.demoteIfUniform(), "a cell with an occupied slot keeps the section FULL");
+        assertTrue(s.hasSlots());
+        assertEquals(5f, s.slotMassAt(2, 9), "demotion attempt never drops slot mass");
+
+        s.setSlot(2, 9, MaterialPalette.VACUUM_ID, 0f);    // slot empties
+        assertTrue(s.demoteIfUniform(), "an all-empty layer is the absent layer ⇒ section collapses");
+        assertFalse(s.hasSlots());
+        assertEquals(SectionData.Form.UNIFORM, s.form());
+        assertEquals(1000f, s.cellMassAt(9));
+    }
 }

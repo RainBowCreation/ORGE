@@ -25,7 +25,10 @@ import java.util.List;
  *   <li>{@code momX}/{@code momY}/{@code momZ} are non-{@code null} together iff a momentum layer exists;</li>
  *   <li>{@code pressure} is non-{@code null} iff a pressure layer exists (independent of momentum);</li>
  *   <li>{@code materialPalette}/{@code materialIndices} are non-{@code null} together iff a material
- *       layer exists (it may ride on a {@code UNIFORM} section that was demoted after materials were set).</li>
+ *       layer exists (it may ride on a {@code UNIFORM} section that was demoted after materials were set);</li>
+ *   <li>{@code slotIndices}/{@code slotMass} are non-{@code null} together iff a composition layer exists
+ *       (DESIGN-LAW v5 #7 slots 1..{@link SectionData#SLOTS}−1, length {@link SectionData#SLOT_CELLS},
+ *       indices into {@code materialPalette} — so a composition layer implies a material layer).</li>
  * </ul>
  * The {@code swapReady} bookkeeping channel is deliberately absent — it is in-memory-only and never
  * serialized (law §7), so it has no place in the on-disk snapshot.</p>
@@ -45,7 +48,9 @@ record SectionSnapshot(
         float[] momZ,
         float[] pressure,
         List<Identifier> materialPalette,
-        char[] materialIndices) {
+        char[] materialIndices,
+        char[] slotIndices,
+        float[] slotMass) {
 
     /** Whether this section serializes as {@link SectionData.Form#FULL} (per-cell arrays). */
     boolean isFull() {
@@ -65,5 +70,10 @@ record SectionSnapshot(
     /** Whether a material identity layer is present; {@code false} means all-vacuum. */
     boolean hasMaterials() {
         return materialPalette != null;
+    }
+
+    /** Whether a composition layer (slots 1..K−1) is present; {@code false} means one-component cells. */
+    boolean hasSlots() {
+        return slotIndices != null;
     }
 }

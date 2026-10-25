@@ -19,11 +19,21 @@ import java.util.zip.Inflater;
  *
  * <p>All multi-byte values are big-endian. FULL section arrays are deflate-compressed.
  * Column blobs carry a version byte followed by a short section count and per-section payloads.</p>
+ *
+ * <p><b>Versions.</b> v6 ({@link #FORMAT_VERSION}) adds the DESIGN-LAW v5 #7 composition block (slots
+ * 1..{@link SectionData#SLOTS}−1). v5 ({@link #ONE_COMPONENT_VERSION}, the one-material format) is
+ * still read and MIGRATED on load: it has no composition block, so every cell loads as a one-component
+ * cell — slot 0 = its stored material and mass, the other slots empty — with its mass, {@code E},
+ * momentum and {@code P} unchanged; the next save writes v6. v1–v4 (raw temperature/velocity) stay
+ * rejected.</p>
  */
 public final class SectionCodec {
 
     /** Wire format version for column blobs. */
-    public static final byte FORMAT_VERSION = 5;
+    public static final byte FORMAT_VERSION = 6;
+
+    /** The pre-composition one-material format (v5): read and migrated to one-component cells. */
+    public static final byte ONE_COMPONENT_VERSION = 5;
 
     private static final byte FORM_UNIFORM = 0;
     private static final byte FORM_FULL    = 1;
@@ -138,7 +148,7 @@ public final class SectionCodec {
     /**
      * Writes one {@link SectionData} to {@code out}.
      *
-     * <p>Wire format (v5; law §7 extensive state — persisted enthalpy E [J] and momentum
+     * <p>Wire format (v6; law §7 extensive state — persisted enthalpy E [J] and momentum
      * p⃗ [kg·m/s], NOT raw temperature/velocity):
      * <pre>
      * byte  form       ; 0 = UNIFORM, 1 = FULL
@@ -171,7 +181,15 @@ public final class SectionCodec {
      * -- if hasPressure == 1:
      * int   pLen ; compressed float[4096] P [Pa] array length
      * byte[pLen]
-     * </pre></p>
+     * -- composition block (v6 only; DESIGN-LAW v5 #7 slots 1..K−1; flag byte always emitted):
+     * byte  hasSlots     ; 0 = none (every cell one-component), 1 = present (requires hasMaterials)
+     * -- if hasSlots == 1:
+     * int   sxLen ; compressed char[(K−1)·4096] slot palette indices, index (k−1)·4096 + cell
+     * byte[sxLen]
+     * int   smLen ; compressed float[(K−1)·4096] slot mass [kg], same layout
+     * byte[smLen]
+     * </pre>
+     * v5 is this layout without the composition block.</p>
      */
     public static void writeSection(DataOutputStream out, SectionData s) throws IOException {
         // Serialize through the section's typed snapshot — never the live channel arrays or the
@@ -231,16 +249,38 @@ public final class SectionCodec {
         } else {
             out.writeByte(0);
         }
+        // composition block (v6; slot ids index the material palette written above).
+        if (snap.hasSlots()) {
+            out.writeByte(1);
+            byte[] sxComp = deflate(charsToBytes(snap.slotIndices()));
+            out.writeInt(sxComp.length);
+            out.write(sxComp);
+            byte[] smComp = deflate(floatsToBytes(snap.slotMass()));
+            out.writeInt(smComp.length);
+            out.write(smComp);
+        } else {
+            out.writeByte(0);
+        }
     }
 
     /**
-     * Reads one {@link SectionData} from {@code in} (v5 format: enthalpy/mass + the always-present
-     * material, momentum, and pressure flag blocks). The per-block flag byte (0 = all-zero channel,
-     * 1 = present) still gates each block's payload — that is NOT version gating, it lives within v5.
+     * Reads one {@link SectionData} in the current ({@value #FORMAT_VERSION}) format.
      *
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     public static SectionData readSection(DataInputStream in) throws IOException {
+        return readSection(in, FORMAT_VERSION);
+    }
+
+    /**
+     * Reads one {@link SectionData} from {@code in} written in column format {@code version} (v5 or
+     * v6): enthalpy/mass + the always-present material, momentum, and pressure flag blocks, plus (v6)
+     * the composition block. The per-block flag byte (0 = all-zero channel, 1 = present) gates each
+     * block's payload. A v5 section has no composition block and loads as one-component cells.
+     *
+     * @throws IOException if the form byte is unrecognised or data is corrupt
+     */
+    static SectionData readSection(DataInputStream in, int version) throws IOException {
         // Read the wire into a typed SectionSnapshot, then let SectionData rebuild itself from it.
         // The codec adopts no SectionData internals (no setMomentum/arraycopy/adoptMaterials reach):
         // a null component means the channel's flag byte was 0.
@@ -305,9 +345,30 @@ public final class SectionCodec {
             pressure = bytesToFloats(inflate(in.readNBytes(pLen), SectionData.CELLS * 4));
         }
 
+        char[] slotIndices = null;
+        float[] slotMass = null;
+        if (version >= FORMAT_VERSION && in.readByte() == 1) {
+            if (palette == null) {
+                throw new IOException("corrupt section: composition block without a material palette");
+            }
+            int sxLen = in.readInt();
+            if (sxLen < 0) throw new IOException("corrupt section: negative compressed length " + sxLen);
+            slotIndices = bytesToChars(inflate(in.readNBytes(sxLen), SectionData.SLOT_CELLS * 2));
+            for (char ix : slotIndices) {
+                if (ix >= palette.size()) {
+                    throw new IOException("corrupt section: slot palette index " + (int) ix
+                            + " outside palette of " + palette.size());
+                }
+            }
+            int smLen = in.readInt();
+            if (smLen < 0) throw new IOException("corrupt section: negative compressed length " + smLen);
+            slotMass = bytesToFloats(inflate(in.readNBytes(smLen), SectionData.SLOT_CELLS * 4));
+        }
+
         return SectionData.fromSnapshot(new SectionSnapshot(
                 snapForm, uniformEnthalpy, uniformMass,
-                enthalpy, mass, momX, momY, momZ, pressure, palette, materialIndices));
+                enthalpy, mass, momX, momY, momZ, pressure, palette, materialIndices,
+                slotIndices, slotMass));
     }
 
     // =========================================================================
@@ -319,7 +380,8 @@ public final class SectionCodec {
      *
      * <p>Wire format:
      * <pre>
-     * byte  version       ; FORMAT_VERSION (5). ONLY v5 is accepted on read; older blobs
+     * byte  version       ; FORMAT_VERSION (6). v6 and v5 are accepted on read — v5 (one-material,
+     *                     ; no composition block) is migrated to one-component cells. Older blobs
      *                     ; (v1–v4, which stored raw temperature/velocity) are REJECTED — there
      *                     ; is no migration (law §7 schema change: raw T/v → extensive E/momentum).
      * short sectionCount
@@ -355,9 +417,10 @@ public final class SectionCodec {
     public static NavigableMap<Integer, SectionData> readColumn(byte[] blob) throws IOException {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(blob));
         int version = in.readByte() & 0xFF;
-        if (version != FORMAT_VERSION) {
+        if (version != FORMAT_VERSION && version != ONE_COMPONENT_VERSION) {
             throw new IOException("unsupported ORGE column format version " + version
-                    + " (expected " + FORMAT_VERSION + "); the on-disk state schema changed"
+                    + " (expected " + ONE_COMPONENT_VERSION + " or " + FORMAT_VERSION
+                    + "); the on-disk state schema changed"
                     + " (raw temperature/velocity → extensive enthalpy/momentum, law §7) — there is"
                     + " no migration: delete world/orge and start a fresh world.");
         }
@@ -365,7 +428,7 @@ public final class SectionCodec {
         TreeMap<Integer, SectionData> result = new TreeMap<>();
         for (int i = 0; i < count; i++) {
             int sectionY = in.readInt();
-            SectionData section = readSection(in);
+            SectionData section = readSection(in, version);
             result.put(sectionY, section);
         }
         return result;

@@ -261,6 +261,9 @@ final class ColumnSnapshot {
             float[] p    = new float[SectionData.CELLS];
             float[] swapReady = new float[SectionData.CELLS];
             float[] enthalpy = new float[SectionData.CELLS];
+            // DESIGN-LAW v5 #7 composition slots 1..K−1 (stored id + mass); empty for one-component cells.
+            Identifier[] slotMaterial = new Identifier[SectionData.SLOT_CELLS];
+            float[] slotMass = new float[SectionData.SLOT_CELLS];
             // The engine tIn channel: for a stored section it is DERIVED from E below; for a never-
             // simulated section it is the per-cell ambient/source seed.
             float[] temps;
@@ -272,6 +275,7 @@ final class ColumnSnapshot {
                 java.util.function.Function<Identifier, Material> lookup =
                         id -> mats.registry().get(id).orElse(null);
                 boolean hasMaterials = sd.hasMaterials();
+                sd.copySlotsInto(slotMaterial, slotMass);
                 temps = new float[SectionData.CELLS];
                 for (int i = 0; i < SectionData.CELLS; i++) {
                     float mi = mass[i];
@@ -300,7 +304,7 @@ final class ColumnSnapshot {
                 temps = AmbientSeeder.seed(cellMat::at, ambientK);
             }
             return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                    momX, momY, momZ, p, swapReady, enthalpy);
+                    momX, momY, momZ, p, swapReady, enthalpy, slotMaterial, slotMass);
         };
     }
 
