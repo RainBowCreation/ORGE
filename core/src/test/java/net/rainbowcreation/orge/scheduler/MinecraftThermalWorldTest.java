@@ -484,4 +484,30 @@ class MinecraftThermalWorldTest {
         world.applySurfaceForcing(DIM, 6000L, 0f, 1.0, SkyTestWorld.lookup());
         assertEquals(0.0, world.surfaceForcing().ledger(DIM), "the empty batch replaced the forced column set");
     }
+
+    // ---- Thirsty farmland drain (issue #35): requests reach their dimension's store and wake the section ----
+
+    @Test
+    void hydrationDrainReachesItsDimensionsStoreAndWakesTheSection(@TempDir Path dir) {
+        SectionStoreManager mgr = SkyTestWorld.loaded(dir, DIM);
+        SkyTestWorld.flatWorld(mgr.store(DIM), null, 285f);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        int source = SkyTestWorld.cell(3, 8, 5);
+        SectionData data = mgr.store(DIM).get(key);
+        SkyTestWorld.setCell(data, source, SkyTestWorld.mat(SkyTestWorld.WATER), 1000f, 285f);
+        ActiveSet activeSet = new ActiveSet();
+        for (int i = 0; i <= SettleCountdown.K_SETTLE; i++) {
+            activeSet.noteFlowDelta(DIM, key, 0f);
+            activeSet.noteThermalDelta(DIM, key, 0f);
+        }
+        assertTrue(activeSet.isAsleep(DIM, key), "precondition: the canal section has settled");
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr, new CellMaterialTracker(), activeSet);
+
+        world.hydrationDrain().request(DIM, 3, 4 * 16 + 8, 5);
+        world.applyHydrationDrain(SkyTestWorld.lookup());
+
+        assertEquals(1000f - HydrationDrain.DEFAULT_DRAIN_KG, data.massAt(source), 0f);
+        assertTrue(world.hydrationDrain().massLedger(DIM, SkyTestWorld.WATER) < 0);
+        assertFalse(activeSet.isAsleep(DIM, key), "the drained section is woken so it steps and reconciles");
+    }
 }

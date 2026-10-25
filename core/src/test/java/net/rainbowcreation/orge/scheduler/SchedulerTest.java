@@ -69,6 +69,10 @@ class SchedulerTest {
             events.add("force");
         }
 
+        @Override public void applyHydrationDrain() {
+            events.add("drain");
+        }
+
         @Override public ColumnBatch snapshotColumns(int range) {
             events.add("snapshot");
             snapshots++;
@@ -516,5 +520,28 @@ class SchedulerTest {
         for (int i = 0; i < 100; i++) s.onServerTick(false);
         tickCompleting(s, runner, Scheduler.TICKS_PER_STEP);
         assertEquals(List.of(1.0), world.forcingDts, "a frozen world's sun stands still");
+    }
+
+    // ---- Thirsty farmland drain (issue #35) ----
+
+    @Test
+    void hydrationDrainAppliesWhileIdleBeforeEverySnapshot() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP - 5; i++) s.onServerTick();   // submit at tick 5, never done
+        assertEquals(List.of("drain", "snapshot"), world.events, "the drain lands before the first step's snapshot");
+        runner.done = false;
+        for (int i = 0; i < 10; i++) s.onServerTick();
+        assertEquals(List.of("drain", "snapshot"), world.events,
+                "never drains while a step is in flight (its write-back would clobber the store)");
+        runner.done = true;
+        s.onServerTick();                                                          // complete → IDLE
+        for (int i = 0; i < 4; i++) s.onServerTick();                             // next boundary
+        List<String> secondStep = world.events.subList(2, world.events.size());
+        assertEquals("snapshot", secondStep.get(secondStep.size() - 1));
+        assertTrue(secondStep.contains("drain"), "every step's snapshot sees the drained store: " + world.events);
+        assertEquals(2, world.events.stream().filter("drain"::equals).count());
     }
 }

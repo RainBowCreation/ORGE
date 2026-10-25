@@ -7,6 +7,7 @@ import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
 import dev.architectury.registry.ReloadListenerRegistry;
+import net.rainbowcreation.orge.block.ThirstyFarmland;
 import net.rainbowcreation.orge.command.CellSpeciesSource;
 import net.rainbowcreation.orge.command.LiveReadoutManager;
 import net.rainbowcreation.orge.command.LiveStatus;
@@ -182,6 +183,9 @@ public final class Orge {
         fluidReconciler = new MinecraftFluidReconciler(SECTION_STORES);
         // Whole-region column write-back drives the §7 phase-changer + §10 reconciler per section.
         thermalWorld.setReconcilers(fluidReconciler, phaseChanger);
+        // Thirsty farmland (issue #35): the FarmBlock#randomTick mixin queues a drain of the source water it
+        // hydrates from; the scheduler applies the queue while IDLE, before each snapshot.
+        ThirstyFarmland.setSink(thermalWorld.hydrationDrain()::request);
         Worker serverWorker = new Worker(
                 UUID.randomUUID(), true,
                 Scheduler.DEFAULT_RANGE, Scheduler.MAX_RANGE,
@@ -258,6 +262,7 @@ public final class Orge {
             fluidReconciler.unbindServer();
             cellMaterials.clear();
             activeSet.clear();
+            thermalWorld.hydrationDrain().clear();
             stepRunner.shutdown();
         });
         // Bind the conduction clock to Minecraft's game-tick clock: skip stepping while the world

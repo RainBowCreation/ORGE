@@ -6,6 +6,7 @@
   "refmap": "orge.refmap.json",
   "mixins": [
     "FallingBlockMixin",
+    "FarmBlockMixin",
     "FlowingFluidMixin",
     "LiquidBlockMixin",
     "LavaFluidMixin",

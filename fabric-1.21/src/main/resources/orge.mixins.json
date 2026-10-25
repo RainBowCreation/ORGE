@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "FallingBlockMixin",
+    "FarmBlockMixin",
     "FlowingFluidMixin",
     "LiquidBlockMixin",
     "LavaFluidMixin",
