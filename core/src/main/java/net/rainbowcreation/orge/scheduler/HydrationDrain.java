@@ -171,7 +171,7 @@ public final class HydrationDrain {
         }
         float cellMass = data.cellMassAt(cell);
         double e0 = data.enthalpyAt(cell);
-        double t = derivedT(data, cell, lookup);
+        double t = CellTemperature.derived(data, cell, lookup);
         Identifier id = after > 0f ? water.id() : MaterialPalette.VACUUM_ID; // an empty slot is (orge:vacuum, 0)
         if (k == 0) {
             data.setMaterialAt(cell, id);
@@ -192,32 +192,6 @@ public final class HydrationDrain {
     /** A fluid vanilla draws as water — the rule {@code RepresentativeState} draws waterlogging with. */
     private static boolean drawsAsWater(Material m) {
         return m.movable() && WATER_BLOCK.equals(m.representativeBlock());
-    }
-
-    /**
-     * The cell's derived {@code T}: its material's curve for a one-component cell, the linear mixture
-     * {@code (E − Σ m_j·h_j(0)) / Σ m_j·cp_j} otherwise (the {@link SurfaceForcing} rule).
-     */
-    private static double derivedT(SectionData data, int cell, Function<Identifier, Material> lookup) {
-        double capacity = 0.0;
-        double h0 = 0.0;
-        int occupied = 0;
-        Material only = null;
-        for (int s = 0; s < SectionData.SLOTS; s++) {
-            Material m = lookup.apply(slotMaterial(data, s, cell));
-            float mass = slotMass(data, s, cell);
-            if (m == null || mass <= 0f) {
-                continue;
-            }
-            capacity += (double) mass * m.heatCapacity();
-            h0 += (double) mass * EnthalpyCurve.hOf(m, lookup, 0f);
-            occupied++;
-            only = m;
-        }
-        return occupied == 1
-                ? EnthalpyCurve.deriveT(data.enthalpyAt(cell), data.cellMassAt(cell), only, lookup,
-                        SectionData.DEFAULT_AMBIENT_K)
-                : (data.enthalpyAt(cell) - h0) / (capacity + 1e-12);
     }
 
     private static Identifier slotMaterial(SectionData data, int k, int cell) {

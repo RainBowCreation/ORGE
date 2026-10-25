@@ -14,7 +14,8 @@ import java.util.function.Function;
  * The once-per-second sky heightmap pass (spec 2026-10-25 §2): walks each of a column's 256 {@code (x, z)}
  * cell columns top-down through the stored {@link SectionStore} sections and hands every sky-exposed cell
  * to a {@link Visitor} with its exposure weight. Reusable: the surface forcing ({@link SurfaceForcing}) is
- * the first visitor, rain seeding ({@link RainSeeding}) the second; they share one walk through
+ * the first visitor, rain seeding ({@link RainSeeding}) the second, evaporation ({@link Evaporation}) the
+ * third; they share one walk through
  * {@link Visitor#andThen} instead of scanning again.
  *
  * <p>Exposure is Kirchhoff's grey body, with no classification of any cell: a cell takes {@code τ·ε_cell}
@@ -56,6 +57,51 @@ public final class SkyColumnPass {
                 }
             };
         }
+    }
+
+    /** One {@code (x, z)} cell column's surface: its cell of highest exposure, handed over at {@code columnDone}. */
+    @FunctionalInterface
+    public interface SurfaceVisitor {
+        /** {@code data} holds the surface at section cell {@code cell}; {@code sumW} is the column's {@code Σw}. */
+        void surface(SubchunkKey key, SectionData data, int cell, double sumW);
+    }
+
+    /**
+     * A {@link Visitor} that finds each {@code (x, z)} column's surface — the cell of highest exposure {@code w}
+     * (the top-most on a tie) — and hands it with the column's {@code Σw} to {@code s} once the column is done.
+     * A column with no exposed cell has no surface. Air ({@code ε = 0}) is never it, the first condensed cell is,
+     * and a one-block roof is (rain #33 §2; evaporation #34 §1). Compares exposures with each other only.
+     */
+    public static Visitor surface(SurfaceVisitor s) {
+        return new Visitor() {
+            private SubchunkKey bestKey;
+            private SectionData best;
+            private int bestCell;
+            private double bestW;
+            private double sumW;
+
+            @Override
+            public void exposed(SubchunkKey key, SectionData data, int cell, double w) {
+                sumW += w;
+                if (w > bestW) {   // the first (top-most) of equal exposures keeps it
+                    bestKey = key;
+                    best = data;
+                    bestCell = cell;
+                    bestW = w;
+                }
+            }
+
+            @Override
+            public void columnDone() {
+                if (best != null) {
+                    s.surface(bestKey, best, bestCell, sumW);
+                }
+                bestKey = null;
+                best = null;
+                bestW = 0.0;
+                sumW = 0.0;
+            }
+        };
     }
 
     private SkyColumnPass() { }
