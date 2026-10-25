@@ -23,6 +23,13 @@ import java.util.List;
  * {@code FULL} (compressed 4096-arrays once a gradient forms). See {@link RegionStore}. The derive
  * to {@code T}/{@code v} (which needs the Material LUT, not held here) lives at every caller
  * boundary, not in this class.</p>
+ *
+ * <p><b>Composition (DESIGN-LAW v5 #7).</b> A cell is a fixed composition of {@value #SLOTS} unordered
+ * {@code (material, mass)} slots sharing the cell's one {@code E}, momentum and {@code P}. Slot 0 is the
+ * historical {@link #materialAt}/{@link #massAt} pair (storage only — no slot is special to the
+ * physics); slots {@code 1..SLOTS−1} live in a lazily-allocated layer ({@link #slotMaterialAt},
+ * {@link #slotMassAt}) whose ids intern into the same per-section palette. An absent (or all-empty)
+ * layer means every cell is a one-component cell — exactly what an old one-material world loads as.</p>
  */
 public final class SectionData {
 
@@ -31,6 +38,13 @@ public final class SectionData {
 
     /** Fallback ambient temperature when a biome value is unavailable (DESIGN.md §5). */
     public static final float DEFAULT_AMBIENT_K = 285.0f;
+
+    /** DESIGN-LAW v5 #7: composition slots per cell (= the engine's {@code MMC_K}); slot 0 is
+     *  {@link #materialAt}/{@link #massAt}. */
+    public static final int SLOTS = 4;
+
+    /** Length of the slot-1..{@value #SLOTS}−1 layer: index {@code (k−1)·CELLS + cell}. */
+    public static final int SLOT_CELLS = (SLOTS - 1) * CELLS;
 
     public enum Form {
         /** One enthalpy + one mass for the whole section. */
@@ -49,6 +63,8 @@ public final class SectionData {
     private float[] momY; // momentum py
     private float[] momZ; // momentum pz
     private float[] p;    // dynamic pressure (Pa-ish gauge, >=0); null until first pressure write/array request
+    private char[] slotIx;     // v5 #7 slots 1..SLOTS-1: palette indices, (k-1)*CELLS + i; null until first slot write
+    private float[] slotMass;  // v5 #7 slots 1..SLOTS-1: mass [kg], same layout; null together with slotIx
     private float[] swapReady; // §5.3 swap-cadence accumulator (law #7 bookkeeping, dimensionless >=0); null until first write/array request; IN-MEMORY ONLY, NOT serialized
 
     // [edit-epoch guard] IN-MEMORY ONLY (not serialized, not in equals). The async scheduler reads a
@@ -137,7 +153,8 @@ public final class SectionData {
                 full ? mass : null,
                 momX, momY, momZ,
                 p,
-                palette, indices);
+                palette, indices,
+                slotIx, slotMass);
     }
 
     /**
@@ -165,6 +182,11 @@ public final class SectionData {
         if (snap.hasPressure()) {
             s.promote();
             s.p = snap.pressure();
+        }
+        if (snap.hasSlots()) {
+            s.promote();
+            s.slotIx = snap.slotIndices();
+            s.slotMass = snap.slotMass();
         }
         return s;
     }
@@ -431,8 +453,13 @@ public final class SectionData {
      *         {@code false} if cells differ and the section stays {@code FULL}
      */
     public boolean demoteIfUniform() {
+        releaseEmptySlots();
         if (form == Form.UNIFORM) {
             return true;
+        }
+        // An occupied composition slot is per-cell state a UNIFORM section cannot carry.
+        if (slotIx != null) {
+            return false;
         }
         float e0 = enthalpy[0];
         float m0 = mass[0];
@@ -532,6 +559,96 @@ public final class SectionData {
      */
     public List<Identifier> palette() {
         return materials == null ? List.of(MaterialPalette.VACUUM_ID) : materials.palette();
+    }
+
+    // -------------------------------------------------------------------------
+    // Composition slots 1..SLOTS-1 (DESIGN-LAW v5 #7; lazy, default empty = one-component cell)
+    // -------------------------------------------------------------------------
+
+    private static int slotIndex(int k, int i) {
+        if (k < 1 || k >= SLOTS) {
+            throw new IllegalArgumentException("slot must be in [1," + SLOTS + "), got " + k);
+        }
+        return (k - 1) * CELLS + i;
+    }
+
+    /** Whether this section carries a composition layer (some cell had a slot 1..{@value #SLOTS}−1
+     *  written since the layer was last released). */
+    public boolean hasSlots() {
+        return slotIx != null;
+    }
+
+    /** Material id of slot {@code k} (1..{@value #SLOTS}−1) of cell {@code i}; {@code orge:vacuum}
+     *  for an empty slot or when no composition layer exists. */
+    public Identifier slotMaterialAt(int k, int i) {
+        int q = slotIndex(k, i);
+        return slotIx == null ? MaterialPalette.VACUUM_ID : materials.palette().get(slotIx[q]);
+    }
+
+    /** Mass [kg] of slot {@code k} (1..{@value #SLOTS}−1) of cell {@code i}; {@code 0} when empty. */
+    public float slotMassAt(int k, int i) {
+        int q = slotIndex(k, i);
+        return slotMass == null ? 0f : slotMass[q];
+    }
+
+    /**
+     * Sets slot {@code k} (1..{@value #SLOTS}−1) of cell {@code i} to {@code (id, massKg)}, lazily
+     * allocating the composition layer (and the material palette its ids intern into). Promotes to
+     * {@code FULL}. An empty slot is {@code (orge:vacuum, 0)}.
+     */
+    public void setSlot(int k, int i, Identifier id, float massKg) {
+        int q = slotIndex(k, i);
+        if (materials == null) {
+            materials = new MaterialPalette();
+        }
+        promote();
+        if (slotIx == null) {
+            slotIx = new char[SLOT_CELLS];
+            slotMass = new float[SLOT_CELLS];
+        }
+        slotIx[q] = (char) materials.indexOf(id);
+        slotMass[q] = massKg;
+    }
+
+    /**
+     * Copies the composition layer into {@code ids}/{@code masses} (each length {@value #SLOT_CELLS},
+     * index {@code (k−1)·CELLS + cell}); leaves them untouched when this section has no layer (the
+     * caller's zero/null default is the empty slot).
+     */
+    public void copySlotsInto(Identifier[] ids, float[] masses) {
+        if (slotIx == null) {
+            return;
+        }
+        List<Identifier> pal = materials.palette();
+        for (int q = 0; q < SLOT_CELLS; q++) {
+            ids[q] = pal.get(slotIx[q]);
+            masses[q] = slotMass[q];
+        }
+    }
+
+    /** Total cell mass {@code M = Σ_k m_k} [kg] of cell {@code i} (derived, law v5 #7). */
+    public float cellMassAt(int i) {
+        float m = massAt(i);
+        if (slotMass != null) {
+            for (int k = 1; k < SLOTS; k++) {
+                m += slotMass[(k - 1) * CELLS + i];
+            }
+        }
+        return m;
+    }
+
+    /** Drops a composition layer whose every slot is empty (mass 0): it is the absent layer. */
+    private void releaseEmptySlots() {
+        if (slotMass == null) {
+            return;
+        }
+        for (float m : slotMass) {
+            if (m != 0f) {
+                return;
+            }
+        }
+        slotIx = null;
+        slotMass = null;
     }
 
     // -------------------------------------------------------------------------

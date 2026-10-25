@@ -57,6 +57,13 @@ public final class ColumnSectionCodec {
      * semantics differ from temperature/mass.
      */
     public static float[] sliceSectionChannel(float[] col, int sectionY) {
+        return sliceSectionChannel(col, 0, sectionY);
+    }
+
+    /** {@link #sliceSectionChannel(float[], int)} of the {@code CHUNK_N}-long column channel starting at
+     *  {@code col[base]} — e.g. composition slot {@code k} of a column's slot channel at
+     *  {@code base = (k−1)·CHUNK_N} (DESIGN-LAW v5 #7). */
+    public static float[] sliceSectionChannel(float[] col, int base, int sectionY) {
         float[] out = new float[SectionData.CELLS];
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
@@ -64,7 +71,7 @@ public final class ColumnSectionCodec {
                 int colRow = RegionMarshaller.colIdx(0, ey, z);   // + x
                 int secRow = 16 * sy + 256 * z;    // + x
                 for (int x = 0; x < 16; x++) {
-                    out[secRow + x] = col[colRow + x];
+                    out[secRow + x] = col[base + colRow + x];
                 }
             }
         }
@@ -76,6 +83,11 @@ public final class ColumnSectionCodec {
      * ({@value SectionData#CELLS}) {@code char[]} indexed by {@code si = x + 16*sy + 256*z}.
      */
     public static char[] sliceSectionMaterials(char[] colMat, int sectionY) {
+        return sliceSectionMaterials(colMat, 0, sectionY);
+    }
+
+    /** {@link #sliceSectionMaterials(char[], int)} of the column channel starting at {@code colMat[base]}. */
+    public static char[] sliceSectionMaterials(char[] colMat, int base, int sectionY) {
         char[] mi = new char[SectionData.CELLS];
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
@@ -83,7 +95,7 @@ public final class ColumnSectionCodec {
                 int colRow = RegionMarshaller.colIdx(0, ey, z);
                 int secRow = 16 * sy + 256 * z;
                 for (int x = 0; x < 16; x++) {
-                    mi[secRow + x] = colMat[colRow + x];
+                    mi[secRow + x] = colMat[base + colRow + x];
                 }
             }
         }

@@ -7,6 +7,7 @@ import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.section.MaterialPalette;
+import net.rainbowcreation.orge.section.SectionData;
 
 import java.util.function.Function;
 
@@ -61,11 +62,22 @@ public final class ColumnAssembler {
      *        dimensionless >=0); all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *    <li>{@code enthalpy} — per-cell ABSOLUTE E [J] (law §6/§7 stored-extensive thermal truth) read
      *        from the SectionStore; all-zero for never-simulated / back-compat callers. Length 4096.</li>
+     *    <li>{@code slotMaterial}/{@code slotMass} — the stored DESIGN-LAW v5 #7 composition slots
+     *        1..K−1, index {@code (k−1)·4096 + si} (length {@link SectionData#SLOT_CELLS}); a slot with
+     *        mass {@code <= 0} is empty (its id is ignored). All-empty for one-component cells.</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
                                float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
-                               float[] enthalpy) {
+                               float[] enthalpy, Identifier[] slotMaterial, float[] slotMass) {
+        /** Back-compat: enthalpy supplied, every cell one-component (composition slots 1..K−1 empty). */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                            Identifier[] storedMaterial,
+                            float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
+                            float[] enthalpy) {
+            this(matIx, mass, temperature, priorSpecies, storedMaterial, momX, momY, momZ, p, swapReady,
+                 enthalpy, new Identifier[SectionData.SLOT_CELLS], new float[SectionData.SLOT_CELLS]);
+        }
         /** Back-compat: swapReady supplied, zero enthalpy (absolute E [J]). */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
@@ -120,6 +132,8 @@ public final class ColumnAssembler {
         float[] p    = new float[N];
         float[] swapReady = new float[N];
         float[] enthalpy = new float[N];
+        char[] slotIx = new char[RegionMarshaller.SLOT_N];
+        float[] slotMass = new float[RegionMarshaller.SLOT_N];
         // EnthalpyCurve lookup (law §6/§7): returns null for an absent/unresolvable id, matching the
         // contract every derive/encode site already uses (id -> registry.get(id).orElse(null)).
         Function<Identifier, Material> lookup = id -> registry.get(id).orElse(null);
@@ -137,12 +151,21 @@ public final class ColumnAssembler {
                         Identifier sid = cells.storedMaterial()[si];
                         char mat;
                         if (sid != null) {
-                            Material sm = sid.equals(MaterialPalette.VACUUM_ID)
-                                    ? MaterialLut.VACUUM            // hardcoded sentinel, not in JSON registry
-                                    : registry.getOrFallback(sid);
-                            mat = lut.indexOf(sm);                 // appends if absent — stored is authoritative
+                            mat = storedIndex(sid, lut, registry); // appends if absent — stored is authoritative
                         } else {
                             mat = cells.matIx()[si];               // unstored → block's first-touch index
+                        }
+                        // v5 #7 composition slots 1..K−1 cross RAW (stored ids resolved into the batch LUT
+                        // exactly like slot 0's stored id); an empty slot crosses as (0, 0).
+                        float slotTotal = 0f;
+                        for (int k = 1; k < SectionData.SLOTS; k++) {
+                            float sm = cells.slotMass()[(k - 1) * SEC + si];
+                            if (sm > 0f) {
+                                int q = (k - 1) * N + ci;
+                                slotIx[q] = storedIndex(cells.slotMaterial()[(k - 1) * SEC + si], lut, registry);
+                                slotMass[q] = sm;
+                                slotTotal += sm;
+                            }
                         }
                         float storedMass = cells.mass()[si];
                         char prior = cells.priorSpecies()[si];
@@ -158,8 +181,10 @@ public final class ColumnAssembler {
                         // ⇔ it was something and is now empty ⇔ vacuum. Self-healing: emitting matIx 0 makes
                         // the write-back persist orge:vacuum, so next cycle sid==vacuum keeps it vacuum (no
                         // air re-seed churn). Conservation-safe: only fires at storedMass ≤ 0 (≈0 kg).
+                        // A cell whose OTHER slots still hold mass is not empty: never seed it (that would
+                        // fabricate slot-0 mass, e.g. after a reload empties the prior-species tracker).
                         if (storedMass <= 0f) {
-                            if (prior == 0) {
+                            if (prior == 0 && slotTotal <= 0f) {
                                 seeded = m.defaultMass();         // fresh generation (ambient air/ocean); vacuum's is 0
                             } else {
                                 mat = 0;                          // transformed-to-empty ⇒ orge:vacuum (fillable)
@@ -194,7 +219,17 @@ public final class ColumnAssembler {
                 }
             }
         }
-        return new ColumnTask(cx, cz, matIx, mass, temp, momX, momY, momZ, p, swapReady, enthalpy);
+        return new ColumnTask(cx, cz, matIx, mass, temp, momX, momY, momZ, p, swapReady, enthalpy,
+                              slotIx, slotMass);
+    }
+
+    /** Batch-LUT index of a STORED material id: the {@code orge:vacuum} sentinel is LUT index 0 (not in
+     *  the JSON registry); any other id resolves through the registry to its fixed stable-table slot. */
+    private static char storedIndex(Identifier sid, MaterialLut lut, MaterialRegistry registry) {
+        Material sm = sid.equals(MaterialPalette.VACUUM_ID)
+                ? MaterialLut.VACUUM            // hardcoded sentinel, not in JSON registry
+                : registry.getOrFallback(sid);
+        return lut.indexOf(sm);
     }
 
     private ColumnAssembler() {}

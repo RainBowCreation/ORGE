@@ -9,6 +9,7 @@ import net.rainbowcreation.orge.engine.StepTask;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
+import net.rainbowcreation.orge.section.MaterialPalette;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
@@ -136,6 +137,7 @@ final class ColumnWriteBack {
                 char sp = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i] : inMatSec[i];
                 data.setMaterialAt(i, lut.get(sp).id());
             }
+            writeBackSlots(data, result, sectionY, lut);
             data.demoteIfUniform();
             store.put(key, data);
 
@@ -161,6 +163,38 @@ final class ColumnWriteBack {
             wakeColumnNeighbour(entry.dimension(), entry.cx() + 1, entry.cz());
             wakeColumnNeighbour(entry.dimension(), entry.cx(), entry.cz() - 1);
             wakeColumnNeighbour(entry.dimension(), entry.cx(), entry.cz() + 1);
+        }
+    }
+
+    /**
+     * Persist the engine's DESIGN-LAW v5 #7 composition slots 1..K−1 for one section: each occupied slot's
+     * species id (batch LUT → durable id) and mass, mass sanitized exactly like slot 0 (non-finite/negative
+     * → 0). A section that has no composition layer and receives only empty slots stays layer-free (no
+     * allocation for the one-component common case); a layer that empties is released by
+     * {@link SectionData#demoteIfUniform()}.
+     */
+    static void writeBackSlots(SectionData data, ColumnResult result, int sectionY, List<Material> lut) {
+        float[][] secMass = new float[SectionData.SLOTS - 1][];
+        char[][] secIx = new char[SectionData.SLOTS - 1][];
+        boolean any = data.hasSlots();
+        for (int k = 1; k < SectionData.SLOTS; k++) {
+            int base = (k - 1) * RegionMarshaller.CHUNK_N;
+            secMass[k - 1] = StepValidator.cleanMass(
+                    ColumnSectionCodec.sliceSectionChannel(result.slotMass(), base, sectionY), Float.MAX_VALUE);
+            secIx[k - 1] = ColumnSectionCodec.sliceSectionMaterials(result.slotIx(), base, sectionY);
+            for (float m : secMass[k - 1]) {
+                if (m > 0f) { any = true; break; }
+            }
+        }
+        if (!any) {
+            return;
+        }
+        for (int k = 1; k < SectionData.SLOTS; k++) {
+            for (int i = 0; i < SectionData.CELLS; i++) {
+                float m = secMass[k - 1][i];
+                data.setSlot(k, i, m > 0f ? lut.get(secIx[k - 1][i]).id() : MaterialPalette.VACUUM_ID,
+                             m > 0f ? m : 0f);
+            }
         }
     }
 

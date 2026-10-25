@@ -335,4 +335,80 @@ class ColumnAssemblerTest {
         assertEquals(7777.0f, t.enthalpy()[ib], 1e-4,
                 "authoritative nonzero stored E is passed through UNCHANGED (not re-encoded)");
     }
+
+    // ---- DESIGN-LAW v5 #7 composition slots (issue #27) ----
+
+    private static final Identifier AIR_ID = Identifier.fromNamespaceAndPath("orge", "air");
+
+    /** One section (sy=4) of stored stone (2000 kg) whose cells may carry slots; everything else vacuum. */
+    private static ColumnAssembler.SectionSource slotSource(int cell, float slot0Mass, char prior,
+                                                            Identifier[] slotIds, float[] slotMass) {
+        return (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            java.util.Arrays.fill(temp, 300f);
+            Identifier[] stored = new Identifier[4096];
+            char[] priorSp = new char[4096];
+            float[] e = new float[4096];
+            if (sectionY != 4) {
+                return new ColumnAssembler.SectionCells(mat, mass, temp, priorSp, stored);
+            }
+            java.util.Arrays.fill(stored, MaterialPalette.VACUUM_ID);
+            stored[cell] = STONE_ID;
+            mass[cell] = slot0Mass;
+            priorSp[cell] = prior;
+            e[cell] = 1.0e6f;
+            float[] z = new float[4096];
+            return new ColumnAssembler.SectionCells(mat, mass, temp, priorSp, stored,
+                    z, z, z, z, z, e, slotIds, slotMass);
+        };
+    }
+
+    @Test
+    void storedCompositionSlotsCrossToTheEngineColumnLayout() {
+        int s = 5 + 16 * 6 + 256 * 7;
+        Identifier[] ids = new Identifier[net.rainbowcreation.orge.section.SectionData.SLOT_CELLS];
+        float[] m = new float[net.rainbowcreation.orge.section.SectionData.SLOT_CELLS];
+        ids[s] = WATER_ID;                 m[s] = 350f;          // slot 1: pore water
+        ids[2 * 4096 + s] = AIR_ID;        m[2 * 4096 + s] = 0.4f; // slot 3: entrained air
+        ids[4096 + s] = WATER_ID;          m[4096 + s] = 0f;     // slot 2: EMPTY (id ignored)
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut(), registry(), slotSource(s, 2000f, (char) 3, ids, m));
+
+        int ci = colIdx(5, 4, 6, 7);
+        int n = RegionMarshaller.CHUNK_N;
+        assertEquals(RegionMarshaller.SLOT_N, t.slotIx().length);
+        assertEquals(3, t.matIx()[ci], "slot 0 = stored stone");
+        assertEquals(2000f, t.mass()[ci]);
+        assertEquals(1, t.slotIx()[ci], "slot 1 = water's batch-LUT index");
+        assertEquals(350f, t.slotMass()[ci]);
+        assertEquals(0, t.slotIx()[n + ci], "empty slot crosses as (0, 0)");
+        assertEquals(0f, t.slotMass()[n + ci]);
+        assertEquals(2, t.slotIx()[2 * n + ci], "slot 3 = air's batch-LUT index");
+        assertEquals(0.4f, t.slotMass()[2 * n + ci]);
+        assertEquals(1.0e6f, t.enthalpy()[ci], "one E for the whole cell, passed through");
+        float slotSum = 0f;
+        for (float v : t.slotMass()) slotSum += v;
+        assertEquals(350.4f, slotSum, 1e-4, "no other slot mass appears anywhere in the column");
+    }
+
+    @Test
+    void emptySlotZeroCellWithOccupiedSlotsIsNeverSeeded() {
+        // After a reload the prior-species tracker is empty (prior == void) — a cell whose slot 0 is
+        // empty but whose slot 1 still holds water must NOT be seeded to stone's defaultMass.
+        int s = 1 + 16 * 2 + 256 * 3;
+        Identifier[] ids = new Identifier[net.rainbowcreation.orge.section.SectionData.SLOT_CELLS];
+        float[] m = new float[net.rainbowcreation.orge.section.SectionData.SLOT_CELLS];
+        ids[s] = WATER_ID; m[s] = 12.5f;
+        ColumnTask t = ColumnAssembler.assemble(0, 0, lut(), registry(), slotSource(s, 0f, (char) 0, ids, m));
+        int ci = colIdx(1, 4, 2, 3);
+        assertEquals(0f, t.mass()[ci], "slot 0 stays empty — no fabricated stone mass");
+        assertEquals(0, t.matIx()[ci], "empty slot 0 reads as vacuum");
+        assertEquals(12.5f, t.slotMass()[ci], "the occupied slot carries through");
+
+        // Control: with no slot mass the same never-simulated cell IS a fresh seed (existing rule).
+        ColumnTask fresh = ColumnAssembler.assemble(0, 0, lut(), registry(),
+                slotSource(s, 0f, (char) 0, ids, new float[ids.length]));
+        assertEquals(2000f, fresh.mass()[ci], 1e-4, "fresh one-component cell still seeds defaultMass");
+    }
 }
