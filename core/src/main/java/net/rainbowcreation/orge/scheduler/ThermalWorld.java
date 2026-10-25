@@ -80,6 +80,14 @@ public interface ThermalWorld {
     }
 
     /**
+     * Run the once-per-second sky heightmap pass (spec 2026-10-25): force the surface of the columns
+     * being stepped for {@code dtSeconds} of solar gain / radiational loss into their stored E, booked in
+     * the forcing ledger. Called by the scheduler while no step is in flight, before
+     * {@link #snapshotColumns}. Default no-op for headless test worlds.
+     */
+    default void applySurfaceForcing(double dtSeconds) { }
+
+    /**
      * Persist one validated column result (T + mass) back into the 24 sections of {@code (cx,cz)},
      * reconcile MC blocks to the engine output species, record the output materials as the next
      * cycle's signature, settle, and wake any neighbour column that gained mass across an X/Z

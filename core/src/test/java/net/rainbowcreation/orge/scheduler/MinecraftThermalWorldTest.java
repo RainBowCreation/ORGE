@@ -425,4 +425,63 @@ class MinecraftThermalWorldTest {
         assertEquals(0f, MinecraftThermalWorld.clampDeriveBoundary(-5f), 0f, "below-floor T clamps to 0");
         assertEquals(0f, MinecraftThermalWorld.clampDeriveBoundary(Float.NaN), 0f, "non-finite T clamps to floor");
     }
+
+    // ---- Sky forcing pass (issue #32): reaches the last batch's columns of the forced dimension only ----
+
+    private static ThermalWorld.ColumnEntry skyEntry(Identifier dim, int cx) {
+        return new ThermalWorld.ColumnEntry(dim, cx, 0, null);
+    }
+
+    @Test
+    void skyForcingReachesOnlyTheLastBatchColumnsOfItsDimension(@TempDir Path dir) {
+        Identifier nether = SkyTestWorld.THE_NETHER;
+        SectionStoreManager mgr = SkyTestWorld.loaded(dir.resolve("ow"), DIM);
+        mgr.onLevelLoad(nether, dir.resolve("nether"), AmbientProvider.FALLBACK);
+        mgr.onChunkLoad(nether, 0, 0);
+        mgr.onChunkLoad(DIM, 1, 0);
+        SkyTestWorld.flatWorld(mgr.store(DIM), null, 285f);
+        SkyTestWorld.flatWorld(mgr.store(nether), null, 285f);
+        int surface = SkyTestWorld.cell(3, 7, 5);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        // Column (1,0) is stored too but was not in the last batch.
+        SectionData outside = SectionData.uniform(0f, 0f);
+        SkyTestWorld.setCell(outside, surface, SkyTestWorld.mat(SkyTestWorld.STONE), 2700f, 285f);
+        mgr.store(DIM).put(new SubchunkKey(1, 4, 0), outside);
+
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0), skyEntry(nether, 0)));
+        float ow0 = mgr.store(DIM).get(key).enthalpyAt(surface);
+        float out0 = outside.enthalpyAt(surface);
+        float ne0 = mgr.store(nether).get(key).enthalpyAt(surface);
+
+        world.applySurfaceForcing(DIM, 6000L, 0f, 1.0, SkyTestWorld.lookup());   // clear noon
+        world.applySurfaceForcing(nether, 6000L, 0f, 1.0, SkyTestWorld.lookup());
+
+        assertTrue(mgr.store(DIM).get(key).enthalpyAt(surface) > ow0, "the stepped Overworld column takes the sun");
+        assertEquals(out0, outside.enthalpyAt(surface), 0f, "a column outside the batch is not forced");
+        assertEquals(ne0, mgr.store(nether).get(key).enthalpyAt(surface), 0f, "the Nether has no sky");
+        assertTrue(world.surfaceForcing().ledger(DIM) > 0);
+        assertEquals(0.0, world.surfaceForcing().ledger(nether));
+    }
+
+    @Test
+    void skyForcingWithoutABoundServerIsANoOp(@TempDir Path dir) {
+        SectionStoreManager mgr = SkyTestWorld.loaded(dir, DIM);
+        SkyTestWorld.flatWorld(mgr.store(DIM), null, 285f);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0)));
+        world.applySurfaceForcing(1.0);
+        assertEquals(0.0, world.surfaceForcing().ledger(DIM));
+    }
+
+    @Test
+    void snapshotRecordsTheBatchTheNextForcingReaches(@TempDir Path dir) {
+        SectionStoreManager mgr = SkyTestWorld.loaded(dir, DIM);
+        SkyTestWorld.flatWorld(mgr.store(DIM), null, 285f);
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0)));
+        assertTrue(world.snapshotColumns(2).entries().isEmpty(), "unbound server: empty batch");
+        world.applySurfaceForcing(DIM, 6000L, 0f, 1.0, SkyTestWorld.lookup());
+        assertEquals(0.0, world.surfaceForcing().ledger(DIM), "the empty batch replaced the forced column set");
+    }
 }

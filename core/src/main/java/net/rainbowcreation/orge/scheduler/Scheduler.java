@@ -89,6 +89,9 @@ public final class Scheduler {
      *  cadence (→ 0.25 s); while an overrun blocks new submits it grows, so the next dispatched
      *  step catches up — clamped to {@link #MAX_CATCHUP_SECONDS}, beyond which debt is dropped. */
     private int ticksSinceLastDispatch;
+    /** Real ticks since the last sky forcing pass (spec 2026-10-25 §4): the pass runs at the first IDLE
+     *  boundary once a second has elapsed and forces the whole elapsed time. */
+    private int ticksSinceForcing;
     private StepRunner.Handle pending;
 
     /** Runtime step knobs ({@code /orge step}; server-thread, reset on restart). {@code ticksPerStep}
@@ -168,6 +171,7 @@ public final class Scheduler {
         // sub-cycles + interleaves heat→flow internally (spec 2026-06-02 A5/B1).
         tickCounter++;
         ticksSinceLastDispatch++;
+        ticksSinceForcing++;
         metrics.onRealTick();
         boolean boundary = (tickCounter % ticksPerStep == 0);
         if (state == State.AWAITING) {
@@ -199,6 +203,12 @@ public final class Scheduler {
         // Measure the server-thread cost of assembling the column snapshot (active+apron, full-height
         // columns): a dominant per-cycle cost ON the server thread that must feed the health throttle.
         long snapStart = System.nanoTime();
+        // Sky forcing (spec 2026-10-25 §4) writes the store's E while IDLE — no step is in flight whose
+        // write-back could overwrite it — and BEFORE the snapshot, so this step simulates the forced E.
+        if (ticksSinceForcing >= TICKS_PER_STEP) {
+            world.applySurfaceForcing(ticksSinceForcing / 20.0);
+            ticksSinceForcing = 0;
+        }
         ThermalWorld.ColumnBatch batch = world.snapshotColumns(worker.range());
         pendingSnapshotNanos = System.nanoTime() - snapStart;
         if (batch.entries().isEmpty()) {

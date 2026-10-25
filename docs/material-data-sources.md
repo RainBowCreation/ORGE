@@ -97,6 +97,26 @@ Wood/pitch flame 1300 K. A torch releases ~2 kW, ~25 % radiant, so its cell's ef
 a ~1 m luminous flame, ε = 1 − exp(−κL), κ ≈ 1 m⁻¹ ⇒ 0.63; its gas is air at 1300 K (0.272 kg). Torch =
 0.2 kg wood; lantern = ~1 kg sheet iron.
 
+## Sky forcing (solar / radiational, issue #32)
+
+Not material data: the climate the once-per-second sky pass forces exposed cells with
+(`SurfaceForcing`, spec `superpowers/specs/2026-10-25-solar-radiational-forcing.md`). A cell takes
+`τ·ε` of the sky (grey body: it absorbs what it emits, the `ε` column above), so these numbers only set
+the sky; each block's response comes from its own `ε`, `m`, `cp`.
+
+| Quantity | Value | Source |
+|---|---|---|
+| Overworld absorbed sunlight, daily mean | 161 W/m² (`S = π·161·max(0, sin(2π·dayTime/24000))`, noon 506 W/m²); × (1 − rain level) | Trenberth, Fasullo & Kiehl 2009, *Earth's global energy budget*, BAMS 90(3):311, Fig. 1 — solar absorbed by the surface |
+| Overworld sky temperature | 276.8 K = (333 W/m² / σ)^¼ | same budget: back radiation 333 W/m² |
+| End sky temperature | 2.725 K | Fixsen 2009, *The temperature of the cosmic microwave background*, ApJ 707:916 (2.72548 K) |
+| Stefan–Boltzmann σ | 5.670374419e-8 W/(m²·K⁴) | CODATA 2018 (exact) |
+| Nether | no forcing | bedrock ceiling |
+
+Balance: the loss `ε·σ·(T⁴ − T_sky⁴)` grows with `T`, so a surface settles where a day's sun equals a
+day's loss — `(494 W/m² / σ)^¼ ≈ 305 K` for an isolated Overworld surface, lower once conduction into
+air and ground shares the sun. The End relaxes toward 2.725 K and the per-pass floor never takes a cell
+below it.
+
 ## Phase changes
 
 Each composition class melts into ONE real melt (rendered as `minecraft:lava`) and refreezes into its
