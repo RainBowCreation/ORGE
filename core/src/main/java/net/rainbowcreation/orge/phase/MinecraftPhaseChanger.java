@@ -68,8 +68,6 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         if (store == null || !store.isLoaded(key.cx(), key.cz())) {
             return;
         }
-        SectionData data = store.get(key);
-
         ActiveMaterials.State mats = ActiveMaterials.current();
         IntFunction<Material> cellMat = i -> EngineOutSpecies.resolve(outMaterial, outLut, i,
                 LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats.registry()));
@@ -77,9 +75,18 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         if (resets.isEmpty()) {
             return;
         }
-        // Hold each surviving source at its default_temperature, stored as extensive E = mass·h(T) via
-        // the cell's STORED species curve; an unresolvable / massless cell stores 0 J.
-        Function<Identifier, Material> lookup = id -> mats.registry().get(id).orElse(null);
+        pinSources(store, key, resets, id -> mats.registry().get(id).orElse(null));
+    }
+
+    /**
+     * Hold each surviving source at its default_temperature, stored as extensive E = mass·h(T) via the
+     * cell's STORED species curve; an unresolvable / massless cell stores 0 J. Persists the section (a
+     * never-stored one materializes as ambient here). Public so the headless suite drives the exact
+     * pinned-source write without a running server.
+     */
+    public static void pinSources(SectionStore store, SubchunkKey key, List<SourcePinPlanner.Reset> resets,
+                                  Function<Identifier, Material> lookup) {
+        SectionData data = store.get(key);
         for (SourcePinPlanner.Reset r : resets) {
             int ci = r.cellIndex();
             Material cellM = lookup.apply(data.materialAt(ci));

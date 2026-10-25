@@ -36,8 +36,13 @@ class SectionStoreTest {
         SubchunkKey key = new SubchunkKey(0, 0, 0);
         SectionData s = store.get(key);
 
-        // Correct ambient values from AMB
-        assertEquals(300f, s.enthalpyAt(0), "ambient temperature must match AmbientProvider");
+        // Correct ambient values from AMB. E is extensive [J] (law §7): an ambient section carries the
+        // explicit unset sentinel — never the ambient Kelvin parked in the enthalpy slot (issue #54).
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            assertEquals(SectionData.UNSET_ENTHALPY_J, s.enthalpyAt(i),
+                    "ambient E must be the unset sentinel, not the ambient temperature");
+        }
+        assertNotEquals(300.0, s.enthalpyAt(0), "the ambient temperature must never be stored as E");
         assertEquals(1.2f, s.massAt(0),         "ambient mass must match AmbientProvider");
         assertEquals(SectionData.Form.UNIFORM, s.form(), "ambient section must be UNIFORM");
 

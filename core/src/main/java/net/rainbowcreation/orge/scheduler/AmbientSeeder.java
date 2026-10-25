@@ -17,9 +17,14 @@ public final class AmbientSeeder {
     public static float[] seed(IntFunction<Material> cellMaterial, float biomeAmbientK) {
         float[] t = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
-            Material m = cellMaterial.apply(i);
-            t[i] = m.hasDefaultTemperature() ? m.defaultTemperature() : biomeAmbientK;
+            t[i] = seedT(cellMaterial.apply(i), biomeAmbientK);
         }
         return t;
+    }
+
+    /** One cell's seed: its material's {@code default_temperature} (a source), else the biome ambient
+     *  (also for an unresolvable {@code null} material). */
+    public static float seedT(Material m, float biomeAmbientK) {
+        return m != null && m.hasDefaultTemperature() ? m.defaultTemperature() : biomeAmbientK;
     }
 }

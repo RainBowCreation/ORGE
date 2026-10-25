@@ -2,7 +2,7 @@ package net.rainbowcreation.orge.section;
 
 /**
  * Supplies the implicit ambient state for a section that has never been simulated or
- * stored (DESIGN.md §5): UNIFORM(biome-ambient temperature, material defaultMass).
+ * stored (DESIGN.md §5): UNIFORM(unset E, material defaultMass) at the biome-ambient temperature.
  *
  * <p>Injected seam (kept pure for unit testing). The real biome-temperature +
  * material-defaultMass backed implementation is wired by the loader integration;
@@ -14,6 +14,9 @@ public interface AmbientProvider {
     /**
      * Biome-derived ambient temperature (K) for this section. Implementations fall back
      * to {@link SectionData#DEFAULT_AMBIENT_K} (~285 K) when no biome value is available.
+     * A temperature, never an enthalpy: {@link SectionStore} does NOT store it in E (issue #54,
+     * law §7) — a materialized section carries {@link SectionData#UNSET_ENTHALPY_J} and the
+     * snapshot seeds the ambient T it is encoded from.
      */
     float ambientTemperatureK(SubchunkKey key);
 

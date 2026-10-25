@@ -28,6 +28,15 @@ public final class MaterialPalette {
     /** The reserved index-0 sentinel material id ({@code orge:vacuum}). */
     public static final Identifier VACUUM_ID = Identifier.fromNamespaceAndPath("orge", "vacuum");
 
+    /**
+     * The reserved "no durable identity yet" id ({@code orge:unset}, issue #54). A layer allocated on a
+     * section that had none fills every cell with it, so the cells its first writer did not touch keep
+     * resolving to their live block (first-touch) species — never to a fabricated {@code orge:vacuum}.
+     * It is not a material: {@link SectionData#materialAt} reads it as the vacuum sentinel and
+     * {@link SectionData#durableMaterialAt} as {@code null}.
+     */
+    public static final Identifier UNSET_ID = Identifier.fromNamespaceAndPath("orge", "unset");
+
     /** 16 × 16 × 16. */
     public static final int CELLS = SectionData.CELLS;
 
@@ -41,6 +50,13 @@ public final class MaterialPalette {
         this.byId = new HashMap<>();
         this.indices = new char[CELLS];
         appendVacuum();
+    }
+
+    /** A fresh layer for a section that had none: {@code [VACUUM_ID, UNSET_ID]}, every cell unset. */
+    static MaterialPalette allUnset() {
+        MaterialPalette m = new MaterialPalette();
+        java.util.Arrays.fill(m.indices, (char) m.indexOf(UNSET_ID));
+        return m;
     }
 
     /**

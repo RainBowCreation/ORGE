@@ -89,6 +89,21 @@ public final class SectionData {
         this.mass = mass;
     }
 
+    /**
+     * Stored E of a cell whose enthalpy has never been set (issue #54, law §7): the explicit "unset"
+     * sentinel {@link net.rainbowcreation.orge.scheduler.ColumnAssembler} honours by encoding
+     * {@code E = m·h(T_seed)} once from the seeded mass. Never a temperature.
+     */
+    public static final double UNSET_ENTHALPY_J = 0.0;
+
+    /**
+     * An ambient section materialized for a never-simulated key: every cell at the unset-E sentinel and
+     * {@code massKg}. The ambient temperature is NOT stored — the snapshot seeds it (law §7).
+     */
+    public static SectionData ambient(float massKg) {
+        return uniform(UNSET_ENTHALPY_J, massKg);
+    }
+
     /** A never-simulated section: implicitly uniform enthalpy and material default mass. */
     public static SectionData uniform(double enthalpyJ, float massKg) {
         return new SectionData(Form.UNIFORM, enthalpyJ, massKg, null, null);
@@ -574,7 +589,22 @@ public final class SectionData {
      * cell when no material layer has been allocated.
      */
     public Identifier materialAt(int i) {
-        return materials == null ? MaterialPalette.VACUUM_ID : materials.get(i);
+        Identifier id = durableMaterialAt(i);
+        return id == null ? MaterialPalette.VACUUM_ID : id;
+    }
+
+    /**
+     * The DURABLE material id of cell {@code i}, or {@code null} when the cell has none yet (no layer, or
+     * a cell the layer's first writer did not touch — {@link MaterialPalette#UNSET_ID}). A {@code null}
+     * cell takes its live block's first-touch species; an explicit {@code orge:vacuum} is a durable empty
+     * cell (a broken block). Issue #54: materializing a section must not turn its untouched cells vacuum.
+     */
+    public Identifier durableMaterialAt(int i) {
+        if (materials == null) {
+            return null;
+        }
+        Identifier id = materials.get(i);
+        return MaterialPalette.UNSET_ID.equals(id) ? null : id;
     }
 
     /**
@@ -584,18 +614,20 @@ public final class SectionData {
      */
     public void setMaterialAt(int i, Identifier id) {
         if (materials == null) {
-            materials = new MaterialPalette();
+            materials = MaterialPalette.allUnset();
         }
         promote();
         materials.set(i, id);
     }
 
     /**
-     * The material palette (size includes the slot-0 vacuum sentinel). When no material layer is
-     * allocated, returns a singleton {@code [VACUUM_ID]}.
+     * The material palette (size includes the slot-0 vacuum sentinel; the {@link MaterialPalette#UNSET_ID}
+     * marker is not a material and is left out). When no material layer is allocated, returns a singleton
+     * {@code [VACUUM_ID]}.
      */
     public List<Identifier> palette() {
-        return materials == null ? List.of(MaterialPalette.VACUUM_ID) : materials.palette();
+        return materials == null ? List.of(MaterialPalette.VACUUM_ID)
+                : materials.palette().stream().filter(id -> !MaterialPalette.UNSET_ID.equals(id)).toList();
     }
 
     // -------------------------------------------------------------------------
@@ -636,7 +668,7 @@ public final class SectionData {
     public void setSlot(int k, int i, Identifier id, float massKg) {
         int q = slotIndex(k, i);
         if (materials == null) {
-            materials = new MaterialPalette();
+            materials = MaterialPalette.allUnset();
         }
         promote();
         if (slotIx == null) {

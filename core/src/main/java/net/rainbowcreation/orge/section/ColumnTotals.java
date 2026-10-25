@@ -13,7 +13,8 @@ import java.util.TreeMap;
  *
  * <p>Every sum runs cell by cell, slot 0 then slots 1..K−1, in double. Two views of the same
  * cells therefore give bit-identical totals, so equality here is exact, not a tolerance. A cell
- * with no material layer books its mass under {@link MaterialPalette#VACUUM_ID}.</p>
+ * with no material layer (or no durable id, {@link MaterialPalette#UNSET_ID}) books its mass under
+ * {@link MaterialPalette#VACUUM_ID}, exactly as {@link SectionData#materialAt} reads it.</p>
  */
 public final class ColumnTotals {
 
@@ -54,7 +55,7 @@ public final class ColumnTotals {
     void add(SectionSnapshot w) {
         for (int i = 0; i < SectionData.CELLS; i++) {
             Identifier id = w.hasMaterials() ? w.materialPalette().get(w.materialIndices()[i]) : MaterialPalette.VACUUM_ID;
-            cell(id, w.isFull() ? w.mass()[i] : w.uniformMass());
+            cell(MaterialPalette.UNSET_ID.equals(id) ? MaterialPalette.VACUUM_ID : id, w.isFull() ? w.mass()[i] : w.uniformMass());
             for (int k = 1; k < SectionData.SLOTS; k++) {
                 int q = (k - 1) * SectionData.CELLS + i;
                 cell(w.hasSlots() ? w.materialPalette().get(w.slotIndices()[q]) : MaterialPalette.VACUUM_ID,
