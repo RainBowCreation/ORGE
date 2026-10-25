@@ -22,9 +22,10 @@ public final class ScratchPool {
     private float[] velZOut = new float[0];
     private float[] pOut    = new float[0];
     // T10.8: absolute-E (law #6) + swap-cadence accumulator (law #7, §5.3) JNI channels.
-    private float[] eIn          = new float[0];
+    // E crosses at DOUBLE (issue #44: a float32 seam rounded every cell's E once per call).
+    private double[] eIn          = new double[0];
     private float[] swapReadyIn  = new float[0];
-    private float[] eOut         = new float[0];
+    private double[] eOut         = new double[0];
     private float[] swapReadyOut = new float[0];
     // DESIGN-LAW v5 #7: composition slots 1..K−1 out channels.
     private char[]  slotIxOut   = new char[0];
@@ -36,6 +37,11 @@ public final class ScratchPool {
      *  exactly one place. */
     private static float[] grow(float[] buf, int n) {
         return buf.length < n ? new float[n] : buf;
+    }
+
+    /** The {@code double[]} variant of {@link #grow(float[], int)} (the absolute-E channels). */
+    private static double[] grow(double[] buf, int n) {
+        return buf.length < n ? new double[n] : buf;
     }
 
     /** The {@code char[]} variant of {@link #grow(float[], int)} (the material channel). */
@@ -70,7 +76,7 @@ public final class ScratchPool {
      * slot it intends to use (the held array may carry stale data past {@code n}); T10.8 rebuilds
      * Ein = mass·cp·T over exactly the {@code total} cells each step, so there is no stale read.
      */
-    public float[] eIn(int n) { return eIn = grow(eIn, n); }
+    public double[] eIn(int n) { return eIn = grow(eIn, n); }
 
     /**
      * Swap-cadence accumulator input channel ({@code swapReadyIn}, law #7 / §5.3). As of T10c,
@@ -82,7 +88,7 @@ public final class ScratchPool {
     public float[] swapReadyIn(int n) { return swapReadyIn = grow(swapReadyIn, n); }
 
     /** Absolute-enthalpy output channel ({@code Eout} [J]). Captured from the native; see T10.8 note. */
-    public float[] eOut(int n) { return eOut = grow(eOut, n); }
+    public double[] eOut(int n) { return eOut = grow(eOut, n); }
 
     /** Swap-cadence accumulator output channel ({@code swapReadyOut}). Captured from the native. */
     public float[] swapReadyOut(int n) { return swapReadyOut = grow(swapReadyOut, n); }

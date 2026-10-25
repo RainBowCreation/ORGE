@@ -105,7 +105,7 @@ class WriteBackEditGuardTest {
         char[] matIx = new char[n];
         float[] mass = new float[n];
         float[] temp = new float[n];
-        float[] enth = new float[n];
+        double[] enth = new double[n];
         int ci = RegionMarshaller.colIdx(0, 0, 0); // world (0,-64,0) -> engineY 0
         matIx[ci] = BEDX; mass[ci] = 3000f; temp[ci] = 290f; enth[ci] = E_290;
         return new ColumnResult(matIx, mass, temp,

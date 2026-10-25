@@ -262,7 +262,7 @@ class ColumnAssemblerTest {
             char[] mat = new char[4096];
             float[] mass = new float[4096];
             float[] temp = new float[4096];
-            float[] enth = new float[4096];
+            double[] enth = new double[4096];
             java.util.Arrays.fill(mat, (char) 2);     // air
             java.util.Arrays.fill(mass, 1.2f);
             java.util.Arrays.fill(temp, 300f);
@@ -284,7 +284,7 @@ class ColumnAssemblerTest {
         // E = m·h(T_seed) from its seeded mass + seed temp (else it would derive T = 0 K). It is the
         // distinct cell's E that must be carried verbatim, not a global all-zero enthalpy field.
         java.util.function.Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
-        float airE = (float) EnthalpyCurve.cellE(1.2f, TestMaterials.air(), lookup, 300f);
+        double airE = EnthalpyCurve.cellE(1.2f, TestMaterials.air(), lookup, 300f);
         assertEquals(airE, t.enthalpy()[colIdx(0, 0, 0, 0)], 1e-2,
                 "seed/ambient air cell (stored E == 0) encodes E = m·h(T_seed), not 0");
     }
@@ -308,7 +308,7 @@ class ColumnAssemblerTest {
             float[] mass = new float[4096];
             float[] temp = new float[4096];
             char[] prior = new char[4096];          // void (0) -> seed gate engages for new water labels
-            float[] enth = new float[4096];
+            double[] enth = new double[4096];
             java.util.Arrays.fill(mat, (char) 2);   // air
             java.util.Arrays.fill(mass, 1.2f);
             java.util.Arrays.fill(temp, 300f);
@@ -325,7 +325,7 @@ class ColumnAssemblerTest {
         ColumnTask t = ColumnAssembler.assemble(0, 0, lut, reg, src);
 
         int ia = colIdx(1, 4, 2, 3);
-        float expectE = (float) EnthalpyCurve.cellE(1000f, water, lookup, 285f);
+        double expectE = EnthalpyCurve.cellE(1000f, water, lookup, 285f);
         assertTrue(expectE > 0f, "water at 285 K has positive E (sanity)");
         assertEquals(expectE, t.enthalpy()[ia], 1e-3,
                 "seed cell (stored E == 0) encodes E = m·h(T_seed), NOT 0 (else T derives to 0 K)");
@@ -350,7 +350,7 @@ class ColumnAssemblerTest {
             java.util.Arrays.fill(temp, 300f);
             Identifier[] stored = new Identifier[4096];
             char[] priorSp = new char[4096];
-            float[] e = new float[4096];
+            double[] e = new double[4096];
             if (sectionY != 4) {
                 return new ColumnAssembler.SectionCells(mat, mass, temp, priorSp, stored);
             }
@@ -444,7 +444,7 @@ class ColumnAssemblerTest {
             }
             return new ColumnAssembler.SectionCells(mat, mass, temp, pr, new Identifier[4096],
                     new float[4096], new float[4096], new float[4096], new float[4096], new float[4096],
-                    new float[4096], new Identifier[n], new float[n], wl, sectionY == 4 && seedWaterlog);
+                    new double[4096], new Identifier[n], new float[n], wl, sectionY == 4 && seedWaterlog);
         };
     }
 

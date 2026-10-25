@@ -31,7 +31,7 @@ class RegionMarshallerTest {
     void enthalpyChannelRoundTripsFlattenSlice() {
         int N = RegionMarshaller.CHUNK_N;
         // Two columns with DISTINCT per-cell enthalpy: col0 cell k = 1000+k, col1 cell k = 5000+k.
-        float[] e0 = new float[N], e1 = new float[N];
+        double[] e0 = new double[N], e1 = new double[N];
         for (int k = 0; k < N; k++) { e0[k] = 1000f + k; e1[k] = 5000f + k; }
         ColumnTask a = new ColumnTask(2, -1, new char[N], new float[N], new float[N],
                 new float[N], new float[N], new float[N], new float[N], new float[N], e0);
@@ -49,7 +49,7 @@ class RegionMarshallerTest {
         assertEquals(5000f + (N - 1), f.eIn()[2 * N - 1]);
 
         // Slice DISTINCT eOut back; assert each ColumnResult.enthalpy matches bit-identically.
-        float[] eOut = new float[N * 2];
+        double[] eOut = new double[N * 2];
         for (int k = 0; k < N; k++) { eOut[k] = 9000f + k; eOut[N + k] = 13000f + k; }
         List<ColumnResult> r = RegionMarshaller.slice(f.matIx(), f.mass(), f.tIn(),
                 f.pxIn(), f.pyIn(), f.pzIn(), f.pIn(), f.swapReadyIn(), eOut, 2);

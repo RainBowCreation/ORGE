@@ -81,10 +81,12 @@ public final class SurfaceForcing {
         double[] booked = {0.0};
         Map<SubchunkKey, SectionData> touched = new HashMap<>();
         SkyColumnPass.walk(store, cx, cz, lookup, (key, data, cell, w) -> {
-            float before = data.enthalpyAt(cell);
-            float after = (float) (before + deltaE(data, cell, w, climate, dtSeconds, lookup));
+            // Double E (issue #44): a per-second sky flux far below a float ULP of a massive cell's E is
+            // kept, not rounded away; booked is what the cell actually received.
+            double before = data.enthalpyAt(cell);
+            double after = before + deltaE(data, cell, w, climate, dtSeconds, lookup);
             data.setEnthalpy(cell, after);
-            booked[0] += (double) after - (double) before;
+            booked[0] += after - before;
             touched.put(key, data);
         });
         touched.forEach(store::put); // mark the forced sections' column dirty so the next save keeps the E

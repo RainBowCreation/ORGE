@@ -71,7 +71,7 @@ class ColumnWriteBackTest {
     }
 
     private static ColumnResult result(ColumnTask t, char[] slotIx, float[] slotMass) {
-        float[] e = new float[RegionMarshaller.CHUNK_N];
+        double[] e = new double[RegionMarshaller.CHUNK_N];
         Arrays.fill(e, 3.9e8f);
         float[] z = new float[RegionMarshaller.CHUNK_N];
         return new ColumnResult(t.matIx().clone(), t.mass().clone(), t.temperature().clone(),

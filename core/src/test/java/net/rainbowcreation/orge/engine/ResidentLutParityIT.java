@@ -64,12 +64,12 @@ class ResidentLutParityIT {
         // temperature, exactly as production does (ColumnAssembler.assemble). Empty/vacuum cells stay 0.
         List<Material> lut = lut();
         Function<Identifier, Material> lookup = lookup();
-        float[] enth = new float[N];
+        double[] enth = new double[N];
         for (int i = 0; i < N; i++) {
             char ix = matIx[i];
             if (ix == 0 || mass[i] <= 0f) continue;
             Material m = lut.get(ix);
-            enth[i] = (float) EnthalpyCurve.cellE(mass[i], m, lookup, tIn[i]);
+            enth[i] = EnthalpyCurve.cellE(mass[i], m, lookup, tIn[i]);
         }
         float[] z = new float[N];
         return new ColumnTask(0, 0, matIx, mass, tIn,
@@ -109,6 +109,11 @@ class ResidentLutParityIT {
      * alike, so all three are GAS-classified here and GW-1's gas-force change legitimately moves them; 12 cells
      * diverged (each species compacts to its maxMass cell at rest); conservation 3030.000000 in / 3030.000000
      * out (Δ=0); 3 occupied; temps [300.000,1500.000]K; no NaN/ghost.
+     * Re-captured 2026-10-25 for ORGE#44 (E crosses the JNI seam and lives in Java at DOUBLE, not float32):
+     * the seed E is no longer float-rounded and the 8-step loop threads a double E forward, so exactly ONE
+     * cell moved, last-ULP: temp[49800] 300.00003 → 300.0 (the exact seed T, now that E is not rounded).
+     * matIx and mass identical on every cell; conservation 3030.000000 in / 3030.000000 out (Δ=0);
+     * 3 occupied; temps [300.000,1500.000]K; no NaN/ghost.
      */
     @Test
     void registerOnceRunsBitIdenticalToGolden() throws Exception {

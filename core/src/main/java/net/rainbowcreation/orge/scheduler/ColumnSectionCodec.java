@@ -78,6 +78,23 @@ public final class ColumnSectionCodec {
         return out;
     }
 
+    /** The {@code double[]} variant of {@link #sliceSectionChannel(float[], int)} — the absolute-E channel,
+     *  carried at double end to end (issue #44). */
+    public static double[] sliceSectionChannel(double[] col, int sectionY) {
+        double[] out = new double[SectionData.CELLS];
+        for (int z = 0; z < 16; z++) {
+            for (int sy = 0; sy < 16; sy++) {
+                int ey = engineY(sectionY, sy);
+                int colRow = RegionMarshaller.colIdx(0, ey, z);   // + x
+                int secRow = 16 * sy + 256 * z;    // + x
+                for (int x = 0; x < 16; x++) {
+                    out[secRow + x] = col[colRow + x];
+                }
+            }
+        }
+        return out;
+    }
+
     /**
      * Scatter the species slice of {@code colMat} belonging to one section into a section-sized
      * ({@value SectionData#CELLS}) {@code char[]} indexed by {@code si = x + 16*sy + 256*z}.

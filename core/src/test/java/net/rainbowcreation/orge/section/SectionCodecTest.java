@@ -48,7 +48,7 @@ class SectionCodecTest {
 
     @Test
     void fullRoundTrip() throws IOException {
-        float[] t = new float[SectionData.CELLS];
+        double[] t = new double[SectionData.CELLS];
         float[] m = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
             t[i] = 270f + i * 0.01f;
@@ -67,7 +67,7 @@ class SectionCodecTest {
 
     @Test
     void fullUsesCompression() throws IOException {
-        float[] t = new float[SectionData.CELLS];
+        double[] t = new double[SectionData.CELLS];
         float[] m = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
             t[i] = 270f + i * 0.01f;
@@ -92,7 +92,7 @@ class SectionCodecTest {
 
     @Test
     void columnRoundTrip() throws IOException {
-        float[] t = new float[SectionData.CELLS];
+        double[] t = new double[SectionData.CELLS];
         float[] m = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
             t[i] = 270f + i * 0.01f;
@@ -150,7 +150,7 @@ class SectionCodecTest {
 
     @Test
     void v5RoundTripsEnthalpyMomentumPressureExactly() throws IOException {
-        float[] e = new float[SectionData.CELLS];
+        double[] e = new double[SectionData.CELLS];
         float[] m = new float[SectionData.CELLS];
         for (int i = 0; i < SectionData.CELLS; i++) {
             e[i] = 1000f + i * 0.5f;                 // distinct per-cell enthalpy E [J]
@@ -432,6 +432,40 @@ class SectionCodecTest {
         }
         IOException ex = assertThrows(IOException.class, () -> SectionCodec.readColumn(bos.toByteArray()));
         assertTrue(ex.getMessage().contains("without a material palette"), ex.getMessage());
+    }
+
+    // -------------------------------------------------------------------------
+    // Issue #44: persisted E precision is float32 — pinned
+    // -------------------------------------------------------------------------
+
+    /**
+     * The runtime store holds E at double (it crosses the engine seam every tick and must never be rounded
+     * per tick); the region file persists E at float32. That rounding happens ONCE per save→load and is
+     * pinned here: a loaded E is exactly {@code (float) E} — within ½ ULP(E), relative 2⁻²⁴ — and a
+     * float32-representable E round-trips bit-exact. Changing the persisted width must change this test.
+     */
+    @Test
+    void persistedEnthalpyIsFloat32_oneOffRoundingPerSave() throws IOException {
+        final double bigE = 6.0e8 + 0.25;   // a 2700 kg stone cell's E; float32 ULP here is 64 J
+        assertNotEquals(bigE, (double) (float) bigE, "NON-VACUOUS: bigE is not float32-representable");
+        double[] e = new double[SectionData.CELLS];
+        float[] m = new float[SectionData.CELLS];
+        for (int i = 0; i < SectionData.CELLS; i++) { e[i] = bigE + i * 0.125; m[i] = 2700f; }
+        e[1] = 1000.5;                                   // float32-representable
+        SectionData s = SectionData.full(e, m);
+        SectionData back = roundTrip(s);
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            double want = (double) (float) e[i];
+            assertEquals(want, back.enthalpyAt(i), 0.0, "persisted E is exactly the float32 image, cell " + i);
+            assertTrue(Math.abs(back.enthalpyAt(i) - e[i]) <= Math.ulp((float) e[i]) / 2.0,
+                    "save→load error ≤ ½ ULP(E), cell " + i);
+        }
+        assertEquals(1000.5, back.enthalpyAt(1), 0.0, "a float32-representable E round-trips bit-exact");
+        assertEquals(bigE, s.enthalpyAt(0), 0.0, "saving never narrows the live runtime E");
+
+        SectionData u = SectionData.uniform(bigE, 2700f);
+        assertEquals((double) (float) bigE, roundTrip(u).enthalpyAt(0), 0.0, "UNIFORM E persists at float32 too");
+        assertEquals(bigE, u.enthalpyAt(0), 0.0, "UNIFORM runtime E is double");
     }
 
     // -------------------------------------------------------------------------

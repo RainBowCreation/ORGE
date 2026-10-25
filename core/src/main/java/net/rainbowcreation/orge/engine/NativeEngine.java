@@ -70,20 +70,24 @@ public final class NativeEngine implements OrgeEngine {
             float[] ledgerOut,
             // T10.8 ABI growth (engine a2a51cd): four per-cell payload arrays APPENDED at the very end
             // so every existing param keeps its position. Each length nCols·CHUNK_N (same shape as mass).
-            //   eIn / eOut         : ABSOLUTE enthalpy E [J] (law #6 — E is the truth carrier; T crosses
-            //                        only as a derived diagnostic). Loss-free across the JNI seam.
+            //   eIn / eOut         : ABSOLUTE enthalpy E [J] as DOUBLE (law #6 — E is the truth carrier; T
+            //                        crosses only as a derived diagnostic). Loss-free across the JNI seam
+            //                        (issue #44: a float32 seam rounded every cell's E once per call).
             //   swapReadyIn/Out    : §5.3 swap-cadence accumulator (law #7), round-tripped so the per-call
             //                        World rebuild does not reset it each tick.
             // ledgerOut above is now [4*matCount] = injected, sealedLoss, injectedE, sealedE; the C++
             // writes the E side ONLY when the array length >= 4*matCount (forward-compat guard).
-            float[] eIn, float[] swapReadyIn,
-            float[] eOut, float[] swapReadyOut,
+            double[] eIn, float[] swapReadyIn,
+            double[] eOut, float[] swapReadyOut,
             // DESIGN-LAW v5 #7 (multi-material cell, issue #26) ABI growth: composition slots 1..K−1 of every
             // cell in and out (slot 0 = matIx/mass). Each length nCols·RegionMarshaller.SLOT_N, column c's
             // block at c·SLOT_N, slot k at (k−1)·CHUNK_N inside it. APPENDED so every existing param keeps
             // its position; the native treats null/short arrays as "every cell one-material".
             char[] slotIxIn, float[] slotMassIn,
-            char[] slotIxOut, float[] slotMassOut);
+            char[] slotIxOut, float[] slotMassOut,
+            // Issue #44: this call's books, length RegionStepResult.BOOKS_HEAD + matCount — boundaryE,
+            // dampHeat, swapPeHeat, then boundaryMassEps[species] (orge_step_world.hpp ORGE_BOOKS_*).
+            double[] booksOut);
 
     private final java.util.Map<Integer, Integer> epochMatCount = new java.util.concurrent.ConcurrentHashMap<>();
 

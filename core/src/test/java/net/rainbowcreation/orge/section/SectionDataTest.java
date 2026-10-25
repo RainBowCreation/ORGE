@@ -20,7 +20,7 @@ class SectionDataTest {
     // -------------------------------------------------------------------------
 
     private static SectionData fullUniform(float enthalpy, float mass) {
-        float[] enths = new float[SectionData.CELLS];
+        double[] enths = new double[SectionData.CELLS];
         float[] masses = new float[SectionData.CELLS];
         Arrays.fill(enths, enthalpy);
         Arrays.fill(masses, mass);
@@ -76,7 +76,7 @@ class SectionDataTest {
     void enthalpyArray_onUniform_promotesAndReturnsLiveArray() {
         SectionData s = SectionData.uniform(290_000f, 1000f);
 
-        float[] arr = s.enthalpyArray();
+        double[] arr = s.enthalpyArray();
 
         assertNotNull(arr);
         assertEquals(SectionData.CELLS, arr.length, "array must be length 4096");
@@ -277,16 +277,16 @@ class SectionDataTest {
         float[] goodArr = new float[SectionData.CELLS];
 
         assertThrows(IllegalArgumentException.class,
-                () -> SectionData.full(shortArr, goodArr),
+                () -> SectionData.full(new double[10], goodArr),
                 "short enthalpy array should throw");
         assertThrows(IllegalArgumentException.class,
-                () -> SectionData.full(goodArr, shortArr),
+                () -> SectionData.full(new double[SectionData.CELLS], shortArr),
                 "short mass array should throw");
     }
 
     @Test
     void full_correctLength_buildsFULLSectionReflectingArrayContents() {
-        float[] enths = new float[SectionData.CELLS];
+        double[] enths = new double[SectionData.CELLS];
         float[] masses = new float[SectionData.CELLS];
         enths[42] = 350_000f;
         masses[100] = 800f;
@@ -301,7 +301,7 @@ class SectionDataTest {
 
     @Test
     void full_adoptsArraysByReference() {
-        float[] enths = new float[SectionData.CELLS];
+        double[] enths = new double[SectionData.CELLS];
         float[] masses = new float[SectionData.CELLS];
 
         SectionData s = SectionData.full(enths, masses);
@@ -390,5 +390,18 @@ class SectionDataTest {
         assertFalse(s.hasSlots());
         assertEquals(SectionData.Form.UNIFORM, s.form());
         assertEquals(1000f, s.cellMassAt(9));
+    }
+
+    /** Issue #44: the runtime E store is double — a heat quantum far below a float32 ULP of a massive
+     *  cell's E is kept (a float store rounded it away on every tick). */
+    @Test
+    void runtimeEnthalpyHoldsSubFloatUlpHeat() {
+        SectionData s = SectionData.uniform(6.0e8, 2700f);   // float32 ULP at 6e8 J is 64 J
+        s.setEnthalpy(7, s.enthalpyAt(7) + 0.5);
+        assertEquals(6.0e8 + 0.5, s.enthalpyAt(7), 0.0, "setEnthalpy keeps a 0.5 J quantum");
+        double[] live = s.enthalpyArray();
+        live[8] += 3.0;
+        assertEquals(6.0e8 + 3.0, s.enthalpyAt(8), 0.0, "the live array is double too");
+        assertEquals(6.0e8, s.enthalpyAt(9), 0.0, "promotion back-fills the exact uniform E");
     }
 }

@@ -22,10 +22,13 @@ class EngineMarshallerTest {
     private static final class RecordingKernel implements EngineMarshaller.Kernel {
         int lutEpoch, nCols, passes, injCount, calls;
         double dtSeconds;
+        /** Non-zero ⇒ eOut = eIn + offset (a kernel that adds a sub-float-ULP heat quantum to every cell). */
+        double eInEchoOffset;
         int[] cx, cz, injColumn, injCell;
         char[] matIx, matOut, injSpecies;
-        float[] mass, tIn, vxIn, vyIn, vzIn, pIn, eIn, swapReadyIn, injMass, injTemp;
-        float[] tOut, massOut, vxOut, vyOut, vzOut, pOut, eOut, swapReadyOut, ledgerOut;
+        float[] mass, tIn, vxIn, vyIn, vzIn, pIn, swapReadyIn, injMass, injTemp;
+        float[] tOut, massOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, ledgerOut;
+        double[] eIn, eOut, booksOut;
         char[] slotIxIn, slotIxOut;
         float[] slotMassIn, slotMassOut;
 
@@ -39,9 +42,12 @@ class EngineMarshallerTest {
                            int injCount, int[] injColumn, int[] injCell,
                            char[] injSpecies, float[] injMass, float[] injTemp,
                            float[] ledgerOut,
-                           float[] eIn, float[] swapReadyIn, float[] eOut, float[] swapReadyOut,
-                           char[] slotIxIn, float[] slotMassIn, char[] slotIxOut, float[] slotMassOut) {
+                           double[] eIn, float[] swapReadyIn, double[] eOut, float[] swapReadyOut,
+                           char[] slotIxIn, float[] slotMassIn, char[] slotIxOut, float[] slotMassOut,
+                           double[] booksOut) {
             this.calls++;
+            this.booksOut = booksOut;
+            for (int i = 0; i < booksOut.length; i++) booksOut[i] = 0.125 + i;
             this.slotIxIn = slotIxIn; this.slotMassIn = slotMassIn;
             this.slotIxOut = slotIxOut; this.slotMassOut = slotMassOut;
             for (int i = 0; i < slotIxOut.length; i++) { slotIxOut[i] = (char) ((i + 3) & 0xFFFF); slotMassOut[i] = 0.25f + i; }
@@ -63,12 +69,13 @@ class EngineMarshallerTest {
             }
             // Deterministic ledger fill (only meaningful when length >= 4*matCount): index value = its slot.
             for (int i = 0; i < ledgerOut.length; i++) ledgerOut[i] = 100f + i;
+            if (eInEchoOffset != 0.0) for (int i = 0; i < eOut.length; i++) eOut[i] = eIn[i] + eInEchoOffset;
             return 7.5;
         }
     }
 
-    private static ColumnTask column(int cx, int cz, float eSeed) {
-        float[] e = new float[N];
+    private static ColumnTask column(int cx, int cz, double eSeed) {
+        double[] e = new double[N];
         for (int k = 0; k < N; k++) e[k] = eSeed + k;
         return new ColumnTask(cx, cz, new char[N], new float[N], new float[N],
                 new float[N], new float[N], new float[N], new float[N], new float[N], e);
@@ -111,6 +118,30 @@ class EngineMarshallerTest {
         assertEquals(40f + N + probe, c1.p()[probe]);
     }
 
+    /** Issue #44: E crosses the marshaller at double both ways — a 0.5 J quantum on a 6e8 J cell (64 J
+     *  float32 ULP) survives flatten → Kernel → slice — and the Kernel's books reach the result. */
+    @Test
+    void absoluteECrossesAtDouble_andBooksReachResult() {
+        EngineMarshaller m = new EngineMarshaller();
+        RecordingKernel k = new RecordingKernel();
+        k.eInEchoOffset = 0.5;
+        final double bigE = 6.0e8 + 0.25;   // not float32-representable
+        final int matCount = 4;
+
+        RegionStepResult r = m.step(List.of(column(0, 0, bigE)), 3, matCount, 0.05, 0, List.of(), k);
+
+        int probe = idx(5, 77, 11);
+        assertEquals(bigE + probe, k.eIn[probe], 0.0, "stored E reaches the Kernel bit-exact (double eIn)");
+        assertEquals(bigE + probe + 0.5, r.columns().get(0).enthalpy()[probe], 0.0,
+                "a sub-ULP heat quantum survives the slice back (double eOut)");
+        assertEquals(RegionStepResult.BOOKS_HEAD + matCount, k.booksOut.length,
+                "books sized for the fixed head + one ε-mass slot per species");
+        assertEquals(0.125, r.boundaryE(), 0.0, "boundaryE copied out of the Kernel books");
+        assertEquals(1.125 + 2.125, r.dissipationE(), 0.0, "damp + swap-PE heat copied out");
+        assertEquals(3.125 + 2, r.boundaryMassEps(2), 0.0, "per-species ε-mass sink copied out");
+        assertEquals(0.0, r.boundaryMassEps(matCount), 0.0, "past the booked species range reads 0");
+    }
+
     /** DESIGN-LAW v5 #7 (issue #26): the composition slots 1..K−1 cross the seam in both directions,
      *  each column's SLOT_N block at c·SLOT_N (slot k at (k−1)·CHUNK_N inside it). */
     @Test
@@ -122,7 +153,7 @@ class EngineMarshallerTest {
         six[2 * N + cell] = 5; sm[2 * N + cell] = 0.01f;        // slot 3: 0.01 kg of species 5
         ColumnTask a = column(0, 0, 0f);
         ColumnTask b = new ColumnTask(1, 0, new char[N], new float[N], new float[N],
-                new float[N], new float[N], new float[N], new float[N], new float[N], new float[N], six, sm);
+                new float[N], new float[N], new float[N], new float[N], new float[N], new double[N], six, sm);
         EngineMarshaller m = new EngineMarshaller();
         RecordingKernel k = new RecordingKernel();
         RegionStepResult r = m.step(List.of(a, b), 1, 0, 0.05, OrgeEngine.PASS_ADVECTION, List.of(), k);
@@ -194,7 +225,8 @@ class EngineMarshallerTest {
         List<ColumnTask> cols = List.of(column(0, 0, 0f), column(1, 0, 0f));
 
         m.step(cols, 0, 0, 0.05, 0, List.of(), k);
-        float[] tOut1 = k.tOut, massOut1 = k.massOut, eOut1 = k.eOut, swap1 = k.swapReadyOut;
+        float[] tOut1 = k.tOut, massOut1 = k.massOut, swap1 = k.swapReadyOut;
+        double[] eOut1 = k.eOut;
         char[] matOut1 = k.matOut;
         float[] vx1 = k.vxOut, p1 = k.pOut;
 

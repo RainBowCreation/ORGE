@@ -122,7 +122,7 @@ class MomentumRoundTripMassClampIT {
         float[] z = new float[RegionMarshaller.CHUNK_N];
         ColumnResult result = new ColumnResult(outMat, outMass, temp.clone(),
                 momX, momY, momZ, z.clone(), new float[RegionMarshaller.CHUNK_N],
-                new float[RegionMarshaller.CHUNK_N]);
+                new double[RegionMarshaller.CHUNK_N]);
 
         world.writeBackColumn(entry, result);
 
@@ -174,7 +174,7 @@ class MomentumRoundTripMassClampIT {
         float[] z = new float[RegionMarshaller.CHUNK_N];
         ColumnResult result = new ColumnResult(outMat, outMass, temp.clone(),
                 z.clone(), z.clone(), z.clone(), z.clone(),
-                new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N]);
+                new float[RegionMarshaller.CHUNK_N], new double[RegionMarshaller.CHUNK_N]);
 
         world.writeBackColumn(entry, result);
 
@@ -218,7 +218,7 @@ class MomentumRoundTripMassClampIT {
         float[] z = new float[RegionMarshaller.CHUNK_N];
         ColumnResult result = new ColumnResult(outMat, outMass, temp.clone(),
                 momX, momY, momZ, z.clone(),
-                new float[RegionMarshaller.CHUNK_N], new float[RegionMarshaller.CHUNK_N]);
+                new float[RegionMarshaller.CHUNK_N], new double[RegionMarshaller.CHUNK_N]);
 
         world.writeBackColumn(entry, result);
 

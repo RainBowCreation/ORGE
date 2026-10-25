@@ -88,11 +88,12 @@ final class ColumnWriteBack {
             // ColumnResult.enthalpy) UNCLAMPED. E is extensive [J]; the [0,6000] StepValidator clamp is a
             // KELVIN range and would destroy mid-plateau energy (E ≫ 6000 J) — it must NEVER touch E.
             // Only non-finite E is sanitized (defensive) to a safe 0; the magnitude is stored raw.
-            float[] secE = ColumnSectionCodec.sliceSectionChannel(result.enthalpy(), sectionY);
-            float[] dstE = data.enthalpyArray();
+            // E stays double end to end (issue #44 — never narrowed per tick).
+            double[] secE = ColumnSectionCodec.sliceSectionChannel(result.enthalpy(), sectionY);
+            double[] dstE = data.enthalpyArray();
             for (int i = 0; i < SectionData.CELLS; i++) {
-                float e = secE[i];
-                dstE[i] = Float.isFinite(e) ? e : 0f;   // sanitize non-finite only — NO magnitude clamp
+                double e = secE[i];
+                dstE[i] = Double.isFinite(e) ? e : 0.0;   // sanitize non-finite only — NO magnitude clamp
             }
             float[] dstM = data.massArray();
             System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);

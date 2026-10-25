@@ -17,5 +17,36 @@ import java.util.List;
  */
 public record RegionStepResult(List<ColumnResult> columns,
                                float[] injected, float[] sealedLoss,
-                               float[] injectedE, float[] sealedE) {
+                               float[] injectedE, float[] sealedE,
+                               double[] books) {
+
+    // {@code books} (issue #44) = this step's closing ledgers from the engine's per-call World, which
+    // otherwise die with it: {@code [BOOKS_BOUNDARY_E]} boundaryE [J] (the #23 drain, floor-clamp and
+    // ε-sink energy), {@code [BOOKS_DAMP_HEAT]} / {@code [BOOKS_SWAP_PE]} the in-domain dissipation heat
+    // deposited into E [J], then {@code boundaryMassEps[species]} [kg] from {@code BOOKS_HEAD}. Per step:
+    // Δ(Σ cell E) + boundaryE − dampHeat − swapPeHeat = 0. Layout mirrors {@code ORGE_BOOKS_*} in
+    // {@code orge_step_world.hpp}.
+    public static final int BOOKS_BOUNDARY_E = 0;
+    public static final int BOOKS_DAMP_HEAT = 1;
+    public static final int BOOKS_SWAP_PE = 2;
+    public static final int BOOKS_HEAD = 3;
+
+    /** Convenience — an engine that books nothing (all-zero books). */
+    public RegionStepResult(List<ColumnResult> columns,
+                            float[] injected, float[] sealedLoss,
+                            float[] injectedE, float[] sealedE) {
+        this(columns, injected, sealedLoss, injectedE, sealedE, new double[BOOKS_HEAD + injected.length]);
+    }
+
+    /** Energy booked to the boundary this step [J]. */
+    public double boundaryE() { return books[BOOKS_BOUNDARY_E]; }
+
+    /** In-domain dissipation heat (damping + swap potential energy) deposited into cell E this step [J]. */
+    public double dissipationE() { return books[BOOKS_DAMP_HEAT] + books[BOOKS_SWAP_PE]; }
+
+    /** Mass of species {@code s} emptied to the ε-mass sink this step [kg] (0 past the booked range). */
+    public double boundaryMassEps(int s) {
+        int i = BOOKS_HEAD + s;
+        return i < books.length ? books[i] : 0.0;
+    }
 }
