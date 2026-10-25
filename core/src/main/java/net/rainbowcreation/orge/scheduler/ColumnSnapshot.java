@@ -114,8 +114,9 @@ final class ColumnSnapshot {
                 }
                 ColumnAssembler.SectionSource src =
                         columnSource(level, dim, store, lut, mats);
+                WaterlogSeeding.Seeds waterlog = new WaterlogSeeding.Seeds();
                 entries.add(new ThermalWorld.ColumnEntry(dim, cx, cz,
-                        ColumnAssembler.assemble(cx, cz, lut, mats.registry(), src)));
+                        ColumnAssembler.assemble(cx, cz, lut, mats.registry(), src, waterlog), waterlog));
             }
         }
         // ---- Drain placement intents into this batch's injection list (spec B3) ----

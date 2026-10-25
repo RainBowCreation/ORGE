@@ -68,6 +68,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** The daytime evaporation the same sky pass runs, and its boundary ledgers (issue #34). Server-thread-confined. */
     private final Evaporation evaporation = new Evaporation();
 
+    /** The waterlogged-block water seed's boundary ledgers (issue #60), booked at write-back. Server-thread-confined. */
+    private final WaterlogSeeding waterlogSeeding = new WaterlogSeeding();
+
     /** One column of the most recent batch, by address only (the batch's arrays are not retained). */
     private record BatchColumn(Identifier dimension, int cx, int cz) {}
 
@@ -89,7 +92,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         this.columnSnapshot = new ColumnSnapshot(
                 stores, cellMaterials, activeSet, pendingInjections, this::server, this::publishLastColumnLut);
         this.columnWriteBack = new ColumnWriteBack(
-                stores, cellMaterials, activeSet, this::fluidReconciler, this::phaseChanger, this::lastColumnLut);
+                stores, cellMaterials, activeSet, this::fluidReconciler, this::phaseChanger, this::lastColumnLut,
+                waterlogSeeding);
     }
 
     /** Convenience for headless write-back tests that supply their own LUT / never bind a server. */
@@ -184,6 +188,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     /** The rain ledgers: cumulative seeded water mass and its enthalpy per dimension. */
     public RainSeeding rainSeeding() { return rainSeeding; }
+
+    /** The waterlogged-block seed ledgers: cumulative seeded water mass and its enthalpy per dimension. */
+    public WaterlogSeeding waterlogSeeding() { return waterlogSeeding; }
 
     /** The evaporation ledgers: vapor that left the domain, its energy, and all water evaporated per dimension. */
     public Evaporation evaporation() { return evaporation; }

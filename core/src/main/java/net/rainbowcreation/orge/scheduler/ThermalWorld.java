@@ -52,8 +52,14 @@ public interface ThermalWorld {
     // ----------------------------------------------------------------------------------------
 
     /** One full-height column ({@link ColumnTask}, {@link net.rainbowcreation.orge.engine.RegionMarshaller#CHUNK_N}
-     *  cells) plus the key it came from for write-back. */
-    record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task) {}
+     *  cells) plus the key it came from for write-back, and the waterlogged-block water its assembly seeded
+     *  (booked as a boundary placement when its section is written back, issue #60). */
+    record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task, WaterlogSeeding.Seeds waterlog) {
+        /** A column whose assembly seeded no waterlogged-block water. */
+        public ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task) {
+            this(dimension, cx, cz, task, new WaterlogSeeding.Seeds());
+        }
+    }
 
     /** A cycle's worth of column work: the dimension-tagged columns + the shared stable material table,
      *  the {@code lutEpoch} selecting the engine-resident table, plus this cycle's drained placement
