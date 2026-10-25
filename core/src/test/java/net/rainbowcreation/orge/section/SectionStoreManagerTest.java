@@ -8,6 +8,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
@@ -60,7 +61,10 @@ class SectionStoreManagerTest {
         m.onChunkLoad(OVERWORLD, 0, 0);
 
         SectionData ambient = m.store(OVERWORLD).get(new SubchunkKey(7, 3, 9));
-        assertEquals(300.0f, ambient.enthalpyAt(0), 0.0f, "ambient temperature");
+        // E is extensive [J] (law §7): the ambient section carries the unset-E sentinel the assembler
+        // encodes from, never the provider's 300 K parked in the enthalpy slot (issue #54).
+        assertEquals(SectionData.UNSET_ENTHALPY_J, ambient.enthalpyAt(0), 0.0, "ambient E is the unset sentinel");
+        assertNotEquals(300.0, ambient.enthalpyAt(0), "the ambient temperature is never stored as E");
     }
 
     /** Hooks for a never-loaded dimension must be silent no-ops, never throwing. */

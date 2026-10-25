@@ -172,10 +172,9 @@ public final class SectionStore {
                 return data;
             }
         }
-        // Materialize ambient on demand — never stored, never dirty
-        return SectionData.uniform(
-                ambient.ambientTemperatureK(key),
-                ambient.ambientMassKg(key));
+        // Materialize ambient on demand — never stored, never dirty. E is the unset sentinel, never the
+        // ambient Kelvin (issue #54, law §7): the assembler encodes E = m·h(T_ambient) from the seeded mass.
+        return SectionData.ambient(ambient.ambientMassKg(key));
     }
 
     /**
@@ -230,9 +229,7 @@ public final class SectionStore {
         if (hasSection(key)) {
             s = get(key);                       // already stored — mutate in place
         } else {
-            s = SectionData.uniform(
-                    ambient.ambientTemperatureK(key),
-                    ambient.ambientMassKg(key));
+            s = SectionData.ambient(ambient.ambientMassKg(key));
             put(key, s);                        // store it (marks the column dirty)
         }
         s.setMaterialAt(cell, id);
