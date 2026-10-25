@@ -136,16 +136,18 @@ public final class Evaporation {
         // change by exactly x; the sub-lattice remainder is dithered (unbiased over passes).
         double q = Math.max(Math.ulp(mc), Math.ulp((float) (mh + f)));
         double x = Math.min(q * Math.floor(f / q + u), q * Math.floor(limit / q));
+        // A few steps down suffice; a receiver crossing a binade with its lowest bit set has no exact x this
+        // pass (it waits for its mass to change) rather than moving H₂O inexactly.
         float c1 = 0f;
         float h1 = 0f;
-        for (; x > 0.0; x -= q) {
+        boolean exact = false;
+        for (int tries = 0; tries < 4 && x > 0.0 && !exact; tries++) {
             c1 = (float) (mc - x);
             h1 = (float) (mh + x);
-            if ((double) mc - c1 == x && (r == null || (double) h1 - mh == x)) {
-                break;
-            }
+            exact = (double) mc - c1 == x && (r == null || ((double) h1 - mh == x && (double) h1 - x == mh));
+            x = exact ? x : x - q;
         }
-        if (!(x > 0.0)) {
+        if (!exact) {
             return;
         }
 
