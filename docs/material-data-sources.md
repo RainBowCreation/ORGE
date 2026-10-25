@@ -198,6 +198,22 @@ is declared per material: the saturation curve of a phase pair comes from the pa
 - The other vapor pairs (iron, copper, gold, silica, carbon) use the same curve; their p_sat at ordinary
   temperatures is negligible, so they only exchange when hot.
 
+## Thirsty farmland (issue #35, a boundary sink)
+
+Not material data: how much water a hydrated farmland drinks (`HydrationDrain`, spec
+`superpowers/specs/2026-10-25-thirsty-farmland.md`). Each random tick on which vanilla's water search
+hydrates a farmland, `drainKg` of water leaves the world from the source cell vanilla found, with its own
+enthalpy, booked in the drain's boundary ledger. Rain hydrates for free.
+
+| Quantity | Value | Source |
+|---|---|---|
+| Reference evapotranspiration ET₀ | 5 mm/day = 5 kg·m⁻²·day⁻¹ (a temperate summer day) | Allen, Pereira, Raes & Smith 1998, *Crop evapotranspiration*, FAO Irrigation and Drainage Paper 56 |
+| Mean interval between one block's random ticks | 4096 / 3 ticks = 68.3 s (`randomTickSpeed` 3, 20 ticks/s) | vanilla game rule default |
+| `drainKg` (JVM `-Dorge.farmland.drainKg`, kg) | ET₀ · 1 m² · 68.3 s = 3.95e-3 kg per hydrating tick | the two rows above |
+
+One water block hydrates up to 80 farmland (vanilla's 9×9 box): ~400 kg/day, so a 1 m³ source under a
+full field runs dry in ~2.5 days of play.
+
 ## Not modeled
 
 - **Chemistry, not phase change:** calcite/dripstone (calcination → CaO + CO2), clay/brick/terracotta/

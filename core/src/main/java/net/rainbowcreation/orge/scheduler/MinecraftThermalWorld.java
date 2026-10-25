@@ -58,6 +58,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** The sky forcing pass's boundary energy ledger (spec 2026-10-25). Server-thread-confined. */
     private final SurfaceForcing surfaceForcing = new SurfaceForcing();
 
+    /** The thirsty-farmland drain queue + its boundary ledger (spec 2026-10-25-thirsty-farmland).
+     *  Server-thread-confined: filled by the farmland mixin, applied while IDLE. */
+    private final HydrationDrain hydrationDrain = HydrationDrain.fromSystemProperty();
+
     /** One column of the most recent batch, by address only (the batch's arrays are not retained). */
     private record BatchColumn(Identifier dimension, int cx, int cz) {}
 
@@ -65,6 +69,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     private List<BatchColumn> lastBatchColumns = List.of();
 
     private final SectionStoreManager stores;
+    private final ActiveSet activeSet;
     private final BlockChangeCapture blockChangeCapture;
     private final ColumnSnapshot columnSnapshot;
     private final ColumnWriteBack columnWriteBack;
@@ -72,6 +77,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     public MinecraftThermalWorld(SectionStoreManager stores, CellMaterialTracker cellMaterials,
                                  ActiveSet activeSet) {
         this.stores = stores;
+        this.activeSet = activeSet;
         this.blockChangeCapture = new BlockChangeCapture(
                 stores, cellMaterials, activeSet, pendingInjections, this::server);
         this.columnSnapshot = new ColumnSnapshot(
@@ -150,6 +156,20 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     /** The sky forcing ledger: cumulative boundary energy per dimension. */
     public SurfaceForcing surfaceForcing() { return surfaceForcing; }
+
+    /** Apply the queued farmland drains over every dimension's store with the active material table. */
+    @Override
+    public void applyHydrationDrain() {
+        applyHydrationDrain(id -> ActiveMaterials.current().registry().get(id).orElse(null));
+    }
+
+    /** Apply the queued farmland drains, waking each drained section (package seam for the headless suite). */
+    void applyHydrationDrain(Function<Identifier, Material> lookup) {
+        hydrationDrain.apply(stores::store, lookup, activeSet);
+    }
+
+    /** The thirsty-farmland drain: the queue the farmland mixin fills, and its boundary mass/energy ledger. */
+    public HydrationDrain hydrationDrain() { return hydrationDrain; }
 
     /** Test seam: the columns the next forcing pass reaches (the live path records them at snapshot). */
     void setLastBatchColumnsForTest(List<ColumnEntry> columns) { recordBatchColumns(columns); }

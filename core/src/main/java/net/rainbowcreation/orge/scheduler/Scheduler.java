@@ -203,6 +203,9 @@ public final class Scheduler {
         // Measure the server-thread cost of assembling the column snapshot (active+apron, full-height
         // columns): a dominant per-cycle cost ON the server thread that must feed the health throttle.
         long snapStart = System.nanoTime();
+        // Thirsty farmland (spec 2026-10-25-thirsty-farmland §3) drains the store at the same IDLE, pre-snapshot
+        // point as the sky forcing below, so the drained water is what this step simulates.
+        world.applyHydrationDrain();
         // Sky forcing (spec 2026-10-25 §4) writes the store's E while IDLE — no step is in flight whose
         // write-back could overwrite it — and BEFORE the snapshot, so this step simulates the forced E.
         if (ticksSinceForcing >= TICKS_PER_STEP) {

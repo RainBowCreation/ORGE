@@ -88,6 +88,13 @@ public interface ThermalWorld {
     default void applySurfaceForcing(double dtSeconds) { }
 
     /**
+     * Apply the queued thirsty-farmland drains (spec 2026-10-25-thirsty-farmland §3) to the store. Called by
+     * the scheduler while no step is in flight, before {@link #snapshotColumns}. Default no-op for headless
+     * test worlds.
+     */
+    default void applyHydrationDrain() { }
+
+    /**
      * Persist one validated column result (T + mass) back into the 24 sections of {@code (cx,cz)},
      * reconcile MC blocks to the engine output species, record the output materials as the next
      * cycle's signature, settle, and wake any neighbour column that gained mass across an X/Z
