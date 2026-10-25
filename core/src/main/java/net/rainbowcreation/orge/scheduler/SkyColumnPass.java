@@ -6,13 +6,16 @@ import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
  * The once-per-second sky heightmap pass (spec 2026-10-25 §2): walks each of a column's 256 {@code (x, z)}
  * cell columns top-down through the stored {@link SectionStore} sections and hands every sky-exposed cell
  * to a {@link Visitor} with its exposure weight. Reusable: the surface forcing ({@link SurfaceForcing}) is
- * the first visitor; rain seeding and evaporation read the same walk instead of scanning again.
+ * the first visitor, rain seeding ({@link RainSeeding}) the second; they share one walk through
+ * {@link Visitor#andThen} instead of scanning again.
  *
  * <p>Exposure is Kirchhoff's grey body, with no classification of any cell: a cell takes {@code τ·ε_cell}
  * of what reaches it and passes {@code τ·(1 − ε_cell)} down, where {@code ε_cell} is the v5 §4.8 volume
@@ -32,9 +35,41 @@ public final class SkyColumnPass {
     @FunctionalInterface
     public interface Visitor {
         void exposed(SubchunkKey key, SectionData data, int cell, double exposure);
+
+        /** The walk of one {@code (x, z)} cell column is done (after its last exposed cell, if any). */
+        default void columnDone() { }
+
+        /** This visitor, then {@code next}, on each exposed cell — so several consumers share ONE walk. */
+        default Visitor andThen(Visitor next) {
+            Visitor first = this;
+            return new Visitor() {
+                @Override
+                public void exposed(SubchunkKey key, SectionData data, int cell, double w) {
+                    first.exposed(key, data, cell, w);
+                    next.exposed(key, data, cell, w);
+                }
+
+                @Override
+                public void columnDone() {
+                    first.columnDone();
+                    next.columnDone();
+                }
+            };
+        }
     }
 
     private SkyColumnPass() { }
+
+    /**
+     * {@link #walk} with visitors that write the cells they are handed: every section the walk handed out
+     * is re-{@code put} afterwards, marking its column dirty so the next save keeps the change.
+     */
+    public static void walkAndPut(SectionStore store, int cx, int cz,
+                                  Function<Identifier, Material> lookup, Visitor visitor) {
+        Map<SubchunkKey, SectionData> touched = new HashMap<>();
+        walk(store, cx, cz, lookup, visitor.andThen((key, data, cell, w) -> touched.put(key, data)));
+        touched.forEach(store::put);
+    }
 
     /** Walk column {@code (cx, cz)} of {@code store}, resolving stored material ids through {@code lookup}. */
     public static void walk(SectionStore store, int cx, int cz,
@@ -42,6 +77,7 @@ public final class SkyColumnPass {
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
                 walkCellColumn(store, cx, cz, x, z, lookup, visitor);
+                visitor.columnDone();
             }
         }
     }

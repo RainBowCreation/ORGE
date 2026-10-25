@@ -37,6 +37,7 @@ final class SkyTestWorld {
     static final Identifier AIR = orge("air");
     static final Identifier STONE = orge("stone");
     static final Identifier DIRT = orge("dirt");
+    static final Identifier SAND = orge("sand");
     static final Identifier WATER = orge("water");
     static final Identifier OAK_LEAVES = orge("oak_leaves");
 

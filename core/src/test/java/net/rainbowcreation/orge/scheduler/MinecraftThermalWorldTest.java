@@ -464,6 +464,41 @@ class MinecraftThermalWorldTest {
         assertEquals(0.0, world.surfaceForcing().ledger(nether));
     }
 
+    /** Issue #33: the same pass that forces also seeds the rain, on the last batch's columns of the raining
+     *  dimension only. */
+    @Test
+    void oneSkyPassForcesAndSeedsRainOnTheLastBatchColumnsOfItsDimension(@TempDir Path dir) {
+        Identifier nether = SkyTestWorld.THE_NETHER;
+        SectionStoreManager mgr = SkyTestWorld.loaded(dir.resolve("ow"), DIM);
+        mgr.onLevelLoad(nether, dir.resolve("nether"), AmbientProvider.FALLBACK);
+        mgr.onChunkLoad(nether, 0, 0);
+        mgr.onChunkLoad(DIM, 1, 0);
+        SkyTestWorld.flatWorld(mgr.store(DIM), null, 285f);
+        SkyTestWorld.flatWorld(mgr.store(nether), null, 285f);
+        int surface = SkyTestWorld.cell(3, 7, 5);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        SectionData outside = SectionData.uniform(0f, 0f);
+        SkyTestWorld.setCell(outside, surface, SkyTestWorld.mat(SkyTestWorld.STONE), 2700f, 285f);
+        mgr.store(DIM).put(new SubchunkKey(1, 4, 0), outside);
+
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0), skyEntry(nether, 0)));
+        double ow0 = mgr.store(DIM).get(key).enthalpyAt(surface);
+
+        world.applySurfaceForcing(DIM, 18000L, 1f, 1.0, SkyTestWorld.lookup());   // a raining night
+        world.applySurfaceForcing(nether, 18000L, 1f, 1.0, SkyTestWorld.lookup());
+
+        SectionData ow = mgr.store(DIM).get(key);
+        assertEquals(SkyTestWorld.WATER, ow.slotMaterialAt(1, surface), "the stepped column is rained on");
+        assertTrue(ow.slotMassAt(1, surface) > 0f);
+        assertNotEquals(ow0, ow.enthalpyAt(surface), "and forced in the same pass");
+        assertTrue(world.rainSeeding().mass(DIM) > 0);
+        assertTrue(world.surfaceForcing().ledger(DIM) < 0, "a night sky only takes energy out");
+        assertFalse(outside.hasSlots(), "a column outside the batch is not rained on");
+        assertFalse(mgr.store(nether).get(key).hasSlots(), "the Nether has no sky and no rain");
+        assertEquals(0.0, world.rainSeeding().mass(nether));
+    }
+
     @Test
     void skyForcingWithoutABoundServerIsANoOp(@TempDir Path dir) {
         SectionStoreManager mgr = SkyTestWorld.loaded(dir, DIM);

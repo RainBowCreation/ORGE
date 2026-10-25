@@ -141,6 +141,18 @@ class SurfaceForcingTest {
     }
 
     @Test
+    void onlyTheOverworldRainsAtTheCitedIntensity() {
+        // Issue #33: AMS "moderate rain" 2.6–7.6 mm/h, its middle 5.1 mm/h = 5.1 kg/(m²·h).
+        assertEquals(5.1 / 3600.0, RainSeeding.RAIN_INTENSITY, 1e-12);
+        assertEquals(0.5 * RainSeeding.RAIN_INTENSITY,
+                SurfaceForcing.Climate.forDimension(OVERWORLD, 6000L, 0.5f).orElseThrow().rainKgPerM2s(), 1e-12);
+        assertEquals(0.0, SurfaceForcing.Climate.forDimension(OVERWORLD, 6000L, 0f).orElseThrow().rainKgPerM2s());
+        assertEquals(0.0, SurfaceForcing.Climate.forDimension(THE_END, 6000L, 1f).orElseThrow().rainKgPerM2s(),
+                "the End has no weather");
+        assertEquals(0.0, new SurfaceForcing.Climate(100.0, 276.8).rainKgPerM2s(), "a sky-only climate is dry");
+    }
+
+    @Test
     void aMixedSurfaceCellIsForcedOnItsMixtureTemperature(@TempDir Path dir) {
         SectionStore store = loaded(dir, OVERWORLD).store(OVERWORLD);
         flatWorld(store, null, 285f);

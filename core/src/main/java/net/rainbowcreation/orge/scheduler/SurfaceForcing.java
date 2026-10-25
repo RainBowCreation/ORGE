@@ -5,7 +5,6 @@ import net.rainbowcreation.orge.material.EnthalpyCurve;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
-import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -42,20 +41,29 @@ public final class SurfaceForcing {
     public static final Identifier OVERWORLD = Identifier.fromNamespaceAndPath("minecraft", "overworld");
     public static final Identifier THE_END = Identifier.fromNamespaceAndPath("minecraft", "the_end");
 
-    /** The sky a dimension's surface sees this instant: absorbed sun {@code solar} [W/m²] and {@code skyK}. */
-    public record Climate(double solar, double skyK) {
+    /**
+     * The sky a dimension's surface sees this instant: absorbed sun {@code solar} [W/m²], {@code skyK}, and
+     * the rain falling on it {@code rainKgPerM2s} [kg/(m²·s)] (seeded by {@link RainSeeding}, issue #33).
+     */
+    public record Climate(double solar, double skyK, double rainKgPerM2s) {
+
+        /** A dry sky. */
+        public Climate(double solar, double skyK) {
+            this(solar, skyK, 0.0);
+        }
 
         /**
          * Overworld: {@code S = π·161·max(0, sin(2π·dayTime/24000))·(1 − rain)}, so a clear day's mean is
-         * exactly 161 W/m² (noon peak 506); rain blocks the direct sun. The End: no sun, CMB sky. Any other
+         * exactly 161 W/m² (noon peak 506); rain blocks the direct sun and falls at
+         * {@link RainSeeding#RAIN_INTENSITY}{@code ·rain}. The End: no sun, no weather, CMB sky. Any other
          * dimension (the Nether's bedrock ceiling): no forcing.
          */
         public static Optional<Climate> forDimension(Identifier dim, long dayTime, float rainLevel) {
             if (OVERWORLD.equals(dim)) {
                 double phase = 2.0 * Math.PI * Math.floorMod(dayTime, DAY_TICKS) / DAY_TICKS;
-                double clear = 1.0 - Math.min(1.0, Math.max(0.0, rainLevel));
-                double sun = Math.PI * SOLAR_ABSORBED_MEAN * Math.max(0.0, Math.sin(phase)) * clear;
-                return Optional.of(new Climate(sun, OVERWORLD_SKY_K));
+                double rain = Math.min(1.0, Math.max(0.0, rainLevel));
+                double sun = Math.PI * SOLAR_ABSORBED_MEAN * Math.max(0.0, Math.sin(phase)) * (1.0 - rain);
+                return Optional.of(new Climate(sun, OVERWORLD_SKY_K, RainSeeding.RAIN_INTENSITY * rain));
             }
             if (THE_END.equals(dim)) {
                 return Optional.of(new Climate(0.0, END_SKY_K));
@@ -79,19 +87,31 @@ public final class SurfaceForcing {
     public double applyColumn(Identifier dim, SectionStore store, int cx, int cz, Climate climate,
                               double dtSeconds, Function<Identifier, Material> lookup) {
         double[] booked = {0.0};
-        Map<SubchunkKey, SectionData> touched = new HashMap<>();
-        SkyColumnPass.walk(store, cx, cz, lookup, (key, data, cell, w) -> {
+        SkyColumnPass.walkAndPut(store, cx, cz, lookup, visitor(dim, climate, dtSeconds, lookup, booked));
+        return booked[0];
+    }
+
+    /**
+     * The forcing as a {@link SkyColumnPass.Visitor} for {@code dim}, booking into {@link #ledger(Identifier)}
+     * per cell — to share one walk with the other sky consumers ({@link SkyColumnPass.Visitor#andThen}).
+     * The caller re-puts the sections it was handed ({@link SkyColumnPass#walkAndPut}).
+     */
+    public SkyColumnPass.Visitor visitor(Identifier dim, Climate climate, double dtSeconds,
+                                         Function<Identifier, Material> lookup) {
+        return visitor(dim, climate, dtSeconds, lookup, new double[1]);
+    }
+
+    private SkyColumnPass.Visitor visitor(Identifier dim, Climate climate, double dtSeconds,
+                                          Function<Identifier, Material> lookup, double[] booked) {
+        return (key, data, cell, w) -> {
             // Double E (issue #44): a per-second sky flux far below a float ULP of a massive cell's E is
             // kept, not rounded away; booked is what the cell actually received.
             double before = data.enthalpyAt(cell);
             double after = before + deltaE(data, cell, w, climate, dtSeconds, lookup);
             data.setEnthalpy(cell, after);
             booked[0] += after - before;
-            touched.put(key, data);
-        });
-        touched.forEach(store::put); // mark the forced sections' column dirty so the next save keeps the E
-        ledger.merge(dim, booked[0], Double::sum);
-        return booked[0];
+            ledger.merge(dim, after - before, Double::sum);
+        };
     }
 
     /** {@code ΔE = max(q·dt, −C·max(0, T − T_sky))}, {@code q = w·(S − σ·(T⁴ − T_sky⁴))}. */
