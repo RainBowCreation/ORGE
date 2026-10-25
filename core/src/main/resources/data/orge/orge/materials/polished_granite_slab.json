@@ -10,5 +10,7 @@
   "yield_stress": 1.4e+08,
   "latent_heat_max": 270000,
   "max_temp": 1328,
-  "max_target": "orge:molten_granite"
+  "max_target": "orge:molten_granite",
+  "particle_density": 2700,
+  "flow_resistance": 96
 }

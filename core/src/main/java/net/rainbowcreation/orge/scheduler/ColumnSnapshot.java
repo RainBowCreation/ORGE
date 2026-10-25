@@ -6,6 +6,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.engine.RegionMarshaller;
@@ -226,6 +228,18 @@ final class ColumnSnapshot {
                     i -> LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry());
             GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
             float[] mass = sectionMass(store, key, geo, lut);
+            // A waterlogged live block holds ρ_water·V_pore of water (proposal §12 Q4 (B)); the assembler
+            // seeds it once (a never-simulated or legacy cell), never into a drained cell.
+            float[] waterlogSeed = new float[SectionData.CELLS];
+            Material water = mats.registry().get(ColumnAssembler.WATER_ID).orElse(null);
+            for (int i = 0; i < SectionData.CELLS; i++) {
+                BlockState st = LiveMaterials.blockStateAt(sec, i);
+                if (st.hasProperty(BlockStateProperties.WATERLOGGED) && st.getValue(BlockStateProperties.WATERLOGGED)) {
+                    waterlogSeed[i] = ColumnAssembler.waterlogSeedKg(cellMat.at(i), water);
+                }
+            }
+            // Never simulated (no stored section): its waterlogged blocks have not carried their water yet.
+            boolean seedWaterlog = store == null || !store.hasSection(key);
             // Last cycle's recorded engine-output species (the CellMaterialTracker signature) feeds the
             // ColumnAssembler seed gate and the InjectionDrain incumbent lookup below. Identity itself is
             // now durable (persisted into SectionStore at write-back), so there is no longer a block-diff
@@ -269,6 +283,7 @@ final class ColumnSnapshot {
             float[] temps;
             if (store != null && store.hasSection(key)) {
                 SectionData sd = store.get(key);
+                seedWaterlog = sd.consumeLegacyOneComponent();
                 // Stamp the edit-epoch: the write-back of THIS cycle will skip the section if an
                 // external edit (/orge set) lands after this read, so it can't clobber the edit.
                 sd.markSnapshot();
@@ -304,7 +319,7 @@ final class ColumnSnapshot {
                 temps = AmbientSeeder.seed(cellMat::at, ambientK);
             }
             return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                    momX, momY, momZ, p, swapReady, enthalpy, slotMaterial, slotMass);
+                    momX, momY, momZ, p, swapReady, enthalpy, slotMaterial, slotMass, waterlogSeed, seedWaterlog);
         };
     }
 

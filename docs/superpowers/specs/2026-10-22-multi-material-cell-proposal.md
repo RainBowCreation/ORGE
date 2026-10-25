@@ -884,3 +884,48 @@ seepage rounds), grand energy to 1e-5 J every tick. RED on the base engine: no v
 water, and humid air at 300 K condenses at once and jumps to 336.7 K. `rlut::grand_mass` /
 `species_mass` now sum every slot (law v5 #7). With the engine default (`g_vap = 0`) every other cheap-tier
 test is unchanged (same failing checks as the base, none new).
+
+---
+
+## 18. Slice B5 implementation record (issue #30)
+
+Flow through waterlogged, flowable and permeable blocks, and the representative vanilla state. Engine
+commit on ORGE-ENGINE `issue/30` (merged into its `rebuild`), gitlink bumped in the ORGE PR that closes #30.
+
+### 18.1 What landed
+
+| Law v5 item | Where | Notes |
+|---|---|---|
+| #8 data (W3) | `materials/*_stairs`, `*_slab`, rails, herbaceous plants, coral ×30; `docs/material-data-sources.md` "Partial, flowable and waterlogged blocks" | `ρ_p` = the block's substance, `r = 12/(φ·h²)` (§13). Stairs/slabs/rails/plants/coral are skeletons (`s ≈ 1`) with open volume; the B4 seepage carries water through them, the host never moves (τ_y / μ). |
+| #9 slip term (2), gas half | `seep_intent` | A component's pressure is `(1−χ_k)·(P − p_c) + χ_k·p_eos,cell` (the cell's Dalton gauge EOS): a condensed component reads exactly B4's value; a gas reads the EOS, the only thing that bounds it in a skeleton cell (no relaxed `P` there). The `(1−χ)` weight on the flux is gone, so air slips through a rail like water. A gas flux never carries more than half the mass that would equalize the two sides' EOS (`½·ΔΦ/(∂p/∂m_d + ∂p/∂m_r)`, `∂p/∂m = χ·R·T/(M·V_free)` — 0 for a condensed component, so B4 is unchanged). The presence weight `w_k = clamp(m_k/(ρ_p,k·V_film), 0, 1)` now counts a gas too. |
+| #2 pore-fluid density | `pore_fluid_rho` (P relaxation) | The relaxation's face density is `ρ_f = Σ(1−s_k)·m_k / V_pore`, `V_pore = V − Σ s_k·v_k` (law #2 v5): a skeleton's weight rests on its contacts. Exactly `m/V` with no skeleton component. Without it a finite-μ host (stone stairs + water) relaxed `P` with 2275 kg/m³ and pumped its pore water out sideways. |
+| #9 donor budget | `seep_world` S1 | The post-bulk budget is the float mass DECODE / `mix_end` actually write (and 0 when DECODE's vacuum guard empties the cell). The double-precision budget could disagree: seepage debited a component DECODE had already emptied — an assert in debug, **mass created** in the `-DNDEBUG` `liborge.so`. Pre-existing since B4; first reached by a cave fed through a skeleton. |
+| #9 exact per-species books | `seep_commit` | A committed seepage piece is floored to the face's mass lattice `q = max(q_d, q_r)` (B3's `mass_lattice`), so both float masses change exactly — now that air slips, B3's bit-exact air books must hold through seepage too. A donor that spends its whole budget (`σ < 1`) is not floored: it drains to the ε rule instead of keeping a sub-lattice film (a thin water residue blew up a draining pond). |
+| §6 representative state | Java `RepresentativeState` + `MinecraftFluidReconciler` | Slots come back in LUT (alphabetical id) order, so `orge:air`/`orge:water` can be slot 0 of a rail/soil cell. The reconciler now reads the cell's whole composition: a non-fluid live block still among the components is KEPT and only its `waterlogged` follows the water (`v_w/V_pore`, on ≥ 0.50, off < 0.25); a host-absent composition is drawn as its largest condensed component through the existing level path. One component is today's path. |
+| §12 Q4 (B) | Java `ColumnAssembler` / `ColumnSnapshot`, `SectionData`/`SectionCodec` legacy mark | A `waterlogged=true` block gets `ρ_w·V_pore` of water as a second component when its section is first simulated, or once for a section decoded from v5. A simulated cell whose water drained is never re-seeded. |
+
+### 18.2 Choices made in this slice (documented, not law changes)
+
+- **Gas potential = the EOS.** A skeleton cell carries no relaxed `P` (B4 §16.2), so a gas there is bounded
+  only by its EOS; using the χ-blend everywhere keeps both sides of a face on one reference.
+- **Air now enters soil pores** (W3 "air through all of them") only where the drive is large: sand/loam `r`
+  makes the flux smaller than one lattice step for an ordinary gauge difference. Infiltration (H) is
+  re-authored accordingly (no sub-ε air slot, EOS-bounded), as §16.2 scheduled.
+- **Waterloggable blocks with no open volume** (fences, walls, lanterns, signs, leaves…) keep their rows
+  (no `ρ_p`): their water is still ignored and their `waterlogged` property is left as vanilla set it.
+- **The seed is the initial condition**, like ambient air and ocean water: it is part of the engine's
+  input mass, not a mid-run boundary placement.
+- **Counter-current projection** (§4.5 `q'`) is not built: air leaves a filling pore by its own EOS rise.
+
+### 18.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_mmc_flow_through_test.cpp` (cheap tier), real LUT + `add_real_partial_blocks`:
+(A) water passes through waterlogged stairs into a cave; (B) dry stairs under a pond with side inflows fill
+to their 250 kg open volume and no further; (C) water through rails; (D) air through a wall of rails into
+resting air, a rail cell never pumped past the EOS; (E) water through short grass; (F) a waterlogged stair
+in still water keeps its water and the water around it stays still (no pump). Every scene: host mass
+bit-exact per cell, grand / per-species mass and grand energy exact every tick. On the base engine the
+test aborts in (A) (the budget bug) and (B)/(D) fail. Java: `RepresentativeStateTest`,
+`ColumnAssemblerTest.waterloggedBlockCarriesItsWaterOnceAndADrainedOneIsNeverReseeded`,
+`SectionCodecTest.v5SectionsAreMarkedForTheOneTimeWaterloggedSeed`,
+`AllMaterialsLoadTest.partialAndFlowableBlocksCarryTheirOpenVolume`.

@@ -411,4 +411,75 @@ class ColumnAssemblerTest {
                 slotSource(s, 0f, (char) 0, ids, new float[ids.length]));
         assertEquals(2000f, fresh.mass()[ci], 1e-4, "fresh one-component cell still seeds defaultMass");
     }
+
+    // -------------------------------------------------------------------------
+    // issue #30 (proposal §12 Q4 (B)): a waterlogged block carries its water as a second component
+    // -------------------------------------------------------------------------
+
+    /** The real stone_stairs row: 2025 kg of stone, ρ_p 2700 ⇒ 0.25 m³ open. */
+    private static Material stairs() {
+        return Material.builder(Identifier.fromNamespaceAndPath("orge", "stone_stairs"))
+                .thermalConductivity(2.5f).heatCapacity(800f).molarMass(0.065f)
+                .defaultMass(2025f).minMass(2025f).maxMass(2025f).defaultTemperature(290f)
+                .viscosity(1e21f).yieldStress(1.4e8f).particleDensity(2700f).flowResistance(192f)
+                .build();
+    }
+
+    /** Section 4 holds one stairs cell at {@code s} (stored mass {@code m0}, prior {@code prior}) whose live
+     *  block is waterlogged; the rest is air. */
+    private static ColumnAssembler.SectionSource waterlogSource(int s, float m0, char prior, float seedKg,
+                                                                boolean seedWaterlog) {
+        int n = net.rainbowcreation.orge.section.SectionData.SLOT_CELLS;
+        return (cx, cz, sectionY) -> {
+            char[] mat = new char[4096];
+            float[] mass = new float[4096];
+            float[] temp = new float[4096];
+            char[] pr = new char[4096];
+            float[] wl = new float[4096];
+            java.util.Arrays.fill(mat, (char) 2);
+            java.util.Arrays.fill(mass, 1.2f);
+            java.util.Arrays.fill(temp, 290f);
+            if (sectionY == 4) {
+                mat[s] = 4; mass[s] = m0; pr[s] = prior; wl[s] = seedKg;
+            }
+            return new ColumnAssembler.SectionCells(mat, mass, temp, pr, new Identifier[4096],
+                    new float[4096], new float[4096], new float[4096], new float[4096], new float[4096],
+                    new float[4096], new Identifier[n], new float[n], wl, sectionY == 4 && seedWaterlog);
+        };
+    }
+
+    @Test
+    void waterloggedBlockCarriesItsWaterOnceAndADrainedOneIsNeverReseeded() {
+        List<Material> slots = List.of(TestMaterials.voidMat(), TestMaterials.water(), TestMaterials.air(),
+                TestMaterials.stone(), stairs());
+        MaterialLut lut = TestMaterials.lutOf(slots);
+        MaterialRegistry reg = TestMaterials.registryOf(slots);
+        float seed = ColumnAssembler.waterlogSeedKg(stairs(), TestMaterials.water());
+        assertEquals(250f, seed, 1e-3, "ρ_water · V_pore = 1000 · (1 − 2025/2700)");
+        assertEquals(0f, ColumnAssembler.waterlogSeedKg(TestMaterials.stone(), TestMaterials.water()),
+                "a host with no open volume holds no water");
+        int s = 1 + 16 * 2 + 256 * 3;
+        int ci = colIdx(1, 4, 2, 3);
+
+        // never simulated (geometry mass, seedWaterlog): stairs + its 250 kg of water, E = Σ m_k·h_k(T).
+        ColumnTask fresh = ColumnAssembler.assemble(0, 0, lut, reg, waterlogSource(s, 2025f, (char) 0, seed, true));
+        assertEquals(4, fresh.matIx()[ci], "the stairs stay the cell's slot 0");
+        assertEquals(2025f, fresh.mass()[ci], 0f, "the stairs mass is untouched");
+        assertEquals(1, fresh.slotIx()[ci], "slot 1 = water");
+        assertEquals(250f, fresh.slotMass()[ci], 1e-3, "the waterlogged block's water");
+        java.util.function.Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
+        double e = EnthalpyCurve.cellE(2025f, stairs(), lookup, 290f) + EnthalpyCurve.cellE(250f, TestMaterials.water(), lookup, 290f);
+        assertEquals(e, fresh.enthalpy()[ci], 1e-6 * e, "the water enters at the cell's temperature");
+
+        // simulated, its water drained since (stored stairs, prior = stairs, no seedWaterlog): never re-seeded.
+        ColumnTask drained = ColumnAssembler.assemble(0, 0, lut, reg, waterlogSource(s, 2025f, (char) 4, seed, false));
+        assertEquals(0f, drained.slotMass()[ci], "a drained waterlogged block is not refilled from nothing");
+        float slotSum = 0f;
+        for (float v : drained.slotMass()) slotSum += v;
+        assertEquals(0f, slotSum, "no water appears anywhere");
+
+        // a section loaded from the pre-composition format (seedWaterlog once): its water is seeded.
+        ColumnTask legacy = ColumnAssembler.assemble(0, 0, lut, reg, waterlogSource(s, 2025f, (char) 4, seed, true));
+        assertEquals(250f, legacy.slotMass()[ci], 1e-3, "a legacy waterlogged block gets its water once");
+    }
 }

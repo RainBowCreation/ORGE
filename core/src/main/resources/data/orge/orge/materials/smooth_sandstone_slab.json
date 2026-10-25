@@ -10,5 +10,7 @@
   "yield_stress": 6e+07,
   "latent_heat_max": 160000,
   "max_temp": 1986,
-  "max_target": "orge:molten_quartz"
+  "max_target": "orge:molten_quartz",
+  "particle_density": 2300,
+  "flow_resistance": 96
 }

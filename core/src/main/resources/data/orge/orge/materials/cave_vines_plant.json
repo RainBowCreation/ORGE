@@ -4,5 +4,7 @@
   "molar_mass": 0.162,
   "default_mass": 1,
   "default_temperature": 290,
-  "emissivity": 0.97
+  "emissivity": 0.97,
+  "particle_density": 1000,
+  "flow_resistance": 12.012
 }

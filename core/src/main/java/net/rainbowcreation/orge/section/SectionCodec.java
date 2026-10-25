@@ -365,10 +365,14 @@ public final class SectionCodec {
             slotMass = bytesToFloats(inflate(in.readNBytes(smLen), SectionData.SLOT_CELLS * 4));
         }
 
-        return SectionData.fromSnapshot(new SectionSnapshot(
+        SectionData section = SectionData.fromSnapshot(new SectionSnapshot(
                 snapForm, uniformEnthalpy, uniformMass,
                 enthalpy, mass, momX, momY, momZ, pressure, palette, materialIndices,
                 slotIndices, slotMass));
+        if (version < FORMAT_VERSION) {
+            section.markLegacyOneComponent();   // its waterlogged blocks carried no water (seeded once)
+        }
+        return section;
     }
 
     // =========================================================================

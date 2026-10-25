@@ -1,0 +1,10 @@
+{
+  "thermal_conductivity": 2.24,
+  "heat_capacity": 820,
+  "molar_mass": 0.1001,
+  "default_mass": 58.6,
+  "default_temperature": 290,
+  "emissivity": 0.9,
+  "particle_density": 2930,
+  "flow_resistance": 12.245
+}

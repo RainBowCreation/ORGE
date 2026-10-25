@@ -8,5 +8,7 @@
   "thermal_expansion": 3.3e-05,
   "latent_heat_max": 160000,
   "max_temp": 1986,
-  "max_target": "orge:molten_quartz"
+  "max_target": "orge:molten_quartz",
+  "particle_density": 2650,
+  "flow_resistance": 96
 }

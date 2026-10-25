@@ -10,5 +10,7 @@
   "yield_stress": 2e+08,
   "latent_heat_max": 400000,
   "max_temp": 1398,
-  "max_target": "orge:lava"
+  "max_target": "orge:lava",
+  "particle_density": 2900,
+  "flow_resistance": 192
 }

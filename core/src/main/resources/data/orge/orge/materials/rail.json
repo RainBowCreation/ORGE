@@ -8,5 +8,7 @@
   "thermal_expansion": 3.5e-05,
   "latent_heat_max": 247000,
   "max_temp": 1811,
-  "max_target": "orge:molten_iron"
+  "max_target": "orge:molten_iron",
+  "particle_density": 7874,
+  "flow_resistance": 12.245
 }
