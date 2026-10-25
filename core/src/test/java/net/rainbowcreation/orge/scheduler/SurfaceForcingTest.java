@@ -43,10 +43,10 @@ class SurfaceForcingTest {
         SectionData surface = store.get(SURFACE_SECTION);
         SurfaceForcing f = new SurfaceForcing();
         BigDecimal start = grandE(store);
-        float e0 = surface.enthalpyAt(SURFACE);
+        double e0 = surface.enthalpyAt(SURFACE);
 
         run(f, store, 0L, 600, 0f);                         // sunrise → sunset (12000 ticks)
-        float eDusk = surface.enthalpyAt(SURFACE);
+        double eDusk = surface.enthalpyAt(SURFACE);
         assertTrue(eDusk > e0, "E rises over a clear day: " + e0 + " → " + eDusk);
         assertTrue(tempOf(surface, SURFACE) > 285f, "and the derived T with it");
         assertTrue(f.ledger(OVERWORLD) > 0, "the day books net energy in");
@@ -55,7 +55,7 @@ class SurfaceForcingTest {
         BigDecimal dusk = grandE(store);
         double ledgerDusk = f.ledger(OVERWORLD);
         run(f, store, 12000L, 600, 0f);                     // sunset → sunrise
-        float eDawn = surface.enthalpyAt(SURFACE);
+        double eDawn = surface.enthalpyAt(SURFACE);
         assertTrue(eDawn < eDusk, "E falls over the night: " + eDusk + " → " + eDawn);
         assertTrue(f.ledger(OVERWORLD) < ledgerDusk, "the night books energy out to the sky");
         assertLedgerExact(dusk, store, f.ledger(OVERWORLD) - ledgerDusk);
@@ -67,9 +67,9 @@ class SurfaceForcingTest {
         SectionStore store = loaded(dir, OVERWORLD).store(OVERWORLD);
         flatWorld(store, null, 285f);
         SectionData air = store.get(new SubchunkKey(0, 5, 0));
-        float before = air.enthalpyAt(cell(3, 0, 5));
+        double before = air.enthalpyAt(cell(3, 0, 5));
         run(new SurfaceForcing(), store, 6000L, 10, 0f);
-        assertEquals(before, air.enthalpyAt(cell(3, 0, 5)), 0f, "transparent air takes no sun");
+        assertEquals(before, air.enthalpyAt(cell(3, 0, 5)), 0.0, "transparent air takes no sun");
     }
 
     @Test
@@ -79,7 +79,7 @@ class SurfaceForcingTest {
         SectionData surface = store.get(SURFACE_SECTION);
         SurfaceForcing f = new SurfaceForcing();
         BigDecimal start = grandE(store);
-        float e0 = surface.enthalpyAt(SURFACE);
+        double e0 = surface.enthalpyAt(SURFACE);
         run(f, store, 5000L, 100, 1f);                      // full rain around noon
         assertTrue(surface.enthalpyAt(SURFACE) < e0, "no sun through rain: the sky loss wins");
         assertLedgerExact(start, store, f.ledger(OVERWORLD));
@@ -92,12 +92,12 @@ class SurfaceForcingTest {
         SectionData surface = store.get(SURFACE_SECTION);
         SurfaceForcing f = new SurfaceForcing();
         BigDecimal start = grandE(store);
-        float prev = surface.enthalpyAt(SURFACE);
+        double prev = surface.enthalpyAt(SURFACE);
         for (long tick = 0; tick < 2 * SurfaceForcing.DAY_TICKS; tick += 400) {   // two days, any hour
             SurfaceForcing.Climate c = SurfaceForcing.Climate.forDimension(THE_END, tick, 0f).orElseThrow();
             assertEquals(0.0, c.solar(), "no sun in the End");
             f.applyColumn(THE_END, store, 0, 0, c, 20.0, lookup());
-            float e = surface.enthalpyAt(SURFACE);
+            double e = surface.enthalpyAt(SURFACE);
             assertTrue(e < prev, "monotonic loss at tick " + tick + ": " + prev + " → " + e);
             prev = e;
         }
@@ -151,8 +151,8 @@ class SurfaceForcingTest {
         surface.setSlot(1, SURFACE, WATER, 200f);
         double e285 = net.rainbowcreation.orge.material.EnthalpyCurve.cellE(1500f, mat(DIRT), lookup(), 285f)
                 + net.rainbowcreation.orge.material.EnthalpyCurve.cellE(200f, mat(WATER), lookup(), 285f);
-        surface.setEnthalpy(SURFACE, (float) e285);
-        float before = surface.enthalpyAt(SURFACE);
+        surface.setEnthalpy(SURFACE, e285);
+        double before = surface.enthalpyAt(SURFACE);
         SurfaceForcing f = new SurfaceForcing();
         BigDecimal start = grandE(store);
 
@@ -172,12 +172,36 @@ class SurfaceForcingTest {
         flatWorld(mgr.store(OVERWORLD), null, 285f);
         mgr.onLevelSave(OVERWORLD);                         // clean: nothing dirty before the pass
         run(new SurfaceForcing(), mgr.store(OVERWORLD), 6000L, 10, 0f);
-        float forced = mgr.store(OVERWORLD).get(SURFACE_SECTION).enthalpyAt(SURFACE);
+        double forced = mgr.store(OVERWORLD).get(SURFACE_SECTION).enthalpyAt(SURFACE);
         mgr.onLevelSave(OVERWORLD);
         mgr.onLevelUnload(OVERWORLD);
 
         net.rainbowcreation.orge.section.SectionStoreManager reloaded = loaded(dir, OVERWORLD);
-        assertEquals(forced, reloaded.store(OVERWORLD).get(SURFACE_SECTION).enthalpyAt(SURFACE), 0f,
+        // E persists at float32 (issue #44: the one-off save rounding, pinned in SectionCodecTest).
+        assertEquals((double) (float) forced, reloaded.store(OVERWORLD).get(SURFACE_SECTION).enthalpyAt(SURFACE), 0.0,
                 "the pass marks its sections dirty, so the next save keeps the forced E");
+    }
+
+    /** Issue #44: a sky flux far below a float32 ULP of the surface cell's E accumulates instead of rounding
+     *  away every pass (the runtime E store is double), and the ledger books what the cell received. */
+    @Test
+    void aSubUlpSkyLossAccumulatesInsteadOfRoundingAway(@TempDir Path dir) {
+        SectionStore store = loaded(dir, THE_END).store(THE_END);
+        flatWorld(store, null, 285f);
+        SectionData surface = store.get(SURFACE_SECTION);
+        SurfaceForcing f = new SurfaceForcing();
+        SurfaceForcing.Climate end = SurfaceForcing.Climate.forDimension(THE_END, 0L, 0f).orElseThrow();
+        double e0 = surface.enthalpyAt(SURFACE);
+        double halfUlp = Math.ulp((float) e0) / 2.0;
+        double perPass = SurfaceForcing.deltaE(surface, SURFACE,
+                SkyColumnPass.cellEmissivity(surface, SURFACE, lookup()), end, 1e-3, lookup());
+        assertTrue(perPass < 0 && -perPass < halfUlp,
+                "NON-VACUOUS: one pass moves less than ½ float ULP (" + perPass + " J vs " + halfUlp + " J)");
+
+        for (int n = 0; n < 1000; n++) f.applyColumn(THE_END, store, 0, 0, end, 1e-3, lookup());
+
+        double moved = surface.enthalpyAt(SURFACE) - e0;
+        assertEquals(1000 * perPass, moved, 1e-3 * Math.abs(1000 * perPass),
+                "1000 sub-ULP passes move E by 1000× the per-pass loss (a float store kept 0)");
     }
 }

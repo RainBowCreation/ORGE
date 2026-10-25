@@ -42,10 +42,11 @@ public final class EngineMarshaller {
                 int[] injColumn, int[] injCell,
                 char[] injSpecies, float[] injMass, float[] injTemp,
                 float[] ledgerOut,
-                float[] eIn, float[] swapReadyIn,
-                float[] eOut, float[] swapReadyOut,
+                double[] eIn, float[] swapReadyIn,
+                double[] eOut, float[] swapReadyOut,
                 char[] slotIxIn, float[] slotMassIn,
-                char[] slotIxOut, float[] slotMassOut);
+                char[] slotIxOut, float[] slotMassOut,
+                double[] booksOut);
     }
 
     // Empty injection channel until Plan 2 wires the placement queue. With injCount==0 the native skips
@@ -71,7 +72,8 @@ public final class EngineMarshaller {
             lastStepMillis = 0.0;
             return new RegionStepResult(new ArrayList<>(),
                     new float[matCount], new float[matCount],
-                    new float[matCount], new float[matCount]);
+                    new float[matCount], new float[matCount],
+                    new double[RegionStepResult.BOOKS_HEAD + matCount]);
         }
         RegionMarshaller.Flat f = RegionMarshaller.flatten(columns);
         int total = f.nCols() * RegionMarshaller.CHUNK_N;
@@ -116,8 +118,9 @@ public final class EngineMarshaller {
         // T2 S5 absolute-E feed (law §6 — E is THE energy truth carrier, T is a derived diagnostic).
         // eIn flows straight from the S4-threaded stored-E channel (ColumnTask.enthalpy →
         // RegionMarshaller.Flat.eIn), exactly like vxIn = f.pxIn() and swapReadyIn = f.swapReadyIn():
-        // the engine receives the STORED ABSOLUTE E [J] unmodified — loss-free across the JNI seam.
-        float[] eIn = f.eIn();
+        // the engine receives the STORED ABSOLUTE E [J] unmodified, at double — loss-free across the JNI
+        // seam (issue #44).
+        double[] eIn = f.eIn();
         // swapReadyIn: sourced from the persisted Java channel (ColumnTask.swapReady, marshalled into
         // Flat.swapReadyIn) — taken straight from Flat, exactly like vxIn = f.pxIn(). The engine reads it
         // directly, round-trips it, and resets-on-mismatch per v4 §1.1. Java now PERSISTS this channel
@@ -126,13 +129,17 @@ public final class EngineMarshaller {
         float[] swapReadyIn = f.swapReadyIn();
         // Eout: the engine's AUTHORITATIVE post-step absolute E [J] (law §6). swapReadyOut: persisted
         // §5.3 accumulator. Both captured from the native into reusable scratch.
-        float[] eOut = scratch.eOut(total);
+        double[] eOut = scratch.eOut(total);
         float[] swapReadyOut = scratch.swapReadyOut(total);
         // DESIGN-LAW v5 #7 composition slots 1..K−1 (slot 0 = matIx/mass): in from ColumnTask.slotIx/slotMass,
         // out into reusable scratch. The engine writes every slot it is given room for.
         int slotTotal = f.nCols() * RegionMarshaller.SLOT_N;
         char[] slotIxOut = scratch.slotIxOut(slotTotal);
         float[] slotMassOut = scratch.slotMassOut(slotTotal);
+
+        // Issue #44: the per-call World's closing ledgers (boundaryE, dissipation, ε-mass sink) — fresh
+        // per step, it escapes into the result.
+        double[] booksOut = new double[RegionStepResult.BOOKS_HEAD + matCount];
 
         lastStepMillis = kernel.step(
                 lutEpoch,
@@ -142,7 +149,7 @@ public final class EngineMarshaller {
                 vxOut, vyOut, vzOut, pOut,
                 injCount, injCol, injCell, injSp, injMs, injTp, ledgerOut,
                 eIn, swapReadyIn, eOut, swapReadyOut,
-                f.slotIxIn(), f.slotMassIn(), slotIxOut, slotMassOut);
+                f.slotIxIn(), f.slotMassIn(), slotIxOut, slotMassOut, booksOut);
 
         float[] injected = new float[matCount];
         float[] sealedLoss = new float[matCount];
@@ -159,7 +166,7 @@ public final class EngineMarshaller {
         return new RegionStepResult(
                 RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, eOut,
                         slotIxOut, slotMassOut, f.nCols()),
-                injected, sealedLoss, injectedE, sealedE);
+                injected, sealedLoss, injectedE, sealedE, booksOut);
     }
 
     /** The native compute time in milliseconds of the last {@link #step}. */

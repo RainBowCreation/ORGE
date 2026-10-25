@@ -375,7 +375,7 @@ class MinecraftThermalWorldTest {
         float[] tOut = new float[RegionMarshaller.CHUNK_N];
         Arrays.fill(tOut, 300f);
         tOut[cell] = 285f;
-        float[] eOut = new float[RegionMarshaller.CHUNK_N];
+        double[] eOut = new double[RegionMarshaller.CHUNK_N];
         eOut[cell] = storedE;
         ColumnResult result = new ColumnResult(outMat, m.clone(), tOut,
                 z.clone(), z.clone(), z.clone(), z.clone(), new float[RegionMarshaller.CHUNK_N], eOut);
@@ -450,9 +450,9 @@ class MinecraftThermalWorldTest {
 
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0), skyEntry(nether, 0)));
-        float ow0 = mgr.store(DIM).get(key).enthalpyAt(surface);
-        float out0 = outside.enthalpyAt(surface);
-        float ne0 = mgr.store(nether).get(key).enthalpyAt(surface);
+        double ow0 = mgr.store(DIM).get(key).enthalpyAt(surface);
+        double out0 = outside.enthalpyAt(surface);
+        double ne0 = mgr.store(nether).get(key).enthalpyAt(surface);
 
         world.applySurfaceForcing(DIM, 6000L, 0f, 1.0, SkyTestWorld.lookup());   // clear noon
         world.applySurfaceForcing(nether, 6000L, 0f, 1.0, SkyTestWorld.lookup());

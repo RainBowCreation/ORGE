@@ -68,15 +68,15 @@ class BedrockTickPreservesETest {
         Function<Identifier, Material> lookup = id -> reg.get(id).orElse(null);
 
         final int SEC = 4096;
-        float bedE = (float) EnthalpyCurve.cellE(3000f, bedrock(), lookup, 300f); // 300 K target
-        float airE = (float) EnthalpyCurve.cellE(1.2f, air(), lookup, 290f);
+        double bedE = EnthalpyCurve.cellE(3000f, bedrock(), lookup, 300f); // 300 K target
+        double airE = EnthalpyCurve.cellE(1.2f, air(), lookup, 290f);
 
         ColumnAssembler.SectionSource src = (cx, cz, sectionY) -> {
             char[] mat = new char[SEC];
             float[] mass = new float[SEC];
             float[] temp = new float[SEC];
             Identifier[] stored = new Identifier[SEC];
-            float[] enth = new float[SEC];
+            double[] enth = new double[SEC];
             Arrays.fill(mat, AIRX);
             Arrays.fill(mass, 1.2f);
             Arrays.fill(temp, 290f);
@@ -97,7 +97,7 @@ class BedrockTickPreservesETest {
         List<ColumnResult> res = e.stepWorld(List.of(task), 1, 0.25,
                 OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION);
         ColumnResult r = res.get(0);
-        float outE = r.enthalpy()[ci];
+        double outE = r.enthalpy()[ci];
 
         assertEquals(bedE, outE, Math.abs(bedE) * 0.01f,
                 "engine must preserve an immovable non-conductive bedrock cell's enthalpy across one step");

@@ -103,9 +103,9 @@ class EnthalpyRestoreParityIT {
         char[] matIx = new char[N];
         float[] m = new float[N];
         float[] t = new float[N];
-        float[] e = new float[N];
+        double[] e = new double[N];
         for (int i = 0; i < N; i++) { matIx[i] = L_AIR; m[i] = 1.2f; t[i] = 285f; }
-        matIx[cell] = L_WATER; m[cell] = mass; t[cell] = coldSeedT; e[cell] = (float) storedE;
+        matIx[cell] = L_WATER; m[cell] = mass; t[cell] = coldSeedT; e[cell] = storedE;
 
         // 11-arg ColumnTask: enthalpy channel supplied (the S4 stored-E channel S5 now feeds to eIn).
         float[] z = new float[N];
@@ -119,6 +119,10 @@ class EnthalpyRestoreParityIT {
         assertEquals(storedE, eOut, 1e-3 * storedE,
                 "eOut carries the STORED absolute E (loss-free); the retired m·cp·T feed would have "
                         + "surfaced m·cp·285 = " + massCpColdSeed + " J, off by the latent slug");
+        // Issue #44: E crosses the seam at double — bit-exact at passes=0 (a float32 seam rounds it).
+        assertEquals(storedE, eOut, 0.0, "stored E survives the JNI seam bit-exact (double carrier)");
+        assertTrue(storedE != (double) (float) storedE,
+                "NON-VACUOUS: the seeded E is not float32-representable, so a float seam would change it");
         assertTrue(Math.abs(eOut - massCpColdSeed) > 1e8,
                 "eOut is far from the cold-seed m·cp·T energy (gap > 1e8 J): the engine read stored E, "
                         + "not a cp·T reconstruction of the seed temperature");
@@ -156,9 +160,9 @@ class EnthalpyRestoreParityIT {
         char[] matIx = new char[N];
         float[] m = new float[N];
         float[] t = new float[N];
-        float[] e = new float[N];
+        double[] e = new double[N];
         for (int i = 0; i < N; i++) { matIx[i] = L_AIR; m[i] = 1.2f; t[i] = 285f; }
-        matIx[cell] = L_WATER; m[cell] = mass; t[cell] = warmT; e[cell] = (float) storedE;
+        matIx[cell] = L_WATER; m[cell] = mass; t[cell] = warmT; e[cell] = storedE;
         float[] z = new float[N];
         ColumnTask seed = new ColumnTask(0, 0, matIx, m, t, z.clone(), z.clone(), z.clone(), z.clone(),
                 new float[N], e);

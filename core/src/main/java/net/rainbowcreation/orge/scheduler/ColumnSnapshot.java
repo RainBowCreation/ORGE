@@ -274,7 +274,7 @@ final class ColumnSnapshot {
             float[] momZ = new float[SectionData.CELLS];
             float[] p    = new float[SectionData.CELLS];
             float[] swapReady = new float[SectionData.CELLS];
-            float[] enthalpy = new float[SectionData.CELLS];
+            double[] enthalpy = new double[SectionData.CELLS];
             // DESIGN-LAW v5 #7 composition slots 1..K−1 (stored id + mass); empty for one-component cells.
             Identifier[] slotMaterial = new Identifier[SectionData.SLOT_CELLS];
             float[] slotMass = new float[SectionData.SLOT_CELLS];

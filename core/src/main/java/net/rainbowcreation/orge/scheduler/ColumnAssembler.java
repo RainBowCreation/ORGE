@@ -74,13 +74,13 @@ public final class ColumnAssembler {
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
                                float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
-                               float[] enthalpy, Identifier[] slotMaterial, float[] slotMass,
+                               double[] enthalpy, Identifier[] slotMaterial, float[] slotMass,
                                float[] waterlogSeed, boolean seedWaterlog) {
         /** Back-compat: no waterlogged block in the section. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
                             float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
-                            float[] enthalpy, Identifier[] slotMaterial, float[] slotMass) {
+                            double[] enthalpy, Identifier[] slotMaterial, float[] slotMass) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial, momX, momY, momZ, p, swapReady,
                  enthalpy, slotMaterial, slotMass, new float[matIx.length], false);
         }
@@ -88,7 +88,7 @@ public final class ColumnAssembler {
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
                             float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
-                            float[] enthalpy) {
+                            double[] enthalpy) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial, momX, momY, momZ, p, swapReady,
                  enthalpy, new Identifier[SectionData.SLOT_CELLS], new float[SectionData.SLOT_CELLS]);
         }
@@ -97,7 +97,7 @@ public final class ColumnAssembler {
                             Identifier[] storedMaterial,
                             float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady) {
             this(matIx, mass, temperature, priorSpecies, storedMaterial,
-                 momX, momY, momZ, p, swapReady, new float[matIx.length]);
+                 momX, momY, momZ, p, swapReady, new double[matIx.length]);
         }
         /** Back-compat: pressure supplied, zero swap-cadence accumulator, zero enthalpy. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
@@ -145,7 +145,7 @@ public final class ColumnAssembler {
         float[] momZ = new float[N];
         float[] p    = new float[N];
         float[] swapReady = new float[N];
-        float[] enthalpy = new float[N];
+        double[] enthalpy = new double[N];
         char[] slotIx = new char[RegionMarshaller.SLOT_N];
         float[] slotMass = new float[RegionMarshaller.SLOT_N];
         // EnthalpyCurve lookup (law §6/§7): returns null for an absent/unresolvable id, matching the
@@ -237,14 +237,14 @@ public final class ColumnAssembler {
                         // derive T = 0 K. ENCODE E = m·h(T_seed) ONCE here (law §6) from the SEEDED mass +
                         // seed temperature — the correct initial condition, NOT a forbidden re-encode (we
                         // only encode when stored E is unset; a massless/unresolvable cell stays 0).
-                        float inE = cells.enthalpy()[si];
-                        enthalpy[ci] = (inE != 0f)
+                        double inE = cells.enthalpy()[si];
+                        enthalpy[ci] = (inE != 0.0)
                                 ? inE
-                                : (m == null || seeded <= 0f) ? 0f
-                                  : (float) EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
+                                : (m == null || seeded <= 0f) ? 0.0
+                                  : EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
                         // The seeded water enters at the cell's temperature (E is extensive: Σ m_k·h_k(T)).
                         if (seedWater) {
-                            enthalpy[ci] += (float) EnthalpyCurve.cellE(wl, water, lookup, temp[ci]);
+                            enthalpy[ci] += EnthalpyCurve.cellE(wl, water, lookup, temp[ci]);
                         }
                     }
                 }

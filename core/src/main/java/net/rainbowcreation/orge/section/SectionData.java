@@ -18,7 +18,11 @@ import java.util.List;
  * Extensive storage is what makes advection structurally conservative and keeps thinned cells
  * bounded ({@code E→0} and {@code p→0} as {@code mass→0}).</p>
  *
- * <p>In memory the per-cell channels are parallel {@code float[4096]} arrays. On disk a section
+ * <p>In memory the per-cell channels are parallel {@code float[4096]} arrays, except enthalpy, which is
+ * {@code double[4096]}: it is carried at double through the engine seam every tick (issue #44 — a float32
+ * runtime store rounded every cell's E once per tick, so a small heat inflow into a massive cell, below
+ * half a float ULP of its E, was destroyed). On disk E is persisted at float32 — a ONE-OFF rounding per
+ * save→load (≤ ½ ULP(E) per cell, relative 2⁻²⁴), never per tick. On disk a section
  * serializes as {@code UNIFORM} (one E + one mass — the common case far from any heat source) or
  * {@code FULL} (compressed 4096-arrays once a gradient forms). See {@link RegionStore}. The derive
  * to {@code T}/{@code v} (which needs the Material LUT, not held here) lives at every caller
@@ -54,9 +58,9 @@ public final class SectionData {
     }
 
     private Form form;
-    private float uniformEnthalpy;
+    private double uniformEnthalpy;
     private float uniformMass;
-    private float[] enthalpy; // E [J]; null while UNIFORM
+    private double[] enthalpy; // E [J], double (issue #44); null while UNIFORM
     private float[] mass;     // null while UNIFORM
     private MaterialPalette materials; // null until the first per-cell material write
     private float[] momX; // momentum px [kg·m/s]; null until first momentum write or array request
@@ -76,8 +80,8 @@ public final class SectionData {
     private long editEpoch = 0L;
     private long snapshotEpoch = 0L;
 
-    private SectionData(Form form, float uniformEnthalpy, float uniformMass,
-                        float[] enthalpy, float[] mass) {
+    private SectionData(Form form, double uniformEnthalpy, float uniformMass,
+                        double[] enthalpy, float[] mass) {
         this.form = form;
         this.uniformEnthalpy = uniformEnthalpy;
         this.uniformMass = uniformMass;
@@ -86,7 +90,7 @@ public final class SectionData {
     }
 
     /** A never-simulated section: implicitly uniform enthalpy and material default mass. */
-    public static SectionData uniform(float enthalpyJ, float massKg) {
+    public static SectionData uniform(double enthalpyJ, float massKg) {
         return new SectionData(Form.UNIFORM, enthalpyJ, massKg, null, null);
     }
 
@@ -95,7 +99,7 @@ public final class SectionData {
     }
 
     /** Enthalpy E [J] of cell {@code i} (0..4095), expanding from UNIFORM transparently. */
-    public float enthalpyAt(int i) {
+    public double enthalpyAt(int i) {
         return form == Form.UNIFORM ? uniformEnthalpy : enthalpy[i];
     }
 
@@ -115,7 +119,7 @@ public final class SectionData {
      * @param mass     length-{@value CELLS} mass array (kg)
      * @throws IllegalArgumentException if either array has a length other than {@value CELLS}
      */
-    public static SectionData full(float[] enthalpy, float[] mass) {
+    public static SectionData full(double[] enthalpy, float[] mass) {
         if (enthalpy.length != CELLS) {
             throw new IllegalArgumentException(
                     "enthalpy array length must be " + CELLS + ", got " + enthalpy.length);
@@ -138,7 +142,8 @@ public final class SectionData {
      * allocation exactly: {@code FULL} hands over its live {@code enthalpy}/{@code mass} arrays
      * (a {@code UNIFORM} section reports its two scalars instead), and each optional channel
      * (momentum / pressure / materials) is present iff its backing store has been allocated. The
-     * in-memory-only {@code swapReady} channel is never included (law §7). Arrays are aliased, not
+     * in-memory-only {@code swapReady} channel is never included (law §7). E is narrowed to its float32
+     * persisted image (a copy — the one-off save rounding, issue #44); the other arrays are aliased, not
      * copied — the codec only reads them.</p>
      */
     SectionSnapshot snapshot() {
@@ -147,14 +152,28 @@ public final class SectionData {
         char[] indices = (materials == null) ? null : materials.indices();
         return new SectionSnapshot(
                 form,
-                uniformEnthalpy,
+                (float) uniformEnthalpy,
                 uniformMass,
-                full ? enthalpy : null,
+                full ? persistedEnthalpy(enthalpy) : null,
                 full ? mass : null,
                 momX, momY, momZ,
                 p,
                 palette, indices,
                 slotIx, slotMass);
+    }
+
+    /** The persisted (float32) image of the runtime double E — the one-off save rounding (issue #44). */
+    private static float[] persistedEnthalpy(double[] e) {
+        float[] out = new float[e.length];
+        for (int i = 0; i < e.length; i++) out[i] = (float) e[i];
+        return out;
+    }
+
+    /** Widen a persisted float32 E layer into the runtime double store (exact). */
+    private static double[] widen(float[] e) {
+        double[] out = new double[e.length];
+        for (int i = 0; i < e.length; i++) out[i] = e[i];
+        return out;
     }
 
     /**
@@ -168,7 +187,7 @@ public final class SectionData {
      */
     static SectionData fromSnapshot(SectionSnapshot snap) {
         SectionData s = snap.isFull()
-                ? full(snap.enthalpy(), snap.mass())
+                ? full(widen(snap.enthalpy()), snap.mass())
                 : uniform(snap.uniformEnthalpy(), snap.uniformMass());
         if (snap.hasMaterials()) {
             s.materials = new MaterialPalette(snap.materialPalette(), snap.materialIndices());
@@ -203,7 +222,7 @@ public final class SectionData {
         if (form == Form.FULL) {
             return;
         }
-        enthalpy = new float[CELLS];
+        enthalpy = new double[CELLS];
         mass = new float[CELLS];
         Arrays.fill(enthalpy, uniformEnthalpy);
         Arrays.fill(mass, uniformMass);
@@ -216,7 +235,7 @@ public final class SectionData {
      * @param i cell index (0..{@value CELLS}-1)
      * @param v enthalpy in Joules
      */
-    public void setEnthalpy(int i, float v) {
+    public void setEnthalpy(int i, double v) {
         promote();
         enthalpy[i] = v;
     }
@@ -284,7 +303,7 @@ public final class SectionData {
      * If the section is currently {@code UNIFORM} it is force-promoted to {@code FULL}
      * so that the caller always receives a real array.</p>
      */
-    public float[] enthalpyArray() {
+    public double[] enthalpyArray() {
         promote();
         return enthalpy;
     }
@@ -479,7 +498,7 @@ public final class SectionData {
         if (slotIx != null) {
             return false;
         }
-        float e0 = enthalpy[0];
+        double e0 = enthalpy[0];
         float m0 = mass[0];
         for (int i = 1; i < CELLS; i++) {
             if (enthalpy[i] != e0 || mass[i] != m0) {
@@ -677,7 +696,8 @@ public final class SectionData {
      * Returns {@code true} iff this section and {@code o} have the same enthalpy
      * and mass in every cell (including the UNIFORM-vs-FULL cross-comparison).
      *
-     * <p>Uses {@link Float#compare(float, float)} for exact equality (no epsilon).
+     * <p>Uses {@link Double#compare(double, double)} / {@link Float#compare(float, float)} for exact
+     * equality (no epsilon).
      * Does <em>not</em> override {@link Object#equals} — identity semantics are
      * preserved; use this named helper when value equality is required.</p>
      *
@@ -685,7 +705,7 @@ public final class SectionData {
      */
     public boolean equalsValue(SectionData o) {
         for (int i = 0; i < CELLS; i++) {
-            if (Float.compare(this.enthalpyAt(i), o.enthalpyAt(i)) != 0) {
+            if (Double.compare(this.enthalpyAt(i), o.enthalpyAt(i)) != 0) {
                 return false;
             }
             if (Float.compare(this.massAt(i), o.massAt(i)) != 0) {

@@ -46,7 +46,7 @@ public final class RegionMarshaller {
     public record Flat(int nCols, int[] cx, int[] cz,
                        char[] matIx, float[] mass, float[] tIn,
                        float[] pxIn, float[] pyIn, float[] pzIn, float[] pIn,
-                       float[] swapReadyIn, float[] eIn,
+                       float[] swapReadyIn, double[] eIn,
                        char[] slotIxIn, float[] slotMassIn) {}
 
     public static Flat flatten(List<ColumnTask> cols) {
@@ -60,7 +60,7 @@ public final class RegionMarshaller {
         float[] pzIn = new float[n * CHUNK_N];
         float[] pIn = new float[n * CHUNK_N];
         float[] swapReadyIn = new float[n * CHUNK_N];
-        float[] eIn = new float[n * CHUNK_N];
+        double[] eIn = new double[n * CHUNK_N];
         char[] slotIxIn = new char[n * SLOT_N];
         float[] slotMassIn = new float[n * SLOT_N];
         for (int c = 0; c < n; c++) {
@@ -89,7 +89,7 @@ public final class RegionMarshaller {
 
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
                                            float[] pxOut, float[] pyOut, float[] pzOut,
-                                           float[] pOut, float[] swapReadyOut, float[] eOut,
+                                           float[] pOut, float[] swapReadyOut, double[] eOut,
                                            char[] slotIxOut, float[] slotMassOut, int nCols) {
         List<ColumnResult> out = new ArrayList<>(nCols);
         for (int c = 0; c < nCols; c++) {
@@ -102,7 +102,7 @@ public final class RegionMarshaller {
             float[] pzs = new float[CHUNK_N];
             float[] ps  = new float[CHUNK_N];
             float[] sr  = new float[CHUNK_N];
-            float[] es  = new float[CHUNK_N];
+            double[] es  = new double[CHUNK_N];
             System.arraycopy(matOut,  base, mi,  0, CHUNK_N);
             System.arraycopy(massOut, base, ms,  0, CHUNK_N);
             System.arraycopy(tOut,    base, tt,  0, CHUNK_N);
@@ -128,7 +128,7 @@ public final class RegionMarshaller {
     /** Convenience: composition slots 1..K−1 empty (one-material cells). */
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut,
                                            float[] pxOut, float[] pyOut, float[] pzOut,
-                                           float[] pOut, float[] swapReadyOut, float[] eOut, int nCols) {
+                                           float[] pOut, float[] swapReadyOut, double[] eOut, int nCols) {
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, swapReadyOut, eOut,
                      new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
@@ -140,7 +140,7 @@ public final class RegionMarshaller {
                                            float[] pOut, float[] swapReadyOut, int nCols) {
         int total = nCols * CHUNK_N;
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut, swapReadyOut,
-                     new float[total], new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
+                     new double[total], new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
     /** Convenience: swapReady + enthalpy channels zero-filled. Momentum + pressure supplied. */
@@ -149,7 +149,7 @@ public final class RegionMarshaller {
                                            float[] pOut, int nCols) {
         int total = nCols * CHUNK_N;
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut, pOut,
-                     new float[total], new float[total],
+                     new float[total], new double[total],
                      new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
@@ -158,7 +158,7 @@ public final class RegionMarshaller {
                                            float[] pxOut, float[] pyOut, float[] pzOut, int nCols) {
         int total = nCols * CHUNK_N;
         return slice(matOut, massOut, tOut, pxOut, pyOut, pzOut,
-                     new float[total], new float[total], new float[total],
+                     new float[total], new float[total], new double[total],
                      new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 
@@ -167,7 +167,7 @@ public final class RegionMarshaller {
     public static List<ColumnResult> slice(char[] matOut, float[] massOut, float[] tOut, int nCols) {
         int total = nCols * CHUNK_N;
         float[] zeros = new float[total];
-        return slice(matOut, massOut, tOut, zeros, zeros, zeros, zeros, zeros, new float[total],
+        return slice(matOut, massOut, tOut, zeros, zeros, zeros, zeros, zeros, new double[total],
                      new char[nCols * SLOT_N], new float[nCols * SLOT_N], nCols);
     }
 

@@ -84,8 +84,8 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
             int ci = r.cellIndex();
             Material cellM = lookup.apply(data.materialAt(ci));
             float massKg = data.massAt(ci);
-            float e = (cellM == null || massKg <= 0f)
-                    ? 0f : (float) EnthalpyCurve.cellE(massKg, cellM, lookup, r.temperatureK());
+            double e = (cellM == null || massKg <= 0f)
+                    ? 0.0 : EnthalpyCurve.cellE(massKg, cellM, lookup, r.temperatureK());
             data.setEnthalpy(ci, e);
         }
         store.put(key, data);
