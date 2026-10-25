@@ -64,6 +64,35 @@ first half-cell path, sand ≈ 1.2e-4 m/s; dry soil sucks faster (Brooks–Corey
 saturation. Saturated soil over a cave drips only while its suction is below the half-cell head
 ½·ρ_w·g·Δx (a seepage face).
 
+## Partial, flowable and waterlogged blocks (DESIGN-LAW v5 #8 open-volume columns)
+
+Water and air pass through stairs, slabs, rails, plants and coral without deleting them, and a waterlogged
+one holds its water as a second component of the cell (engine seepage, issue #30). The block never moves
+(its yield is not exceeded, or its μ is +∞). The open fraction is derived, not a column: φ = 1 − ρ_b/ρ_p.
+
+| Blocks | `particle_density` ρ_p | open fraction φ | `flow_resistance` r = 12/(φ·h²) | water when waterlogged ρ_w·φ |
+|---|---|---|---|---|
+| every `_stairs` (¾ of the cell) | its substance (`default_mass`/0.75: stone 2700, oak 750, copper 8960…) | 0.25 | 192 m⁻² (h = ½ m) | 250 kg |
+| every `_slab` (½) | its substance (`default_mass`/0.5) | 0.5 | 96 m⁻² (h = ½ m) | 500 kg |
+| rail, powered/detector/activator rail | iron 7874 kg/m³ (CRC) | 0.98 | 12.245 m⁻² (h = 1 m) | — |
+| grass, flowers, crops, saplings, vines, small mushrooms (the ~1 kg herbaceous rows; not leaves or carpets) | fresh herbaceous tissue ≈ water, 1000 kg/m³ (80–90 % water) | 0.999 | 12.012 m⁻² (h = 1 m) | — |
+| coral, coral fan, coral wall fan (5 colours, live and dead) | aragonite 2930 kg/m³ (CRC) | 0.98 | 12.245 m⁻² (h = 1 m) | 980 kg |
+
+- **r:** the Hagen–Poiseuille slit of open gap h with open fraction φ, κ = φ·h²/12 (Bear 1972, *Dynamics of
+  Fluids in Porous Media*, §5.10), as proposal §13. Derived from the geometry, not measured (flagged):
+  the Darcy terminal speed through these gaps is ~10⁴ m/s, so the flux is bounded by the donor's mass,
+  the receiver's room and, for a gas, its EOS — not by r.
+- **Coral:** aragonite skeleton (CRC: ρ 2.93 g/cm³; k 2.24 W/(m·K), Horai 1971 *J. Geophys. Res.* 76:1278;
+  cp 820 J/(kg·K) as calcite). The block's skeleton fraction 0.02 (58.6 kg) is an **estimate** (a fan or
+  branch is a few thin plates; the vanilla model has zero-thickness planes), like a rail's model volume.
+- **Bamboo slab / stairs** are half / three quarters of a bamboo plank (they had carried a plant row).
+- **Waterlogged blocks:** the first time a chunk is simulated (and once for a section saved before
+  multi-component cells), a `waterlogged=true` block gets ρ_w·V_pore of water as a second component; a
+  drained one is never refilled from nothing. The reconciler keeps the block while it is among the
+  cell's components and draws `waterlogged` from the water it holds (on at ≥ ½ of the open volume, off
+  below ¼). A block with no open volume (fences, signs, lanterns… on their current rows) keeps its
+  waterlogged property as vanilla set it.
+
 ## Block aliases (other vanilla blocks that ARE an existing material)
 
 A material JSON may list `"blocks"`: their first touch resolves to that material (one species, so a
@@ -179,10 +208,13 @@ is declared per material: the saturation curve of a phase pair comes from the pa
   pair freezes to one canonical solid.
 - **No source found (left on the fallback):** beeswax cp (honeycomb_block, candles), diamond's total
   emissivity (IR-transparent), watermelon/pumpkin bulk density and conductivity (their ASHRAE freezing data
-  exists), molten magnetite density/viscosity (raw iron doesn't melt), coral skeletons, sponge, moss,
+  exists), molten magnetite density/viscosity (raw iron doesn't melt), coral blocks, sponge, moss,
   mushroom blocks, cactus, dried kelp, bell (bronze), chests.
-- **Waterlogged blocks** (stairs, slabs, coral…) ignore their water: treating them as water would let a
-  drain delete the block.
+- **Waterlogged blocks with no open volume** (fences, walls, panes, chains, lanterns, signs, trapdoors,
+  ladders, leaves, sea pickles…) still ignore their water: their rows carry no ρ_p yet. Stairs, slabs,
+  rails, plants and coral hold theirs (above).
+- **A flooded non-waterloggable host** (rail or flower in a river) keeps the block and hides the water
+  (vanilla cannot draw it); it is never broken.
 - **Fictional blocks:** `glowstone`, `redstone_block`, `end_rod`, `nether_portal` keep placeholder data;
   netherrack, end stone, soul sand/soil and nether stems fall back to `generic_solid`.
 - **Deliberate:** `bedrock`, `tinted_glass` (k = 0 insulators).

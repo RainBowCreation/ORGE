@@ -287,6 +287,21 @@ class SectionCodecTest {
         assertOneComponentEqual(v5FixtureColumn(), SectionCodec.readColumn(resaved));
     }
 
+    @Test
+    void v5SectionsAreMarkedForTheOneTimeWaterloggedSeed() throws IOException {
+        // issue #30 (proposal §12 Q4 (B)): a v5 world's waterlogged blocks carried no water. Its sections are
+        // marked so the first snapshot seeds that water ONCE; a v6 section (already composition-aware) is not.
+        NavigableMap<Integer, SectionData> migrated = SectionCodec.readColumn(v5FixtureBlob());
+        for (SectionData d : migrated.values()) {
+            assertTrue(d.consumeLegacyOneComponent(), "a v5 section is marked legacy");
+            assertFalse(d.consumeLegacyOneComponent(), "the mark is consumed by its first snapshot (seed once)");
+        }
+        NavigableMap<Integer, SectionData> v6 = SectionCodec.readColumn(SectionCodec.writeColumn(migrated));
+        for (SectionData d : v6.values()) {
+            assertFalse(d.consumeLegacyOneComponent(), "a v6 section is never re-seeded");
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Test 6d: multi-component sections round-trip save→load exactly (issue #27)
     // -------------------------------------------------------------------------

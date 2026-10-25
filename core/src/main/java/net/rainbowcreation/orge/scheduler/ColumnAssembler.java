@@ -65,11 +65,25 @@ public final class ColumnAssembler {
      *    <li>{@code slotMaterial}/{@code slotMass} — the stored DESIGN-LAW v5 #7 composition slots
      *        1..K−1, index {@code (k−1)·4096 + si} (length {@link SectionData#SLOT_CELLS}); a slot with
      *        mass {@code <= 0} is empty (its id is ignored). All-empty for one-component cells.</li>
+     *    <li>{@code waterlogSeed} — per cell, the water [kg] a {@code waterlogged} live block holds,
+     *        {@code ρ_water·V_pore} of its host (0 elsewhere). Seeded as a second component (proposal §12
+     *        Q4 (B)) when {@code seedWaterlog} — the section was never simulated, or it was loaded from the
+     *        pre-composition format, whose waterlogged blocks carried no water (seeded once) — and into a
+     *        genuinely new cell (the seed gate below).</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
                                float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
-                               float[] enthalpy, Identifier[] slotMaterial, float[] slotMass) {
+                               float[] enthalpy, Identifier[] slotMaterial, float[] slotMass,
+                               float[] waterlogSeed, boolean seedWaterlog) {
+        /** Back-compat: no waterlogged block in the section. */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                            Identifier[] storedMaterial,
+                            float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
+                            float[] enthalpy, Identifier[] slotMaterial, float[] slotMass) {
+            this(matIx, mass, temperature, priorSpecies, storedMaterial, momX, momY, momZ, p, swapReady,
+                 enthalpy, slotMaterial, slotMass, new float[matIx.length], false);
+        }
         /** Back-compat: enthalpy supplied, every cell one-component (composition slots 1..K−1 empty). */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
@@ -137,6 +151,7 @@ public final class ColumnAssembler {
         // EnthalpyCurve lookup (law §6/§7): returns null for an absent/unresolvable id, matching the
         // contract every derive/encode site already uses (id -> registry.get(id).orElse(null)).
         Function<Identifier, Material> lookup = id -> registry.get(id).orElse(null);
+        Material water = registry.get(WATER_ID).orElse(null);
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
             for (int z = 0; z < 16; z++) {
@@ -194,6 +209,18 @@ public final class ColumnAssembler {
                         } else {
                             seeded = storedMass;
                         }
+                        // A waterlogged block's water (proposal §12 Q4 (B)): seeded once, as a second
+                        // component, into a never-simulated / legacy (pre-composition) section or a new
+                        // placement, beside a host that is there and holds no other component. A simulated
+                        // cell whose water drained is never re-seeded (no fabrication).
+                        float wl = cells.waterlogSeed()[si];
+                        boolean seedWater = wl > 0f && water != null && slotTotal <= 0f && mat != 0 && seeded > 0f
+                                && (cells.seedWaterlog() || (storedMass <= 0f && prior == 0));
+                        if (seedWater) {
+                            int q = ci;                                    // slot 1: (1−1)·N + ci
+                            slotIx[q] = lut.indexOf(water);
+                            slotMass[q] = wl;
+                        }
                         matIx[ci] = mat;
                         mass[ci] = seeded;
                         temp[ci] = cells.temperature()[si];
@@ -215,6 +242,10 @@ public final class ColumnAssembler {
                                 ? inE
                                 : (m == null || seeded <= 0f) ? 0f
                                   : (float) EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
+                        // The seeded water enters at the cell's temperature (E is extensive: Σ m_k·h_k(T)).
+                        if (seedWater) {
+                            enthalpy[ci] += (float) EnthalpyCurve.cellE(wl, water, lookup, temp[ci]);
+                        }
                     }
                 }
             }
@@ -222,6 +253,21 @@ public final class ColumnAssembler {
         return new ColumnTask(cx, cz, matIx, mass, temp, momX, momY, momZ, p, swapReady, enthalpy,
                               slotIx, slotMass);
     }
+
+    /** Water [kg] a waterlogged block of {@code host} holds: {@code ρ_water · V_pore}, with the open volume
+     *  {@code V_pore = 1 m³ − defaultMass/ρ_p} of a cell at its rest mass (0 for a host with no open volume,
+     *  or when no water material is registered). */
+    public static float waterlogSeedKg(Material host, Material water) {
+        if (host == null || water == null) {
+            return 0f;
+        }
+        float rhoP = Math.max(host.particleDensity(), host.defaultMass());
+        float pore = rhoP > 0f ? 1f - host.defaultMass() / rhoP : 0f;
+        return pore > 0f ? Math.max(water.particleDensity(), water.defaultMass()) * pore : 0f;
+    }
+
+    /** The material a waterlogged block's water is ({@code orge:water}). */
+    public static final Identifier WATER_ID = Identifier.fromNamespaceAndPath("orge", "water");
 
     /** Batch-LUT index of a STORED material id: the {@code orge:vacuum} sentinel is LUT index 0 (not in
      *  the JSON registry); any other id resolves through the registry to its fixed stable-table slot. */

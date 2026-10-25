@@ -1,5 +1,6 @@
 package net.rainbowcreation.orge.phase;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import net.minecraft.core.BlockPos;
@@ -11,6 +12,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
@@ -105,8 +107,31 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
                         && current.getBlock() == BuiltInRegistries.BLOCK.getValue(worldMaterial.representativeBlock()));
             // Stale-write guard for the species paint: this step's INPUT species (null = vacuum/unknown).
             Material inMat = EngineOutSpecies.resolve(inMaterial, outLut, i, null);
+
+            // DESIGN-LAW v5 #7 (proposal §6): the cell is a composition. Slot order is the LUT order, not a
+            // role, so slot 0 can be the air or water a stair/rail/soil holds. A host the live block still
+            // shows is KEPT — only its waterlogged property follows the water it holds; a host-absent
+            // composition is drawn as its largest condensed component.
+            List<RepresentativeState.Component> comps = components(data, i, outMat, mats);
+            if (RepresentativeState.hostPresent(worldMaterial, comps)) {
+                if (current.hasProperty(BlockStateProperties.WATERLOGGED)) {
+                    Boolean wl = RepresentativeState.waterlogged(worldMaterial, comps,
+                            current.getValue(BlockStateProperties.WATERLOGGED));
+                    if (wl != null) {
+                        setIfChanged(level, posOf(ox, oy, oz, i), current,
+                                current.setValue(BlockStateProperties.WATERLOGGED, wl));
+                    }
+                }
+                continue;
+            }
+            float massKg = data.massAt(i);
+            if (comps.size() > 1) {
+                RepresentativeState.Component dom = RepresentativeState.dominant(comps);
+                outMat = dom.material();
+                massKg = dom.massKg();
+            }
             FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
-                    worldMaterial, outMat, data.massAt(i),
+                    worldMaterial, outMat, massKg,
                     bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
                     worldShowsSpecies(current, worldMaterial, inMat),
                     inMat != null && outMaterial != null && outMaterial[i] == 0);
@@ -114,10 +139,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
                 continue;
             }
 
-            int x = i & 15;
-            int y = (i >> 4) & 15;
-            int z = (i >> 8) & 15;
-            BlockPos pos = new BlockPos(ox + x, oy + y, oz + z);
+            BlockPos pos = posOf(ox, oy, oz, i);
 
             if (action.kind() == FluidReconcileDecider.Kind.CLEAR) {
                 // Decider confirmed a managed fluid block, or a solid the engine drained; remove it (→ air).
@@ -130,6 +152,35 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             Block target = BuiltInRegistries.BLOCK.getValue(action.block());
             setIfChanged(level, pos, current, stateWithLevel(target, action.renderLevel()));
         }
+    }
+
+    private static BlockPos posOf(int ox, int oy, int oz, int i) {
+        return new BlockPos(ox + (i & 15), oy + ((i >> 4) & 15), oz + ((i >> 8) & 15));
+    }
+
+    /**
+     * The cell's occupied composition slots after this step (slot 0 + the v5 #7 slots 1..K−1). Slot 0's
+     * species is the stored material when the section carries a material layer, else the engine species.
+     * A slot whose id is not registered is dropped (it cannot be drawn).
+     */
+    private static List<RepresentativeState.Component> components(SectionData data, int i, Material slot0,
+                                                                  ActiveMaterials.State mats) {
+        List<RepresentativeState.Component> comps = new ArrayList<>(SectionData.SLOTS);
+        Material m0 = data.hasMaterials() ? mats.registry().get(data.materialAt(i)).orElse(null) : slot0;
+        if (m0 != null && data.massAt(i) > 0f) {
+            comps.add(new RepresentativeState.Component(m0, data.massAt(i)));
+        }
+        if (data.hasSlots()) {
+            for (int k = 1; k < SectionData.SLOTS; k++) {
+                float mk = data.slotMassAt(k, i);
+                if (!(mk > 0f)) continue;
+                Material mat = mats.registry().get(data.slotMaterialAt(k, i)).orElse(null);
+                if (mat != null) {
+                    comps.add(new RepresentativeState.Component(mat, mk));
+                }
+            }
+        }
+        return comps;
     }
 
     /**

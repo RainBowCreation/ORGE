@@ -325,6 +325,57 @@ class AllMaterialsLoadTest {
         assertEquals(0f, water.particleDensity(), 0f, "ρ_p absent => the engine reads default_mass");
     }
 
+    @Test
+    void partialAndFlowableBlocksCarryTheirOpenVolume() throws Exception {
+        // issue #30 (proposal §13 / W3): ρ_p = the substance the block is made of, r = 12/(φ·h²) — the
+        // Hagen–Poiseuille slit of open gap h (½ m stairs/slabs, 1 m rails/plants/coral). Water and air
+        // pass through them; a waterlogged one holds ρ_water·φ of water.
+        MaterialRegistry reg = loadAll();
+        int stairs = 0, slabs = 0;
+        for (String stem : materialStems()) {
+            Material m = reg.get(orge(stem)).orElseThrow();
+            if (stem.endsWith("_stairs")) {
+                assertEquals(m.defaultMass() / 0.75f, m.particleDensity(), 1e-3f * m.particleDensity(),
+                        stem + " ρ_p = its substance (¾ of the cell)");
+                assertEquals(192f, m.flowResistance(), 0f, stem + " r = 12/(0.25·0.5²)");
+                stairs++;
+            } else if (stem.endsWith("_slab")) {
+                assertEquals(m.defaultMass() / 0.5f, m.particleDensity(), 1e-3f * m.particleDensity(),
+                        stem + " ρ_p = its substance (½ of the cell)");
+                assertEquals(96f, m.flowResistance(), 0f, stem + " r = 12/(0.5·0.5²)");
+                slabs++;
+            }
+        }
+        assertTrue(stairs >= 40 && slabs >= 40, "every stairs and slab row is covered");
+        Material stone = reg.get(orge("stone")).orElseThrow();
+        assertEquals(stone.defaultMass(), reg.get(orge("stone_stairs")).orElseThrow().particleDensity(), 0f,
+                "stone stairs are stone");
+        assertEquals(reg.get(orge("bamboo_planks")).orElseThrow().defaultMass() / 2f,
+                reg.get(orge("bamboo_slab")).orElseThrow().defaultMass(), 0f, "a bamboo slab is half a bamboo plank");
+        for (String stem : List.of("rail", "powered_rail", "detector_rail", "activator_rail")) {
+            Material m = reg.get(orge(stem)).orElseThrow();
+            assertEquals(7874f, m.particleDensity(), 0f, stem + " ρ_p = iron (CRC)");
+            assertEquals(12.245f, m.flowResistance(), 0f, stem + " r = 12/(0.98·1²)");
+        }
+        for (String stem : List.of("short_grass", "tall_grass", "fern", "poppy", "dandelion", "oak_sapling", "wheat")) {
+            Material m = reg.get(orge(stem)).orElseThrow();
+            assertEquals(1000f, m.particleDensity(), 0f, stem + " ρ_p = fresh herbaceous tissue ≈ water");
+            assertEquals(12.012f, m.flowResistance(), 0f, stem + " r = 12/(0.999·1²)");
+        }
+        for (String color : List.of("tube", "brain", "bubble", "fire", "horn")) {
+            for (String form : List.of("_coral", "_coral_fan", "_coral_wall_fan")) {
+                for (String dead : List.of("", "dead_")) {
+                    Material m = reg.get(orge(dead + color + form)).orElseThrow();
+                    assertEquals(2930f, m.particleDensity(), 0f, dead + color + form + " ρ_p = aragonite (CRC)");
+                    assertEquals(12.245f, m.flowResistance(), 0f, dead + color + form + " r = 12/(0.98·1²)");
+                    assertFalse(m.movable(), "coral never flows");
+                }
+            }
+        }
+        assertEquals(0f, reg.get(orge("oak_leaves")).orElseThrow().flowResistance(), 0f,
+                "leaves are a full canopy block, not a flowable gap (left at r = 0)");
+    }
+
     // -------------------------------------------------------------------------
     // (h) no new blocks: every material renders as an existing vanilla block
     //     (steam has no block of its own; it downgrades to minecraft:air at the registry boundary)

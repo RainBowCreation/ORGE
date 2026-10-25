@@ -8,5 +8,7 @@
   "thermal_expansion": 5e-05,
   "latent_heat_max": 209000,
   "max_temp": 1358,
-  "max_target": "orge:molten_copper"
+  "max_target": "orge:molten_copper",
+  "particle_density": 8960,
+  "flow_resistance": 192
 }

@@ -242,6 +242,24 @@ public final class SectionData {
         editEpoch++;
     }
 
+    // [legacy waterlogged seed] IN-MEMORY ONLY (not serialized, not in equals). A section decoded from the
+    // pre-composition format (v5) carried no water for its waterlogged blocks; the first snapshot that
+    // reads it seeds that water once (proposal §12 Q4 (B)) and clears the mark.
+    private boolean legacyOneComponent;
+
+    /** Mark this section as decoded from the pre-composition (v5) format. */
+    void markLegacyOneComponent() {
+        legacyOneComponent = true;
+    }
+
+    /** Whether this section came from the pre-composition format and has not been snapshotted since;
+     *  clears the mark (the legacy waterlogged seed happens once). */
+    public boolean consumeLegacyOneComponent() {
+        boolean was = legacyOneComponent;
+        legacyOneComponent = false;
+        return was;
+    }
+
     /** Stamp the current edit state as "seen by this snapshot" (called when the scheduler reads the
      *  section into a cycle's column batch). */
     public void markSnapshot() {
