@@ -157,6 +157,29 @@ its enthalpy are booked in the rain's boundary ledgers.
 | Rain intensity | 5.1 mm/h = 1.4167·10⁻³ kg/(m²·s), × `Level.getRainLevel(1)`; Overworld only | AMS *Glossary of Meteorology*, "Rain": light ≤ 2.5 mm/h, moderate 2.6–7.6 mm/h, heavy > 7.6 mm/h — the middle of the moderate band |
 | Rain temperature | 287.15 K (14.0 °C) | drops fall at the wet-bulb temperature (Gosnell, Fairall & Webster 1995, *Sensible heat flux of rainfall in the tropical ocean*, JGR 100(C9):18437); air under rain is near saturation, so wet bulb ≈ air temperature, taken as the 1961–90 global mean surface air temperature 14.0 °C (Jones, New, Parker, Martin & Rigor 1999, *Surface air temperature and its changes over the past 150 years*, Rev. Geophys. 37(2):173) |
 
+## Daytime evaporation (issue #34)
+
+Not material data: by day and while it is not raining, the same once-per-second sky pass evaporates
+each `(x, z)` column's surface water (the cell rain lands on: free water, a water component on stone, pore
+water of sand / dirt) into the air cell directly above as `steam` (`Evaporation`, spec
+`superpowers/specs/2026-10-25-daytime-evaporation.md`). The rate is the engine's #28 vapor exchange across
+that one face, `F = χ_pair·g_vap·A·dt·w_liq·w_gas·(p_sat(T_water) − p_v,air)`, so it needs no new number:
+
+| Quantity | Value | Source |
+|---|---|---|
+| Exchange conductance `g_vap` | 3.0e-8 kg·m⁻²·s⁻¹·Pa⁻¹ | Penman's still-air wind function, as in "Evaporation and condensation" below |
+| Saturation pressure `p_sat(T)` | water ↔ steam curve from their existing columns | Clausius–Clapeyron + Kirchhoff, IAPWS-95 check below |
+| Film `V_film` | 1 mm (the engine's liquid / gas weights) | proposal §12 Q6 |
+
+The biome enters through the water's own derived `T` (seeded at the biome ambient, then forced by the
+sun): a 309 K desert puddle (`BiomeTemperature` base 2.0) under dry air starts at 3.0e-8 · 5.9 kPa =
+1.8e-4 kg·m⁻²·s⁻¹ (0.64 mm/h — the order of daytime desert pan evaporation, ~10 mm/day), a 274 K taiga
+puddle (base 0.25) at 3.0e-8 · 0.66 kPa = 2.0e-5 kg·m⁻²·s⁻¹. Over one simulated day (`EvaporationTest`)
+the desert puddle gives 0.040 kg to the air above it and the taiga puddle 0.0049 kg (×8): the air cell
+above saturates in place (0.04 kg of vapor per m³ at 309 K) because humid air does not yet mix with dry
+air (#41). Vapor with no simulated cell above (the world top) leaves the domain and is booked in the
+evaporation ledger with its enthalpy `m·h_steam(T_water)` (latent heat included).
+
 ## Phase changes
 
 Each composition class melts into ONE real melt (rendered as `minecraft:lava`) and refreezes into its

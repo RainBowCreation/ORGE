@@ -78,8 +78,9 @@ booked in the energy ledger so `Σ E + ledgers` stays exact.
 When the cell above the surface is not simulated — the surface is the top cell of the world, or the
 section above is not stored — the vapor leaves the simulated domain: the receiver is the free atmosphere
 (`w_gas = 1`, `p_v = 0`, no saturation cap), and the mass and its enthalpy `x·h_h(T_a)` are a **boundary
-sink**, booked in the evaporation ledgers `mass(dim)` [kg, ≤ 0] and `energy(dim)` [J]. Every stored
-section with all 24 sections of a column (the write-back stores all of them) keeps its vapor in the domain.
+sink**, booked in the evaporation ledgers `mass(dim)` [kg, ≤ 0] and `energy(dim)` [J]. A stepped column
+has all 24 of its sections stored (the write-back stores every one), so in practice only a surface at the
+world top loses its vapor this way.
 
 ## 5. Data (real, cited in `docs/material-data-sources.md`)
 
@@ -92,6 +93,10 @@ desert pan evaporation, ~10 mm/day); a 274 K taiga puddle at `3.0e-8·0.66 kPa =
 dry air, so the air cell above a puddle saturates in place (`p_v → p_sat`, ~0.04 kg of vapor at 309 K)
 and evaporation then slows to what the engine's dew-point condensation and the swap carry off. With #41
 the vapor mixes upward and the same rule keeps evaporating at the Penman rate.
+
+**Not in this slice:** proposal §17.2's P2 (in-cell sub-saturation re-evaporation of fog condensed inside
+an air cell) is engine work and stays with #41; this slice is the Java surface process only, and the
+engine's own face exchange (`g_vap`) stays at its shipped 0.
 
 ## 6. Wiring
 
