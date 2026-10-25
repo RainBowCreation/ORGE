@@ -1,6 +1,8 @@
 package net.rainbowcreation.orge.section;
 
 import net.minecraft.resources.Identifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -33,7 +35,12 @@ public final class SectionStoreManager {
             RegionStore region) {
     }
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
+
     private final Map<Identifier, Holder> byDimension = new HashMap<>();
+
+    /** Per dimension, the migrated-column count last logged — the audit is logged again only when it grew. */
+    private final Map<Identifier, Integer> loggedMigrations = new HashMap<>();
 
     /**
      * Notified after a chunk column is evicted (so server-thread caches keyed by column — e.g. the
@@ -96,7 +103,36 @@ public final class SectionStoreManager {
         Holder h = byDimension.get(dim);
         if (h != null) {
             h.store.flushAll();
+            logMigration(dim, h);
         }
+    }
+
+    /**
+     * Logs the dimension's v5 → v6 migration books (grand mass, grand E and per-species mass before and
+     * after, PRD #24 constraint 4) when columns were migrated since the last log line: INFO when they
+     * are identical, WARN when they are not.
+     */
+    private void logMigration(Identifier dim, Holder h) {
+        RegionStore.MigrationAudit audit = h.region.migrationAudit();
+        if (audit.columns() == loggedMigrations.getOrDefault(dim, 0)) {
+            return;
+        }
+        loggedMigrations.put(dim, audit.columns());
+        if (audit.identical()) {
+            LOGGER.info("[ORGE] {} {}", dim, audit.summary());
+        } else {
+            LOGGER.warn("[ORGE] {} {}", dim, audit.summary());
+        }
+    }
+
+    /**
+     * The dimension's v5 → v6 migration books so far.
+     *
+     * @return the audit, or {@code null} if the dimension has not been loaded
+     */
+    public RegionStore.MigrationAudit migrationAudit(Identifier dim) {
+        Holder h = byDimension.get(dim);
+        return h == null ? null : h.region.migrationAudit();
     }
 
     /**
@@ -111,7 +147,9 @@ public final class SectionStoreManager {
         if (h == null) return;
         try {
             h.store.flushAll();
+            logMigration(dim, h);
         } finally {
+            loggedMigrations.remove(dim);
             h.region.closeAll();
         }
     }

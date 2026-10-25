@@ -33,3 +33,7 @@ hs_err_pid*.log
 
 # Claude harness runtime lock
 .claude/scheduled_tasks.lock
+
+# Acceptance tooling (tools/acceptance): npm deps are fetched, not committed
+tools/acceptance/node_modules/
+tools/acceptance/__pycache__/

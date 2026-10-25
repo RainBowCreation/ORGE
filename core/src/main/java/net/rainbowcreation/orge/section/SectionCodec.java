@@ -281,6 +281,12 @@ public final class SectionCodec {
      * @throws IOException if the form byte is unrecognised or data is corrupt
      */
     static SectionData readSection(DataInputStream in, int version) throws IOException {
+        return readSection(in, version, null);
+    }
+
+    /** {@link #readSection(DataInputStream, int)}, also adding the section's wire payload — exactly as
+     *  the bytes state it, before {@link SectionData} adopts it — to {@code wire} when non-null. */
+    static SectionData readSection(DataInputStream in, int version, ColumnTotals wire) throws IOException {
         // Read the wire into a typed SectionSnapshot, then let SectionData rebuild itself from it.
         // The codec adopts no SectionData internals (no setMomentum/arraycopy/adoptMaterials reach):
         // a null component means the channel's flag byte was 0.
@@ -365,10 +371,14 @@ public final class SectionCodec {
             slotMass = bytesToFloats(inflate(in.readNBytes(smLen), SectionData.SLOT_CELLS * 4));
         }
 
-        SectionData section = SectionData.fromSnapshot(new SectionSnapshot(
+        SectionSnapshot snap = new SectionSnapshot(
                 snapForm, uniformEnthalpy, uniformMass,
                 enthalpy, mass, momX, momY, momZ, pressure, palette, materialIndices,
-                slotIndices, slotMass));
+                slotIndices, slotMass);
+        if (wire != null) {
+            wire.add(snap);
+        }
+        SectionData section = SectionData.fromSnapshot(snap);
         if (version < FORMAT_VERSION) {
             section.markLegacyOneComponent();   // its waterlogged blocks carried no water (seeded once)
         }
@@ -419,6 +429,19 @@ public final class SectionCodec {
      * @throws IOException if the version is unsupported, or data is corrupt
      */
     public static NavigableMap<Integer, SectionData> readColumn(byte[] blob) throws IOException {
+        return readColumn(blob, null);
+    }
+
+    /**
+     * {@link #readColumn(byte[])}, also adding every section's wire payload to {@code wire} when non-null
+     * — the totals the blob holds on disk, independent of any migration applied while decoding.
+     */
+    /** The format version byte of a column blob ({@link #FORMAT_VERSION}, {@link #ONE_COMPONENT_VERSION}, …). */
+    public static int version(byte[] blob) {
+        return blob.length == 0 ? -1 : blob[0] & 0xFF;
+    }
+
+    public static NavigableMap<Integer, SectionData> readColumn(byte[] blob, ColumnTotals wire) throws IOException {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(blob));
         int version = in.readByte() & 0xFF;
         if (version != FORMAT_VERSION && version != ONE_COMPONENT_VERSION) {
@@ -432,7 +455,7 @@ public final class SectionCodec {
         TreeMap<Integer, SectionData> result = new TreeMap<>();
         for (int i = 0; i < count; i++) {
             int sectionY = in.readInt();
-            SectionData section = readSection(in, version);
+            SectionData section = readSection(in, version, wire);
             result.put(sectionY, section);
         }
         return result;

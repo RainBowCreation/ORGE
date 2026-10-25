@@ -1,0 +1,9 @@
+{
+  "name": "orge-acceptance",
+  "private": true,
+  "description": "Issue #31: a vanilla 1.21.11 client (mineflayer, unmodded protocol) joins a server running the ORGE build.",
+  "dependencies": {
+    "mineflayer": "4.39.0",
+    "rcon-client": "4.2.5"
+  }
+}

@@ -32,6 +32,30 @@ public final class RegionStore implements Closeable {
     /** Open region files, keyed by {@code regionKey(cx, cz)} — one entry per region (32×32 chunks). */
     private final Map<Long, RegionFile> open = new HashMap<>();
 
+    /**
+     * The books of every v5 → v6 migration this store has performed (PRD #24 constraint 4): how many
+     * one-material columns were migrated, their grand mass / {@code E} / per-species mass as the v5
+     * bytes held them ({@code before}), and over the migrated cells, every slot of every cell
+     * ({@code after}).
+     */
+    public record MigrationAudit(int columns, ColumnTotals before, ColumnTotals after) {
+
+        /** Whether the migration left grand mass, grand E and every species' mass bit-identical. */
+        public boolean identical() {
+            return before.equals(after);
+        }
+
+        /** One log line: the column count, both sets of totals and the verdict. */
+        public String summary() {
+            return "v5 -> v6 migration: " + columns + " columns; before [" + before + "]; after [" + after
+                    + "]; " + (identical() ? "IDENTICAL" : "MISMATCH");
+        }
+    }
+
+    private int migratedColumns;
+    private final ColumnTotals migratedBefore = new ColumnTotals();
+    private final ColumnTotals migratedAfter = new ColumnTotals();
+
     public RegionStore(Path worldDir) {
         this.orgeDir = worldDir.resolve(DIR_NAME);
     }
@@ -93,7 +117,23 @@ public final class RegionStore implements Closeable {
         }
         try {
             byte[] blob = region(cx, cz).readChunk(cx, cz);
-            return blob == null ? new TreeMap<>() : SectionCodec.readColumn(blob);
+            if (blob == null) {
+                return new TreeMap<>();
+            }
+            if (SectionCodec.version(blob) != SectionCodec.ONE_COMPONENT_VERSION) {
+                return SectionCodec.readColumn(blob);
+            }
+            // A pre-composition (v5) column: migrate, and book what the old bytes held against the
+            // migrated cells (one pass over cells; no extra encode on the server thread — the v6
+            // round trip is exact by SectionCodecTest).
+            ColumnTotals before = new ColumnTotals();
+            NavigableMap<Integer, SectionData> column = SectionCodec.readColumn(blob, before);
+            ColumnTotals after = new ColumnTotals();
+            after.add(column);
+            migratedColumns++;
+            migratedBefore.add(before);
+            migratedAfter.add(after);
+            return column;
         } catch (IOException e) {
             throw new UncheckedIOException("failed to load column (" + cx + "," + cz + ")", e);
         }
@@ -118,6 +158,15 @@ public final class RegionStore implements Closeable {
         } catch (IOException e) {
             throw new UncheckedIOException("failed to save column (" + cx + "," + cz + ")", e);
         }
+    }
+
+    /** The books of every v5 → v6 migration performed by this store so far (a copy). */
+    public MigrationAudit migrationAudit() {
+        ColumnTotals b = new ColumnTotals();
+        b.add(migratedBefore);
+        ColumnTotals a = new ColumnTotals();
+        a.add(migratedAfter);
+        return new MigrationAudit(migratedColumns, b, a);
     }
 
     // -------------------------------------------------------------------------

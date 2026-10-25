@@ -929,3 +929,127 @@ test aborts in (A) (the budget bug) and (B)/(D) fail. Java: `RepresentativeState
 `ColumnAssemblerTest.waterloggedBlockCarriesItsWaterOnceAndADrainedOneIsNeverReseeded`,
 `SectionCodecTest.v5SectionsAreMarkedForTheOneTimeWaterloggedSeed`,
 `AllMaterialsLoadTest.partialAndFlowableBlocksCarryTheirOpenVolume`.
+
+---
+
+## 19. Slice B6 acceptance record (issue #31)
+
+End-to-end acceptance of the multi-material cell on a real dedicated server: a vanilla 1.21.11 client
+joins, and a pre-change (v5, one-material) world loads and migrates. Engine commit on ORGE-ENGINE
+`issue/31` (merged into its `rebuild`), gitlink bumped and `liborge.so` rebuilt in the ORGE PR that
+closes #31.
+
+### 19.1 What landed
+
+| Item | Where | Notes |
+|---|---|---|
+| C4 migration books | Java `RegionStore.MigrationAudit`, `ColumnTotals`, `SectionCodec.readColumn(blob, wire)`, `SectionStoreManager` | Every v5 column the store loads is booked twice: **before** = grand mass, grand `E` and per-species mass exactly as the v5 bytes state them (summed from the wire payload before `SectionData` adopts it), **after** = the same sums over the migrated cells, every slot of every cell. Sums run cell by cell in double, so equality is exact, not a tolerance. On every level save (and unload) that migrated new columns the server logs one line per dimension: `[ORGE] <dim> v5 -> v6 migration: N columns; before [...]; after [...]; IDENTICAL` (WARN and `MISMATCH` if not). Cost: one pass over the cells of a column the first time it loads. |
+| C1 server liveness | ORGE-ENGINE `jni/orge_jni.cpp` `orgeStepWorld` | The arrays now cross the JNI seam by copy (`Get/Set<T>ArrayRegion`). Before, `GetPrimitiveArrayCritical` held every array for the whole native step, which locks out the garbage collector: the server thread parked at its first allocation that needed a GC until the step ended. Observed live: 171 s frozen, and the vanilla client dropped with `client timed out after 30000 milliseconds`. Transient cost: one native copy of the step's input and output arrays (they were already copied into the engine `World`). `orgeRegisterMaterials` (a short LUT copy) is unchanged. |
+| Acceptance tooling | `tools/acceptance/` | `vanilla_join.js` (the vanilla client, scene, checks), `orge_totals.py` (an ORGE-free reader of `world/orge` region files, v5 and v6: totals and per-cell composition), `rcon.js`. |
+
+### 19.2 Memory per cell and kernel count (C2), cross-checked against #26 (§15.2)
+
+Measured on ORGE-ENGINE `1914a9d` with `sizeof` on the engine structs (g++ 15.2, x86-64).
+
+| | B1 record (§15.2) | now (after B3, B4, B5, #44) |
+|---|---|---|
+| persisted B/cell (`Chunk`: `matIx` u16, `mass` f32, `px,py,pz` f32, `E` f64, `P` f32, `swapReady` f32, `swapPartnerKey` i32, 3 × (`slotIx` u16 + `slotMass` f32)) | 56 | **56** (unchanged; `engine_b_mmc_state_test` (C) asserts it) |
+| derived per tick (`T_curr`, `T_next`) | 8 | 8 |
+| transient, every cell every step: `CellEncrypt` | 32 | 32 |
+| transient, every cell every step: `CellAccum` (incl. `dmk`, 4 × f64) | 96 | 96 |
+| transient, every cell: seepage weight planes (`s`, `mob`, 2 × f64; present whenever the LUT has a skeleton row — always with the real LUT) | — | **16** |
+| transient, per composition cell: `MixComp` + `Material` row | 52 + ~88 | 52 + ~88 |
+| transient, per seepage-involved cell: `SeepCell` + `SeepOut` | — | **384 + 280** |
+| transient, per vapor-involved cell (only when `g_vap > 0`; 0 by default until #41): `VapCell` + `SeepOut` | — | **1016 + 280** |
+| on-disk v6 section, raw before deflate (`E` f32, mass f32, `matIx` u16, momentum 3 × f32, `P` f32, slots 3 × (u16 + f32)) | — | 44 B/cell; a one-component section writes no composition block (26 B/cell raw) |
+
+No per-cell variable-length storage anywhere: the involved-cell lists are per-step scratch.
+
+**Kernel count.** B1 kept `6 + 2·N_relax` (ENCODE, R0, R1, R1.5, R2, DECODE + the relaxation half-sweeps)
+and that held for B1. B4 and B3 each added three RESOLVE micro-passes that need a grid-wide barrier
+between them on a GPU, because each reads its neighbours' result of the one before: seepage S1 (donor
+scale) → S1.5 (receiver scale, reads 1-hop σ) → S2 (commit), and vapor V1 → V1.5 → V2. Their per-cell
+derivations fold into R2's tail (own cell + own accumulator) and the apply steps into DECODE. So the
+count is now **`12 + 2·N_relax`** with both active, **`9 + 2·N_relax`** as shipped (vapor exchange off
+at `g_vap = 0`; seepage always runs with the real LUT). §16.1's "the three micro-passes ride RESOLVE"
+and §17.1's "RESOLVE micro-passes" are these six. `freeze_evict_world` (v4 §8.4, pre-v5) is a further
+transactional pass between RESOLVE and DECODE that the `6 + 2·N_relax` formula never counted; it is
+unchanged here.
+
+### 19.3 Acceptance procedure and evidence (C1, C4)
+
+**Server.** Fabric 1.21.11 dedicated server (Fabric loader 0.19.2, fabric-api 0.141.4, architectury
+19.0.1, this build's `orge-fabric-1.21-2.0.0+1.21.11.jar`; startup banner
+`parent 4459b36 | engine 1914a9d`), `online-mode=false`, superflat, one player.
+
+**Pre-change world.** A real world saved by build `52f902e` (#26, before the v6 codec): 25 columns in four
+region files, every one format v5 (checked by `orge_totals.py`). Each run starts from a fresh copy of it.
+
+**C4 — migration.** `orge_totals.py` on the untouched copy, an ORGE-free reader of the bytes:
+`columns 25: mass 49453713.716496 kg, E 17092631376707.332031 J` (air 2914713.716496, bedrock 18432000,
+dirt 18433500, grass_block 9214500, stone 459000 kg). The server, after force-loading the 25 columns and
+`save-all flush`:
+
+```
+[ORGE] minecraft:overworld v5 -> v6 migration: 25 columns; before [mass 49453713.716496 kg, E 17092631376707.309000 J,
+species {orge:air=2914713.716496, orge:bedrock=18432000.000000, orge:dirt=18433500.000000, orge:grass_block=9214500.000000,
+orge:stone=459000.000000}]; after [mass 49453713.716496 kg, E 17092631376707.309000 J, species {...same...}]; IDENTICAL
+```
+
+Before and after are bit-identical. The independent reader agrees on mass to the printed µg and on `E` to
+0.023 J of 1.7·10¹³ J (relative 1.3·10⁻¹⁵: it sums in a different order). Runs on the pre-fix and on the
+final build printed the same line for these 25 columns.
+
+**C1 — vanilla client.** `tools/acceptance/vanilla_join.js`: mineflayer 4.39 / minecraft-protocol 1.68,
+protocol 774 (1.21.11), offline auth. It speaks only the vanilla protocol and decodes only vanilla
+registries and block states, so it is an unmodded client. It builds the scene over RCON, one edit per
+cell: three waterlogged oak stairs and a waterlogged oak slab beside a water cell, a sand bed and a dirt
+bed under ponded water, and a water pool. Then the bot walks and swims a loop through it. The final run
+used build `4459b36` (rebased on #33 rain and #34 daytime evaporation): the bot stayed **connected for 25
+minutes** (10:34:56 → 11:00:01) and reached 1115 waypoints. The script recorded:
+
+- custom payloads received: `configuration minecraft:register` ×1, `configuration minecraft:brand` ×1
+  (both from the server stack; there are no ORGE channels);
+- 23 registries, **no non-`minecraft:` registry id or entry**. Tag names include the `c:` convention
+  namespace (fabric-api's convention tags); a vanilla client accepts unknown tag names;
+- every block state the client held for the 1785 scene blocks decoded to a vanilla state: **0 unknown**,
+  at all three checkpoints. The client also received ORGE's representative-state updates: the stairs
+  went `waterlogged=true → false` as their pore water drained, and a `water[level=4]` appeared;
+- no kick, no protocol error, no disconnect until the script quit.
+
+What the engine did meanwhile, read from the saved world with `orge_totals.py`:
+
+| cell | composition at the end |
+|---|---|
+| sand under ponded water | `orge:sand 1600 kg + orge:water 33.15 kg` (pore water: wet sand) |
+| dirt under ponded water | `orge:dirt 1500 kg + orge:water 0.83 kg` (wet dirt) |
+| air over the ponds and the pool | `orge:air 1.2 kg + orge:steam 0.0020–0.0025 kg` (evaporated water) |
+| waterlogged slab | `orge:oak_slab 375 kg + orge:water 499.9 kg` |
+| waterlogged stair | `orge:oak_stairs 562.5 kg + orge:air 0.30 kg` (its water drained; client sees `waterlogged=false`) |
+
+**Server liveness before the JNI fix (§19.1).** The first runs used the pre-fix `liborge.so`. A step
+over force-loaded columns parked the server thread for 15+ minutes (thread dump: `Server thread` "waiting
+on condition" in an allocation while `orge-conduction` ran `orgeStepWorld`). In a join run the server
+reported `Running 171332ms or 3426 ticks behind`, and the client dropped with
+`client timed out after 30000 milliseconds`. `JniStepGcIT` reproduces it: a whole heap of allocations on
+another thread finishes after the native call (19.18 s vs 12.62 s) with the old library and well before it
+(9.05 s vs 18.26 s) with the fix.
+
+**Tick rate.** The final run lowered the game to `/tick rate 1`. On this shared host (64 cores, load
+average 55–80) one native step at `range 1` took 32–34 s, and the scheduler cancels a step after 40 game
+ticks. At 20 TPS every step was cancelled (`0 completed, 16 cancelled`) and the scene never evolved.
+The vanilla client handles tick-rate changes. Filed as #51 (19.4).
+
+**Reproduce:** set up a Fabric 1.21.11 server with `enable-rcon=true`. Copy a pre-change world, delete
+`world/playerdata/*`, and start the server. Then, in `tools/acceptance`, run `npm ci`,
+`ORGE_RCON_PASSWORD=<rcon.password> node vanilla_join.js 127.0.0.1 <port> <rconPort> 600 1`, and
+`python3 orge_totals.py <world>/orge --cell=x,y,z …`.
+
+### 19.4 Found here, filed separately (not fixed in B6)
+
+- #50: `/orge get` reads slot 0 only, so a composition cell shows the wrong mass and `T` (a drained stair
+  printed `6000 K, 0.0 kg, material=orge:air`). Display only: the state is right.
+- #51: live performance: at 20 TPS no step completes on a loaded host (native 32–34 s, ORGE server-thread
+  work 7.5–12.8 s per cycle, 40-tick grace).
+- #52: ORGE-ENGINE cheap tier at `fbbb7fe`: 74 PASS, 7 FAIL, all before #31 (#31's engine change is in
+  `jni/orge_jni.cpp`, which no cheap test compiles).
