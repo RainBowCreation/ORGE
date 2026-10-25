@@ -499,6 +499,43 @@ class MinecraftThermalWorldTest {
         assertEquals(0.0, world.rainSeeding().mass(nether));
     }
 
+    /** Issue #34: the same pass that forces also evaporates surface water by day, on the last batch's columns
+     *  of the sunlit dimension only. */
+    @Test
+    void oneSkyPassForcesAndEvaporatesOnTheLastBatchColumnsOfItsDimension(@TempDir Path dir) {
+        Identifier nether = SkyTestWorld.THE_NETHER;
+        SectionStoreManager mgr = SkyTestWorld.loaded(dir.resolve("ow"), DIM);
+        mgr.onLevelLoad(nether, dir.resolve("nether"), AmbientProvider.FALLBACK);
+        mgr.onChunkLoad(nether, 0, 0);
+        mgr.onChunkLoad(DIM, 1, 0);
+        SkyTestWorld.flatWorld(mgr.store(DIM), SkyTestWorld.WATER, 300f);
+        SkyTestWorld.flatWorld(mgr.store(nether), SkyTestWorld.WATER, 300f);
+        int surface = SkyTestWorld.cell(3, 8, 5);
+        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        SectionData outside = SectionData.uniform(0f, 0f);
+        SkyTestWorld.setCell(outside, surface, SkyTestWorld.mat(SkyTestWorld.WATER), 1000f, 300f);
+        SkyTestWorld.setCell(outside, SkyTestWorld.cell(3, 9, 5), SkyTestWorld.mat(SkyTestWorld.AIR), 1.2f, 300f);
+        mgr.store(DIM).put(new SubchunkKey(1, 4, 0), outside);
+
+        MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
+        world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0), skyEntry(nether, 0)));
+        double ow0 = mgr.store(DIM).get(key).enthalpyAt(surface);
+
+        world.applySurfaceForcing(DIM, 6000L, 0f, 1.0, SkyTestWorld.lookup());   // clear noon
+        world.applySurfaceForcing(nether, 6000L, 0f, 1.0, SkyTestWorld.lookup());
+
+        SectionData ow = mgr.store(DIM).get(key);
+        assertTrue(ow.massAt(surface) < 1000f, "the stepped Overworld column evaporates");
+        assertEquals(SkyTestWorld.orge("steam"), ow.slotMaterialAt(1, SkyTestWorld.cell(3, 9, 5)),
+                "into the air above as vapor");
+        assertNotEquals(ow0, ow.enthalpyAt(surface), "and is forced in the same pass");
+        assertTrue(world.evaporation().evaporated(DIM) > 0);
+        assertTrue(world.surfaceForcing().ledger(DIM) > 0);
+        assertEquals(1000f, outside.massAt(surface), 0f, "a column outside the batch does not evaporate");
+        assertEquals(1000f, mgr.store(nether).get(key).massAt(surface), 0f, "the Nether has no sky");
+        assertEquals(0.0, world.evaporation().evaporated(nether));
+    }
+
     @Test
     void skyForcingWithoutABoundServerIsANoOp(@TempDir Path dir) {
         SectionStoreManager mgr = SkyTestWorld.loaded(dir, DIM);

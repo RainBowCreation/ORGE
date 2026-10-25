@@ -62,33 +62,12 @@ public final class RainSeeding {
         double hRain = water == null ? 0.0 : EnthalpyCurve.hOf(water, lookup, (float) RAIN_TEMP_K);
         // Top face A = 1 m²; no water in the active material table means no rain to make.
         double perExposure = water == null ? 0.0 : climate.rainKgPerM2s() * dtSeconds;
-        return new SkyColumnPass.Visitor() {
-            private SectionData best;
-            private int bestCell;
-            private double bestW;
-            private double sumW;
-
-            @Override
-            public void exposed(SubchunkKey key, SectionData data, int cell, double w) {
-                sumW += w;
-                if (w > bestW) {   // the first (top-most) of equal exposures keeps it
-                    best = data;
-                    bestCell = cell;
-                    bestW = w;
-                }
+        return SkyColumnPass.surface((key, data, cell, sumW) -> {
+            float dm = (float) (perExposure * sumW);
+            if (dm > 0f) {
+                land(dim, data, cell, dm, hRain);
             }
-
-            @Override
-            public void columnDone() {
-                float dm = (float) (perExposure * sumW);
-                if (best != null && dm > 0f) {
-                    land(dim, best, bestCell, dm, hRain);
-                }
-                best = null;
-                bestW = 0.0;
-                sumW = 0.0;
-            }
-        };
+        });
     }
 
     /** Seed {@code dm} into cell {@code i} at {@code hRain} per kg, booking what was stored. */

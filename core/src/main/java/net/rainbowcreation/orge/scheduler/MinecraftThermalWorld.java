@@ -65,6 +65,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** The rain the same sky pass seeds, and its mass + energy ledgers (issue #33). Server-thread-confined. */
     private final RainSeeding rainSeeding = new RainSeeding();
 
+    /** The daytime evaporation the same sky pass runs, and its boundary ledgers (issue #34). Server-thread-confined. */
+    private final Evaporation evaporation = new Evaporation();
+
     /** One column of the most recent batch, by address only (the batch's arrays are not retained). */
     private record BatchColumn(Identifier dimension, int cx, int cz) {}
 
@@ -128,7 +131,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     }
 
     /** The sky pass (spec 2026-10-25 §4): each level's climate from its dimension, day time and rain, over
-     *  that dimension's columns of the last batch — forcing the surface and seeding the rain (issue #33). */
+     *  that dimension's columns of the last batch — forcing the surface, seeding the rain (issue #33) and
+     *  evaporating surface water by day (issue #34). */
     @Override
     public void applySurfaceForcing(double dtSeconds) {
         MinecraftServer srv = this.server;
@@ -142,8 +146,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         }
     }
 
-    /** Force and rain on {@code dim}'s columns of the last batch under its climate — ONE walk per column for
-     *  both consumers, no second heightmap scan (package seam for the headless suite). */
+    /** Force, rain and evaporate on {@code dim}'s columns of the last batch under its climate — ONE walk per
+     *  column for every consumer, no second heightmap scan (package seam for the headless suite). */
     void applySurfaceForcing(Identifier dim, long dayTime, float rainLevel, double dtSeconds,
                              Function<Identifier, Material> lookup) {
         SectionStore store = stores.store(dim);
@@ -152,7 +156,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
             return; // no store, or a dimension with no sky (the Nether)
         }
         SkyColumnPass.Visitor sky = surfaceForcing.visitor(dim, climate, dtSeconds, lookup)
-                .andThen(rainSeeding.visitor(dim, climate, dtSeconds, lookup));
+                .andThen(rainSeeding.visitor(dim, climate, dtSeconds, lookup))
+                .andThen(evaporation.visitor(dim, climate, dtSeconds, store, lookup));
         for (BatchColumn e : lastBatchColumns) {
             if (dim.equals(e.dimension()) && store.isLoaded(e.cx(), e.cz())) {
                 SkyColumnPass.walkAndPut(store, e.cx(), e.cz(), lookup, sky);
@@ -179,6 +184,9 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     /** The rain ledgers: cumulative seeded water mass and its enthalpy per dimension. */
     public RainSeeding rainSeeding() { return rainSeeding; }
+
+    /** The evaporation ledgers: vapor that left the domain, its energy, and all water evaporated per dimension. */
+    public Evaporation evaporation() { return evaporation; }
 
     /** Test seam: the columns the next forcing pass reaches (the live path records them at snapshot). */
     void setLastBatchColumnsForTest(List<ColumnEntry> columns) { recordBatchColumns(columns); }
