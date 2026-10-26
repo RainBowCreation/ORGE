@@ -45,7 +45,12 @@ independent cadences** on the 20-ticks-per-second grid (`Scheduler.java`):
 - **Advection** every `ADVECTION_TICKS = 5` ticks → 4× per second, `dt = 0.25 s` (`PASS_ADVECTION`). Bulk
   mass movement (fluids/gas).
 
-At a cadence boundary the scheduler, if idle, submits **exactly one** off-thread job (single-in-flight). It
+At a cadence boundary the scheduler, if idle, submits **exactly one** off-thread job (single-in-flight). A
+job the step thread has started is never cancelled for being slow (issue #51): a running native step can't
+be interrupted, so cancelling it would only throw its result away while the next job queued behind it.
+The region holds its previous values until the job lands, the late step is counted late (and drops
+`range`), and a warning is logged every minute it overruns. Only a job the step thread never began is
+cancelled after the `2 × TICKS_PER_STEP` grace window. The engine
 is **stateless per call**: the server owns the truth (`SectionStore`), the engine holds nothing between
 calls *(⚠ under v4 this stays true only because the server ships/stores the law-persisted channels —
 `momentum, E, P, swapReady` — alongside mass/T; the engine still holds nothing, but those fields MUST
@@ -78,10 +83,19 @@ only ever mean an absent column, so vacuum and unloaded never collide.
 
 ---
 
-## Step 2 — Deciding WHAT to simulate this cycle (`snapshotColumns`)
+## Step 2 — Deciding WHAT to simulate this cycle (`captureColumns`)
 
 The engine never steps the entire loaded set — only the **active region**. On the server thread,
-`MinecraftThermalWorld.snapshotColumns(range)` builds it (`range` is auto-tuned, Step 7):
+`MinecraftThermalWorld.captureColumns(range)` selects it (`range` is auto-tuned, Step 7) and **captures**
+what the rest of the cycle reads, so no per-cell work runs on the server tick (issue #51): per section a
+copy of the chunk section's block states (`PalettedContainer.copy()`), its biome ambient temperature, the
+recorded prior species, and a copy-on-write view of the `SectionStore` section (`SectionData.share()` —
+no array is copied unless the live section is mutated while the job runs); per column its queued placement
+intents. Steps 3–7's per-cell work then runs on the step thread from that capture. So does the
+once-a-second sky pass (surface forcing, rain, evaporation): the server thread only takes each level's
+climate and the evaporation dither, the step thread runs the pass over the captured stored sections before
+assembling them (the views copy on write, so the live store is untouched), and each column's share of the
+pass's ledgers is booked when its write-back installs — a HELD or failed step lands neither:
 
 1. **Player-sphere union.** Across every loaded level, take the sphere of sections around each player
    (`SphereUnion.expand(anchors, range)`), plus forced/anchored chunks. This is the §10 dormancy gate: a
@@ -97,9 +111,9 @@ The result is the set of `(cx,cz)` columns to step this cycle.
 
 ---
 
-## Step 3 — Assembling each column (`ColumnAssembler`)
+## Step 3 — Assembling each column (`ColumnAssembler`, step thread)
 
-For each chosen column, `ColumnAssembler.assemble(cx, cz, lut, src)` builds three `CHUNK_N`-length arrays
+On the step thread, for each captured column, `ColumnAssembler.assemble(cx, cz, lut, src)` builds three `CHUNK_N`-length arrays
 (`matIx`, `mass`, `temperature`) in engine index order, walking all 24 sections (`sectionY -4..19`). Per
 cell it maps section-local `si = x + 16·sy + 256·z` → column `colIdx = x + 16·(sectionY·16 + sy + 64) +
 6144·z`, and fills:
@@ -174,9 +188,9 @@ ticking while physics computes.
 
 ## Step 6 — Validate: one region-wide conservation ledger (commit or HOLD)
 
-Back on the server thread, `RegionMarshaller.slice` turns the flat outputs into a `List<ColumnResult>`.
+Still on the step thread, `RegionMarshaller.slice` turns the flat outputs into a `List<ColumnResult>`.
 Before anything is persisted, the scheduler runs **one `SpeciesMassLedger` over the entire region**
-(`Scheduler.writeBackColumns`): for every column it adds `(before = task.mass, after = result.mass,
+(`Scheduler.prepareWriteBacks`): for every column it adds `(before = task.mass, after = result.mass,
 inMat = task.matIx, outMat = result.matIx)`. The ledger sums each tracked species' mass before and after.
 
 - If `ledger.conserved()` (every species balances within `ε · totalCells`) → **commit** (Step 7).
@@ -187,10 +201,16 @@ Conduction-only cycles skip the mass ledger (they don't move mass); they just cl
 
 ---
 
-## Step 7 — Write-back per column (`writeBackColumn`)
+## Step 7 — Write-back per column (`prepareWriteBack` → `apply`)
 
-For each column (only on a conserved cycle), `MinecraftThermalWorld.writeBackColumn` walks its 24 sections
-and, via `ColumnSectionCodec` (the exact inverse of Step 3's index map):
+For each column (only on a conserved cycle) the step thread **prepares** the write-back
+(`MinecraftThermalWorld.prepareWriteBack`): it builds each of the 24 sections the result leaves, the next
+cycle's signature, the settle delta, and the phase/reconcile block plans — decided against the captured
+block states. Back on the server thread, `PreparedWrite.apply` only **installs** it: each section is
+adopted into the live `SectionStore` object by reference (`SectionData.adopt`, skipped when an external
+edit landed after the capture), and the planned block writes are painted — a section whose blocks changed
+after the capture (or whose planned cell no longer shows what the plan saw) is reconciled live instead.
+Per section, via `ColumnSectionCodec` (the exact inverse of Step 3's index map):
 
 1. **Clamp + persist** — `StepValidator.clean` (non-finite T → snapshot fallback, clamp `[0, 6000] K`) and
    `cleanMass` (clamp `[0, bound]`, NaN/negative → 0); write the section's T and mass into `SectionStore`,
@@ -208,8 +228,8 @@ and, via `ColumnSectionCodec` (the exact inverse of Step 3's index map):
    the seam. (Column-granular replacement for the old per-section seam wake; over-waking is harmless — the
    neighbour just settles back via `noteSettle`.)
 
-Then the scheduler measures the **server-thread** wall time it spent (snapshot + write-back/reconcile, not
-the off-thread engine) and feeds it to the throttle: if it stayed under `COMPUTE_BUDGET_MILLIS = 30 ms` for
+Then the scheduler measures the **server-thread** wall time it spent (capture + install, not the
+step-thread job; `/orge perf` shows both, with the server-thread max) and feeds it to the throttle: if it stayed under `COMPUTE_BUDGET_MILLIS = 30 ms` for
 `ON_TIME_TICKS_TO_CLIMB` cycles it raises `range` (simulate more), up to `MAX_RANGE`; if it blew the
 deadline it holds/lowers. That's how `range` in Step 2 self-tunes.
 

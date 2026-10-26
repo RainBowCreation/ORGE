@@ -28,5 +28,24 @@ public interface StepRunner {
 
         /** Best-effort cancel of a not-yet-finished step. */
         void cancel();
+
+        /**
+         * True once the runner has begun executing the step. A started step is never cancelled for being
+         * slow (issue #51): a running native step cannot be interrupted, so cancelling it only discards its
+         * result. Default {@code false}: a handle that does not track this reads as not yet begun.
+         */
+        default boolean started() {
+            return false;
+        }
+
+        /**
+         * Cancel the step only if the runner has not begun it, atomically with its start: {@code true} when
+         * it never runs, {@code false} when it had already started (it then runs to completion). Default:
+         * {@link #cancel()} for a handle that does not track starts.
+         */
+        default boolean cancelIfNotStarted() {
+            cancel();
+            return true;
+        }
     }
 }

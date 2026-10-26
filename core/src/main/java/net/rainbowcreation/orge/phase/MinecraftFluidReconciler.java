@@ -1,7 +1,11 @@
 package net.rainbowcreation.orge.phase;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.IntFunction;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -62,96 +66,183 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
     private void reconcile(Identifier dim, SubchunkKey key, char[] inMaterial,
                            char[] outMaterial, List<Material> outLut) {
-        MinecraftServer srv = this.server;
-        if (srv == null) {
+        Live live = live(dim, key);
+        if (live == null) {
             return;
         }
-        ServerLevel level = levelFor(srv, dim);
-        if (level == null) {
-            return;
-        }
-        LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
-        if (chunk == null) {
-            return; // unloaded since the snapshot
-        }
-        LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, key.sectionY());
-        if (section == null) {
-            return;
-        }
-        SectionStore store = stores.store(dim);
-        if (store == null || !store.isLoaded(key.cx(), key.cz())) {
-            return;
-        }
-        SectionData data = store.get(key);
-        ActiveMaterials.State mats = ActiveMaterials.current();
-
+        SectionData data = live.store().get(key);
+        Lookups lookups = new Lookups(ActiveMaterials.current());
         int ox = key.cx() << 4;
         int oy = key.sectionY() << 4;
         int oz = key.cz() << 4;
-
         for (int i = 0; i < SectionData.CELLS; i++) {
-            BlockState current = LiveMaterials.blockStateAt(section, i);
-            Material worldMaterial = LiveMaterials.materialFor(current.getBlock(), mats.registry());
-
-            // The species the cell BECAME this step (engine matOut), shared with the §7 changer; falls
-            // back to the world block's material when the engine didn't report one.
-            Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
-
-            // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
-            // call (fluid test, level math, species-aware throttle, §7 whitelist, repr-block pick).
-            // A fluid whose own block isn't a LiquidBlock (honey renders as honey_block) is still the
-            // managed fluid block here, so it can be cleared when drained. Kelp (aliased to water) is not
-            // water's own block, so it is never stomped.
-            boolean currentIsLiquid = current.getBlock() instanceof LiquidBlock
-                    || (worldMaterial != null && worldMaterial.movable() && !current.isAir()
-                        && current.getBlock() == BuiltInRegistries.BLOCK.getValue(worldMaterial.representativeBlock()));
-            // Stale-write guard for the species paint: this step's INPUT species (null = vacuum/unknown).
-            Material inMat = EngineOutSpecies.resolve(inMaterial, outLut, i, null);
-
-            // DESIGN-LAW v5 #7 (proposal §6): the cell is a composition. Slot order is the LUT order, not a
-            // role, so slot 0 can be the air or water a stair/rail/soil holds. A host the live block still
-            // shows is KEPT — only its waterlogged property follows the water it holds; a host-absent
-            // composition is drawn as its largest condensed component.
-            List<RepresentativeState.Component> comps = components(data, i, outMat, mats);
-            if (RepresentativeState.hostPresent(worldMaterial, comps)) {
-                if (current.hasProperty(BlockStateProperties.WATERLOGGED)) {
-                    Boolean wl = RepresentativeState.waterlogged(worldMaterial, comps,
-                            current.getValue(BlockStateProperties.WATERLOGGED));
-                    if (wl != null) {
-                        setIfChanged(level, posOf(ox, oy, oz, i), current,
-                                current.setValue(BlockStateProperties.WATERLOGGED, wl));
-                    }
-                }
-                continue;
+            BlockState current = LiveMaterials.blockStateAt(live.section(), i);
+            BlockState desired = desiredState(current, i, data, inMaterial, outMaterial, outLut, lookups);
+            if (desired != null) {
+                setIfChanged(live.level(), posOf(ox, oy, oz, i), current, desired);
             }
-            float massKg = data.massAt(i);
-            if (comps.size() > 1) {
-                RepresentativeState.Component dom = RepresentativeState.dominant(comps);
-                outMat = dom.material();
-                massKg = dom.massKg();
-            }
-            FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
-                    worldMaterial, outMat, massKg,
-                    bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
-                    worldShowsSpecies(current, worldMaterial, inMat),
-                    inMat != null && outMaterial != null && outMaterial[i] == 0);
-            if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
-                continue;
-            }
-
-            BlockPos pos = posOf(ox, oy, oz, i);
-
-            if (action.kind() == FluidReconcileDecider.Kind.CLEAR) {
-                // Decider confirmed a managed fluid block, or a solid the engine drained; remove it (→ air).
-                setIfChanged(level, pos, current, Blocks.AIR.defaultBlockState());
-                continue;
-            }
-
-            // PLACE: a nonexistent repr block downgrades to minecraft:air (BLOCK getValue returns AIR
-            // for unknown ids); the decider already dropped a material with no repr block at all.
-            Block target = BuiltInRegistries.BLOCK.getValue(action.block());
-            setIfChanged(level, pos, current, stateWithLevel(target, action.renderLevel()));
         }
+    }
+
+    /** One planned block write: cell {@code i} showed {@code expected} at capture and is to show {@code desired}. */
+    private record Write(int cell, BlockState expected, BlockState desired) {}
+
+    /**
+     * Plans the section's writes off-thread (issue #51): the live pass's per-cell decision, made on the
+     * captured block states and the section the write-back installs. Applying it re-reads each planned
+     * cell; if one no longer shows what the plan saw — or a block of the section changed after the capture
+     * — the section is reconciled live instead, so a stale plan never paints.
+     */
+    @Override
+    public Plan plan(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut,
+                     SectionData after, IntFunction<BlockState> captured) {
+        Lookups lookups = new Lookups(ActiveMaterials.current());
+        char[] inMaterial = entry.task().matIx();
+        List<Write> writes = new ArrayList<>();
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            BlockState current = captured.apply(i);
+            BlockState desired = desiredState(current, i, after, inMaterial, outMaterial, outLut, lookups);
+            if (desired != null && !current.equals(desired)) {
+                writes.add(new Write(i, current, desired));
+            }
+        }
+        return changedSinceCapture -> {
+            if (changedSinceCapture) {
+                reconcile(entry, outMaterial, outLut);
+                return;
+            }
+            if (writes.isEmpty()) {
+                return;
+            }
+            SubchunkKey key = entry.key();
+            Live live = live(entry.dimension(), key);
+            if (live == null) {
+                return;
+            }
+            int ox = key.cx() << 4;
+            int oy = key.sectionY() << 4;
+            int oz = key.cz() << 4;
+            for (Write w : writes) {
+                // Re-read right before painting: a planned cell that no longer shows what the plan saw (a change
+                // since the capture, or an earlier paint's shape update) makes the rest of the plan stale.
+                if (!LiveMaterials.blockStateAt(live.section(), w.cell()).equals(w.expected())) {
+                    reconcile(entry, outMaterial, outLut);
+                    return;
+                }
+                setIfChanged(live.level(), posOf(ox, oy, oz, w.cell()), w.expected(), w.desired());
+            }
+        };
+    }
+
+    /** The active material table's lookups for one section's pass, each resolved once per distinct key. */
+    private static final class Lookups {
+        private final ActiveMaterials.State mats;
+        private final Map<Block, Material> firstTouch = new HashMap<>();
+        private final Map<Identifier, Optional<Material>> byId = new HashMap<>();
+
+        Lookups(ActiveMaterials.State mats) {
+            this.mats = mats;
+        }
+
+        /** The block's first-touch material ({@link LiveMaterials#materialFor}). */
+        Material firstTouch(Block block) {
+            return firstTouch.computeIfAbsent(block, b -> LiveMaterials.materialFor(b, mats.registry()));
+        }
+
+        /** The registered material {@code id}, or null. */
+        Material byId(Identifier id) {
+            return byId.computeIfAbsent(id, k -> mats.registry().get(k)).orElse(null);
+        }
+    }
+
+    /** The live level, chunk section and loaded store a reconcile writes through. */
+    private record Live(ServerLevel level, LevelChunkSection section, SectionStore store) {}
+
+    /** The section's live level/section/store, or null when any is gone (nothing to reconcile). */
+    private Live live(Identifier dim, SubchunkKey key) {
+        MinecraftServer srv = this.server;
+        if (srv == null) {
+            return null;
+        }
+        ServerLevel level = levelFor(srv, dim);
+        if (level == null) {
+            return null;
+        }
+        LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
+        if (chunk == null) {
+            return null; // unloaded since the snapshot
+        }
+        LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, key.sectionY());
+        if (section == null) {
+            return null;
+        }
+        SectionStore store = stores.store(dim);
+        if (store == null || !store.isLoaded(key.cx(), key.cz())) {
+            return null;
+        }
+        return new Live(level, section, store);
+    }
+
+    /**
+     * The block cell {@code i} should show, given it shows {@code current} and holds what {@code data}
+     * says after this step, or null to leave it alone. Pure over its arguments (no world access).
+     */
+    private static BlockState desiredState(BlockState current, int i, SectionData data, char[] inMaterial,
+                                           char[] outMaterial, List<Material> outLut, Lookups lookups) {
+        Material worldMaterial = lookups.firstTouch(current.getBlock());
+
+        // The species the cell BECAME this step (engine matOut), shared with the §7 changer; falls
+        // back to the world block's material when the engine didn't report one.
+        Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
+
+        // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
+        // call (fluid test, level math, species-aware throttle, §7 whitelist, repr-block pick).
+        // A fluid whose own block isn't a LiquidBlock (honey renders as honey_block) is still the
+        // managed fluid block here, so it can be cleared when drained. Kelp (aliased to water) is not
+        // water's own block, so it is never stomped.
+        boolean currentIsLiquid = current.getBlock() instanceof LiquidBlock
+                || (worldMaterial != null && worldMaterial.movable() && !current.isAir()
+                    && current.getBlock() == BuiltInRegistries.BLOCK.getValue(worldMaterial.representativeBlock()));
+        // Stale-write guard for the species paint: this step's INPUT species (null = vacuum/unknown).
+        Material inMat = EngineOutSpecies.resolve(inMaterial, outLut, i, null);
+
+        // DESIGN-LAW v5 #7 (proposal §6): the cell is a composition. Slot order is the LUT order, not a
+        // role, so slot 0 can be the air or water a stair/rail/soil holds. A host the live block still
+        // shows is KEPT — only its waterlogged property follows the water it holds; a host-absent
+        // composition is drawn as its largest condensed component.
+        List<RepresentativeState.Component> comps = components(data, i, outMat, lookups);
+        if (RepresentativeState.hostPresent(worldMaterial, comps)) {
+            if (current.hasProperty(BlockStateProperties.WATERLOGGED)) {
+                Boolean wl = RepresentativeState.waterlogged(worldMaterial, comps,
+                        current.getValue(BlockStateProperties.WATERLOGGED));
+                if (wl != null) {
+                    return current.setValue(BlockStateProperties.WATERLOGGED, wl);
+                }
+            }
+            return null;
+        }
+        float massKg = data.massAt(i);
+        if (comps.size() > 1) {
+            RepresentativeState.Component dom = RepresentativeState.dominant(comps);
+            outMat = dom.material();
+            massKg = dom.massKg();
+        }
+        FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
+                worldMaterial, outMat, massKg,
+                bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
+                worldShowsSpecies(current, worldMaterial, inMat),
+                inMat != null && outMaterial != null && outMaterial[i] == 0);
+        if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
+            return null;
+        }
+        if (action.kind() == FluidReconcileDecider.Kind.CLEAR) {
+            // Decider confirmed a managed fluid block, or a solid the engine drained; remove it (→ air).
+            return Blocks.AIR.defaultBlockState();
+        }
+        // PLACE: a nonexistent repr block downgrades to minecraft:air (BLOCK getValue returns AIR
+        // for unknown ids); the decider already dropped a material with no repr block at all.
+        Block target = BuiltInRegistries.BLOCK.getValue(action.block());
+        return stateWithLevel(target, action.renderLevel());
     }
 
     private static BlockPos posOf(int ox, int oy, int oz, int i) {
@@ -164,9 +255,9 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
      * A slot whose id is not registered is dropped (it cannot be drawn).
      */
     private static List<RepresentativeState.Component> components(SectionData data, int i, Material slot0,
-                                                                  ActiveMaterials.State mats) {
+                                                                  Lookups lookups) {
         List<RepresentativeState.Component> comps = new ArrayList<>(SectionData.SLOTS);
-        Material m0 = data.hasMaterials() ? mats.registry().get(data.materialAt(i)).orElse(null) : slot0;
+        Material m0 = data.hasMaterials() ? lookups.byId(data.materialAt(i)) : slot0;
         if (m0 != null && data.massAt(i) > 0f) {
             comps.add(new RepresentativeState.Component(m0, data.massAt(i)));
         }
@@ -174,7 +265,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             for (int k = 1; k < SectionData.SLOTS; k++) {
                 float mk = data.slotMassAt(k, i);
                 if (!(mk > 0f)) continue;
-                Material mat = mats.registry().get(data.slotMaterialAt(k, i)).orElse(null);
+                Material mat = lookups.byId(data.slotMaterialAt(k, i));
                 if (mat != null) {
                     comps.add(new RepresentativeState.Component(mat, mk));
                 }

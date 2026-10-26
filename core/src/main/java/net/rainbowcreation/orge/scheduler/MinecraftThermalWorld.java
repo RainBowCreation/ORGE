@@ -8,10 +8,16 @@ import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.phase.FluidReconciler;
 import net.rainbowcreation.orge.phase.PhaseChanger;
+import net.rainbowcreation.orge.section.AmbientProvider;
+import net.rainbowcreation.orge.section.RegionStore;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
+import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -30,9 +36,11 @@ import java.util.function.Function;
  *       persisted out (reconcile / phase / settle / neighbour-wake).</li>
  * </ul>
  *
- * <p>{@link #snapshotColumns}/{@link #writeBackColumn} touch the server-thread-confined
- * {@link SectionStoreManager} and MUST be called on the server thread; the {@code volatile server}
- * field is the only cross-thread state. {@link ColumnSnapshot} publishes its batch LUT through
+ * <p>{@link #captureColumns}, {@link #snapshotColumns}, {@link #writeBackColumn} and the
+ * {@link PreparedWrite#apply} half of {@link #prepareWriteBack} touch the server-thread-confined
+ * {@link SectionStoreManager} and MUST be called on the server thread. The scheduler's step thread runs
+ * {@link CapturedColumns#assemble} and {@link #prepareWriteBack} for a captured column; they read only the
+ * capture (issue #51). The {@code volatile server} field is the only other cross-thread state. {@link ColumnSnapshot} publishes its batch LUT through
  * {@link #publishLastColumnLut} and {@link ColumnWriteBack} reads it back through {@link #lastColumnLut}
  * — both run on the server thread in the same cycle, so the plain field is safe.</p>
  */
@@ -93,7 +101,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
                 stores, cellMaterials, activeSet, pendingInjections, this::server, this::publishLastColumnLut);
         this.columnWriteBack = new ColumnWriteBack(
                 stores, cellMaterials, activeSet, this::fluidReconciler, this::phaseChanger, this::lastColumnLut,
-                waterlogSeeding);
+                waterlogSeeding, blockChangeCapture::changedSinceCapture);
     }
 
     /** Convenience for headless write-back tests that supply their own LUT / never bind a server. */
@@ -129,9 +137,120 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     // Server thread only — delegated to the snapshot / write-back modules.
     @Override
     public ColumnBatch snapshotColumns(int range) {
+        blockChangeCapture.markCaptured();
         ColumnBatch batch = columnSnapshot.snapshotColumns(range);
         recordBatchColumns(batch.entries());
         return batch;
+    }
+
+    /** Server-thread capture of this cycle's columns; the scheduler assembles it on its step thread. */
+    @Override
+    public CapturedColumns captureColumns(int range) {
+        return captureColumns(range, 0.0);
+    }
+
+    /**
+     * Server-thread capture of this cycle's columns, with the sky pass for {@code forcingDtSeconds} (0 = none)
+     * deferred to the step thread (issue #51: the pass walks every sky-exposed cell, the largest server-thread
+     * cost left). Only each level's climate and the evaporation dither are taken here; on the step thread
+     * the pass forces, rains on and evaporates the captured columns' stored sections — copy-on-write views
+     * of the store, so the live sections are untouched — before they are assembled, and each column's share
+     * of the pass's ledgers is booked when its write-back installs (a HELD or failed step lands neither).
+     */
+    @Override
+    public CapturedColumns captureColumns(int range, double forcingDtSeconds) {
+        blockChangeCapture.markCaptured();
+        ColumnSnapshot.Captured captured = columnSnapshot.capture(range);
+        lastBatchColumns = captured.columns().stream()
+                .map(c -> new BatchColumn(c.dimension, c.cx, c.cz)).toList();
+        MinecraftServer srv = this.server;
+        if (!(forcingDtSeconds > 0) || srv == null || captured.isEmpty()) {
+            return captured;
+        }
+        Function<Identifier, Material> lookup = memo(id -> ActiveMaterials.current().registry().get(id).orElse(null));
+        Map<Identifier, SkyPass> passes = new HashMap<>();
+        for (ServerLevel level : srv.getAllLevels()) {
+            Identifier dim = level.dimension().identifier();
+            SurfaceForcing.Climate climate = SurfaceForcing.Climate.forDimension(
+                    dim, level.getDayTime(), level.getRainLevel(1f)).orElse(null);
+            if (stores.store(dim) == null || climate == null) {
+                continue; // no store, or a dimension with no sky (the Nether)
+            }
+            passes.put(dim, new SkyPass(climate, evaporation.nextDither(dim, climate, lookup)));
+        }
+        return new CapturedColumns() {
+            @Override public boolean isEmpty() { return captured.isEmpty(); }
+
+            @Override public boolean defersSkyPass() { return true; }
+
+            @Override public ColumnBatch assemble() {
+                Function<Identifier, Material> stepLookup =
+                        memo(id -> ActiveMaterials.current().registry().get(id).orElse(null));
+                for (CapturedColumn c : captured.columns()) {
+                    SkyPass pass = passes.get(c.dimension);
+                    if (pass != null) {
+                        c.sky = forceCaptured(c, pass, forcingDtSeconds, stepLookup);
+                    }
+                }
+                return captured.assemble();
+            }
+        };
+    }
+
+    /** One dimension's climate and evaporation dither for a sky pass. */
+    record SkyPass(SurfaceForcing.Climate climate, double dither) {}
+
+    /** One column's share of a sky pass's ledgers, booked into the world's when its write-back installs. */
+    record SkyLedgers(SurfaceForcing forcing, RainSeeding rain, Evaporation evaporation) {}
+
+    /** Step thread: the sky pass over one captured column's stored sections — forcing, rain, evaporation in
+     *  ONE walk, exactly as {@link #applySurfaceForcing} runs it over the store — into fresh ledgers. */
+    static SkyLedgers forceCaptured(CapturedColumn c, SkyPass pass, double dtSeconds,
+                                            Function<Identifier, Material> lookup) {
+        SectionStore scratch = new SectionStore(SCRATCH_REGION, AmbientProvider.FALLBACK);
+        for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
+            CapturedColumn.Section s = c.section(sectionY);
+            if (s.stored()) {
+                scratch.put(new SubchunkKey(c.cx, sectionY, c.cz), s.data()); // a view: copied on its first write
+            }
+        }
+        SkyLedgers ledgers = new SkyLedgers(new SurfaceForcing(), new RainSeeding(), new Evaporation());
+        SkyColumnPass.Visitor sky = ledgers.forcing().visitor(c.dimension, pass.climate(), dtSeconds, lookup)
+                .andThen(ledgers.rain().visitor(c.dimension, pass.climate(), dtSeconds, lookup))
+                .andThen(ledgers.evaporation().visitor(c.dimension, pass.climate(), dtSeconds, scratch, lookup,
+                        pass.dither()));
+        SkyColumnPass.walkAndPut(scratch, c.cx, c.cz, lookup, sky);
+        return ledgers;
+    }
+
+    /** A region store the scratch store of {@link #forceCaptured} never reads or writes (no column is loaded). */
+    private static final RegionStore SCRATCH_REGION = new RegionStore(java.nio.file.Path.of("orge-unused"));
+
+    /** {@code lookup}, each id resolved once. */
+    private static Function<Identifier, Material> memo(Function<Identifier, Material> lookup) {
+        Map<Identifier, Optional<Material>> resolved = new HashMap<>();
+        return id -> resolved.computeIfAbsent(id, k -> Optional.ofNullable(lookup.apply(k))).orElse(null);
+    }
+
+    /** Off-thread preparation of one column's write-back; the returned half applies on the server thread,
+     *  and books the column's share of a sky pass that ran with its capture. */
+    @Override
+    public PreparedWrite prepareWriteBack(ColumnEntry entry, ColumnResult result, List<Material> lut) {
+        PreparedWrite write = columnWriteBack.prepare(entry, result, lut);
+        SkyLedgers sky = entry.captured() == null ? null : entry.captured().sky;
+        if (sky == null) {
+            return write;
+        }
+        return () -> {
+            SectionStore store = stores.store(entry.dimension());
+            if (store == null || !store.isLoaded(entry.cx(), entry.cz())) {
+                return; // unloaded since the capture: nothing lands, nothing is booked
+            }
+            write.apply();
+            surfaceForcing.absorb(sky.forcing());
+            rainSeeding.absorb(sky.rain());
+            evaporation.absorb(sky.evaporation());
+        };
     }
 
     /** The sky pass (spec 2026-10-25 §4): each level's climate from its dimension, day time and rain, over
@@ -153,7 +272,10 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** Force, rain and evaporate on {@code dim}'s columns of the last batch under its climate — ONE walk per
      *  column for every consumer, no second heightmap scan (package seam for the headless suite). */
     void applySurfaceForcing(Identifier dim, long dayTime, float rainLevel, double dtSeconds,
-                             Function<Identifier, Material> lookup) {
+                             Function<Identifier, Material> registryLookup) {
+        // The pass resolves the same few ids for every exposed cell (its slots, the enthalpy curves' phase
+        // chains): one registry lookup per id per pass (issue #51 — it runs on the server thread).
+        Function<Identifier, Material> lookup = memo(registryLookup);
         SectionStore store = stores.store(dim);
         SurfaceForcing.Climate climate = SurfaceForcing.Climate.forDimension(dim, dayTime, rainLevel).orElse(null);
         if (store == null || climate == null) {

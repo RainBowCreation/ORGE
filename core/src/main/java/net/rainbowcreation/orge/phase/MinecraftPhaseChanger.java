@@ -3,6 +3,8 @@ package net.rainbowcreation.orge.phase;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
@@ -15,7 +17,9 @@ import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 
@@ -47,27 +51,11 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
 
     @Override
     public void applyPhaseChanges(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut) {
-        MinecraftServer srv = this.server;
-        if (srv == null) {
+        SectionStore store = liveStore(entry);
+        if (store == null) {
             return;
         }
-        ServerLevel level = levelFor(srv, entry.dimension());
-        if (level == null) {
-            return;
-        }
-        SubchunkKey key = entry.key();
-        LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
-        if (chunk == null) {
-            return; // unloaded since the snapshot
-        }
-        LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, key.sectionY());
-        if (section == null) {
-            return;
-        }
-        SectionStore store = stores.store(entry.dimension());
-        if (store == null || !store.isLoaded(key.cx(), key.cz())) {
-            return;
-        }
+        LevelChunkSection section = liveSection(entry);
         ActiveMaterials.State mats = ActiveMaterials.current();
         IntFunction<Material> cellMat = i -> EngineOutSpecies.resolve(outMaterial, outLut, i,
                 LiveMaterials.materialFor(LiveMaterials.blockAt(section, i), mats.registry()));
@@ -75,7 +63,62 @@ public final class MinecraftPhaseChanger implements PhaseChanger {
         if (resets.isEmpty()) {
             return;
         }
-        pinSources(store, key, resets, id -> mats.registry().get(id).orElse(null));
+        pinSources(store, entry.key(), resets, id -> mats.registry().get(id).orElse(null));
+    }
+
+    /**
+     * Plans the re-pin off-thread from the captured blocks (issue #51): the same per-cell species as the
+     * live pass — the engine out-species, else the captured block's first-touch material — so applying it
+     * only writes the planned sources' E. A section whose blocks changed after the capture re-plans live.
+     */
+    @Override
+    public Plan plan(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut,
+                     IntFunction<BlockState> captured) {
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        Map<Block, Material> firstTouch = new HashMap<>();
+        List<SourcePinPlanner.Reset> resets = SourcePinPlanner.plan(i -> {
+            Material out = EngineOutSpecies.resolve(outMaterial, outLut, i, null);
+            return out != null ? out : firstTouch.computeIfAbsent(captured.apply(i).getBlock(),
+                    b -> LiveMaterials.materialFor(b, mats.registry()));
+        });
+        return changedSinceCapture -> {
+            if (changedSinceCapture) {
+                applyPhaseChanges(entry, outMaterial, outLut);
+                return;
+            }
+            SectionStore store = resets.isEmpty() ? null : liveStore(entry);
+            if (store != null) {
+                pinSources(store, entry.key(), resets, id -> mats.registry().get(id).orElse(null));
+            }
+        };
+    }
+
+    /** The section's live chunk section, or null when the server, level, chunk or section is gone. */
+    private LevelChunkSection liveSection(ThermalWorld.BatchEntry entry) {
+        MinecraftServer srv = this.server;
+        if (srv == null) {
+            return null;
+        }
+        ServerLevel level = levelFor(srv, entry.dimension());
+        if (level == null) {
+            return null;
+        }
+        SubchunkKey key = entry.key();
+        LevelChunk chunk = LiveMaterials.loadedChunk(level, key.cx(), key.cz());
+        if (chunk == null) {
+            return null; // unloaded since the snapshot
+        }
+        return LiveMaterials.sectionOrNull(chunk, key.sectionY());
+    }
+
+    /** The section's loaded store when its live section is still there, else null (nothing to pin). */
+    private SectionStore liveStore(ThermalWorld.BatchEntry entry) {
+        if (liveSection(entry) == null) {
+            return null;
+        }
+        SectionStore store = stores.store(entry.dimension());
+        SubchunkKey key = entry.key();
+        return store != null && store.isLoaded(key.cx(), key.cz()) ? store : null;
     }
 
     /**

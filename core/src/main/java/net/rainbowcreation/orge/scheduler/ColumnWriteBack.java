@@ -15,7 +15,9 @@ import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 
 /**
@@ -41,17 +43,20 @@ final class ColumnWriteBack {
     private final Supplier<PhaseChanger> phaseChangerSource;
     private final Supplier<List<Material>> lutSource;
     private final WaterlogSeeding waterlogSeeding;
+    /** Whether a block of a section changed after this cycle's capture (then its block plans run live). */
+    private final BiPredicate<Identifier, SubchunkKey> changedSinceCapture;
 
     ColumnWriteBack(SectionStoreManager stores, CellMaterialTracker cellMaterials, ActiveSet activeSet,
                     Supplier<FluidReconciler> reconcilerSource, Supplier<PhaseChanger> phaseChangerSource,
                     Supplier<List<Material>> lutSource) {
         this(stores, cellMaterials, activeSet, reconcilerSource, phaseChangerSource, lutSource,
-             new WaterlogSeeding());
+             new WaterlogSeeding(), (dim, key) -> true);
     }
 
     ColumnWriteBack(SectionStoreManager stores, CellMaterialTracker cellMaterials, ActiveSet activeSet,
                     Supplier<FluidReconciler> reconcilerSource, Supplier<PhaseChanger> phaseChangerSource,
-                    Supplier<List<Material>> lutSource, WaterlogSeeding waterlogSeeding) {
+                    Supplier<List<Material>> lutSource, WaterlogSeeding waterlogSeeding,
+                    BiPredicate<Identifier, SubchunkKey> changedSinceCapture) {
         this.stores = stores;
         this.cellMaterials = cellMaterials;
         this.activeSet = activeSet;
@@ -59,21 +64,44 @@ final class ColumnWriteBack {
         this.phaseChangerSource = phaseChangerSource;
         this.lutSource = lutSource;
         this.waterlogSeeding = waterlogSeeding;
+        this.changedSinceCapture = changedSinceCapture;
     }
 
-    // Server thread only.
+    /** One section of a column write-back, prepared off-thread: the section to install and what the
+     *  server-thread half records and paints for it. */
+    private record PreparedSection(SubchunkKey key, int sectionY, SectionData next, Identifier[] signature,
+                                   ThermalWorld.BatchEntry secEntry, float massDelta,
+                                   PhaseChanger.Plan phase, FluidReconciler.Plan reconcile) {}
+
+    /** Prepare and install in one go, on the calling (server) thread, from the live store. */
     void writeBackColumn(ThermalWorld.ColumnEntry entry, ColumnResult result) {
-        SectionStore store = stores.store(entry.dimension());
-        if (store == null || !store.isLoaded(entry.cx(), entry.cz())) {
-            return;
+        prepare(entry, result, lutSource.get()).apply();
+    }
+
+    /**
+     * Off-thread half of the column write-back (issue #51): build each of the 24 sections the result
+     * leaves — scattering the engine's authoritative channels into a copy of the section the snapshot
+     * captured — plus its next-cycle signature, settle delta and the §7/§10 block plans. Touches no live
+     * store or world state when {@code entry} carries its capture; an uncaptured (headless) entry copies the
+     * live store here, so it must then be prepared on the server thread. {@code lut} is the batch table.
+     */
+    ThermalWorld.PreparedWrite prepare(ThermalWorld.ColumnEntry entry, ColumnResult result, List<Material> lut) {
+        CapturedColumn cap = entry.captured();
+        SectionStore liveStore = cap == null ? stores.store(entry.dimension()) : null;
+        if (cap == null && (liveStore == null || !liveStore.isLoaded(entry.cx(), entry.cz()))) {
+            return () -> { };
         }
-        // The batch LUT the snapshot resolved against (no LUT travels with the ColumnResult); both the
-        // snapshot and this write-back run on the server thread in the same cycle, so the field is stable.
-        List<Material> lut = lutSource.get();
-        float maxMassDelta = 0f;
         float[] inMass = entry.task().mass();
+        List<PreparedSection> prepared = new ArrayList<>(ColumnAssembler.MAX_SECTION_Y - ColumnAssembler.MIN_SECTION_Y + 1);
         for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
             SubchunkKey key = new SubchunkKey(entry.cx(), sectionY, entry.cz());
+            CapturedColumn.Section captured = cap == null ? null : cap.section(sectionY);
+            // The section as the snapshot read it (a read-only view): the base whose palette and composition
+            // layer the new section starts from. Every channel below is written whole into a fresh section.
+            SectionData base = captured != null ? captured.data() : liveStore.get(key).share();
+            if (base == null) {
+                return () -> { }; // no loaded store when the snapshot captured the column: nothing to persist
+            }
             float[] outMass = ColumnSectionCodec.sliceSectionChannel(result.mass(), sectionY);
             // Input temperature slice — carried into the reconstructed per-section StepTask below only as
             // a diagnostic (the §10/§7 seams derive their own T from stored E); never stored as E.
@@ -85,27 +113,18 @@ final class ColumnWriteBack {
             char[] outMat = ColumnSectionCodec.sliceSectionMaterials(result.matIx(), sectionY);
             char[] inMatSec = ColumnSectionCodec.sliceSectionMaterials(entry.task().matIx(), sectionY);
 
-            SectionData data = store.get(key);
-            // Stale-write-back guard: if an external edit (/orge set) landed after this cycle's
-            // snapshot read the section, this result was computed from pre-edit input — persisting it
-            // would clobber the edit. Skip the section; the edit is re-snapshotted + simulated next
-            // cycle. (Self-healing: next snapshot re-stamps the epoch, so the skip is one cycle only.)
-            if (data.editedSinceSnapshot()) {
-                continue;
-            }
             // S6 (law §6/§7): store the engine's AUTHORITATIVE extensive energy eOut (the S5-threaded
             // ColumnResult.enthalpy) UNCLAMPED. E is extensive [J]; the [0,6000] StepValidator clamp is a
             // KELVIN range and would destroy mid-plateau energy (E ≫ 6000 J) — it must NEVER touch E.
             // Only non-finite E is sanitized (defensive) to a safe 0; the magnitude is stored raw.
             // E stays double end to end (issue #44 — never narrowed per tick).
             double[] secE = ColumnSectionCodec.sliceSectionChannel(result.enthalpy(), sectionY);
-            double[] dstE = data.enthalpyArray();
             for (int i = 0; i < SectionData.CELLS; i++) {
                 double e = secE[i];
-                dstE[i] = Double.isFinite(e) ? e : 0.0;   // sanitize non-finite only — NO magnitude clamp
+                secE[i] = Double.isFinite(e) ? e : 0.0;   // sanitize non-finite only — NO magnitude clamp
             }
-            float[] dstM = data.massArray();
-            System.arraycopy(cleanM, 0, dstM, 0, SectionData.CELLS);
+            SectionData data = SectionData.full(secE, cleanM);
+            data.inheritPalette(base);
             // Momentum write-back (F2, law §7 / §1.1, POLICY (i)): store the engine's AUTHORITATIVE
             // EXTENSIVE momentum p [kg·m/s] (result.momX/Y/Z = engine pxOut/pyOut/pzOut) UNCHANGED — the
             // EXACT mirror of the enthalpy-E writeback above. Momentum is signed/unbounded, so it carries
@@ -147,26 +166,67 @@ final class ColumnWriteBack {
                 char sp = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i] : inMatSec[i];
                 data.setMaterialAt(i, lut.get(sp).id());
             }
-            writeBackSlots(data, result, sectionY, lut);
+            writeBackSlots(data, base.hasSlots(), result, sectionY, lut);
             data.demoteIfUniform();
-            store.put(key, data);
-            // The waterlogged-block water this section's assembly seeded is now in the store: book it as a
-            // boundary placement (issue #60), and a legacy section has had its one seed.
-            waterlogSeeding.book(entry.dimension(), entry.waterlog(), sectionY);
-            data.consumeLegacyOneComponent();
+            // A fresh section carries no legacy mark: once installed, the legacy section has had its one
+            // waterlogged seed.
 
             // Reconstruct the per-section entry the §10/§7 seams consume (input geometry + this section's
-            // engine output species). recordCellMaterials/noteSettle/reconcile/phase mirror the
-            // per-section advection write-back exactly.
-            StepTask secTask = new StepTask(key, inMatSec, inMass(inMass, sectionY), inT,
-                    NeighborHalo.empty());
+            // engine output species). The signature/settle/reconcile/phase mirror the per-section advection
+            // write-back exactly.
+            StepTask secTask = new StepTask(key, inMatSec, inMass(inMass, sectionY), inT, NeighborHalo.empty());
             ThermalWorld.BatchEntry secEntry = new ThermalWorld.BatchEntry(entry.dimension(), key, secTask);
-            recordCellMaterials(secEntry, outMat, lut);
-            float secMassDelta = maxAbsDelta(cleanM, secTask.mass());
-            if (secMassDelta > maxMassDelta) maxMassDelta = secMassDelta;
-            noteSettle(secEntry, secMassDelta, -1f);
-            phaseChangerSource.get().applyPhaseChanges(secEntry, outMat, lut);
-            reconcilerSource.get().reconcile(secEntry, outMat, lut);
+            Identifier[] prior = captured != null ? captured.prior() : cellMaterials.prior(entry.dimension(), key);
+            Identifier[] signature = liveMaterialIds(effectiveSpecies(inMatSec, outMat), lut, prior);
+            float massDelta = maxAbsDelta(cleanM, secTask.mass());
+            PhaseChanger phase = phaseChangerSource.get();
+            FluidReconciler reconciler = reconcilerSource.get();
+            boolean planned = captured != null && captured.blocks() != null;
+            PhaseChanger.Plan phasePlan = planned
+                    ? phase.plan(secEntry, outMat, lut, captured::blockAt)
+                    : changed -> phase.applyPhaseChanges(secEntry, outMat, lut);
+            FluidReconciler.Plan reconcilePlan = planned
+                    ? reconciler.plan(secEntry, outMat, lut, data, captured::blockAt)
+                    : changed -> reconciler.reconcile(secEntry, outMat, lut);
+            prepared.add(new PreparedSection(key, sectionY, data, signature, secEntry, massDelta,
+                    phasePlan, reconcilePlan));
+        }
+        return () -> apply(entry, prepared);
+    }
+
+    /**
+     * Server-thread half of the column write-back (issue #51): install each prepared section into the
+     * live store (an O(1) adoption of the prepared arrays), record its signature, settle it and paint its
+     * planned blocks; then wake the apron neighbours if the column moved mass.
+     */
+    private void apply(ThermalWorld.ColumnEntry entry, List<PreparedSection> prepared) {
+        SectionStore store = stores.store(entry.dimension());
+        if (store == null || !store.isLoaded(entry.cx(), entry.cz())) {
+            return;
+        }
+        float maxMassDelta = 0f;
+        for (PreparedSection ps : prepared) {
+            SectionData data = store.get(ps.key());
+            // Stale-write-back guard: if an external edit (/orge set) landed after this cycle's
+            // snapshot read the section, this result was computed from pre-edit input — persisting it
+            // would clobber the edit. Skip the section; the edit is re-snapshotted + simulated next
+            // cycle. (Self-healing: next snapshot re-stamps the epoch, so the skip is one cycle only.)
+            if (data.editedSinceSnapshot()) {
+                continue;
+            }
+            data.adopt(ps.next());
+            store.put(ps.key(), data);
+            // The waterlogged-block water this section's assembly seeded is now in the store: book it as a
+            // boundary placement (issue #60).
+            waterlogSeeding.book(entry.dimension(), entry.waterlog(), ps.sectionY());
+            cellMaterials.record(entry.dimension(), ps.key(), ps.signature());
+            if (ps.massDelta() > maxMassDelta) maxMassDelta = ps.massDelta();
+            noteSettle(ps.secEntry(), ps.massDelta(), -1f);
+            // A block of the section that changed after the capture the plans read makes them stale there:
+            // the plans then run the live pass instead.
+            boolean changed = changedSinceCapture.test(entry.dimension(), ps.key());
+            ps.phase().apply(changed);
+            ps.reconcile().apply(changed);
         }
         // Wake any LOADED neighbour column that could have received mass across an X/Z boundary this step
         // (DESIGN §5 wake-on-cross): if our column moved any mass, the apron neighbour must re-enter next
@@ -183,14 +243,15 @@ final class ColumnWriteBack {
     /**
      * Persist the engine's DESIGN-LAW v5 #7 composition slots 1..K−1 for one section: each occupied slot's
      * species id (batch LUT → durable id) and mass, mass sanitized exactly like slot 0 (non-finite/negative
-     * → 0). A section that has no composition layer and receives only empty slots stays layer-free (no
-     * allocation for the one-component common case); a layer that empties is released by
-     * {@link SectionData#demoteIfUniform()}.
+     * → 0). {@code hadSlots}: the section carried a composition layer before this step. A section that had
+     * none and receives only empty slots stays layer-free (no allocation for the one-component common
+     * case); a layer that empties is released by {@link SectionData#demoteIfUniform()}.
      */
-    static void writeBackSlots(SectionData data, ColumnResult result, int sectionY, List<Material> lut) {
+    static void writeBackSlots(SectionData data, boolean hadSlots, ColumnResult result, int sectionY,
+                               List<Material> lut) {
         float[][] secMass = new float[SectionData.SLOTS - 1][];
         char[][] secIx = new char[SectionData.SLOTS - 1][];
-        boolean any = data.hasSlots();
+        boolean any = hadSlots;
         for (int k = 1; k < SectionData.SLOTS; k++) {
             int base = (k - 1) * RegionMarshaller.CHUNK_N;
             secMass[k - 1] = StepValidator.cleanMass(
@@ -240,13 +301,18 @@ final class ColumnWriteBack {
      * species scratch is still built each call.
      */
     void recordCellMaterials(ThermalWorld.BatchEntry entry, char[] outMat, List<Material> lut) {
-        char[] inMat = entry.task().matIx();
+        char[] effective = effectiveSpecies(entry.task().matIx(), outMat);
+        Identifier[] prior = cellMaterials.prior(entry.dimension(), entry.key());
+        cellMaterials.record(entry.dimension(), entry.key(), liveMaterialIds(effective, lut, prior));
+    }
+
+    /** Per cell the engine output species when present ({@code outMat[i] != 0}), else the input/world one. */
+    private static char[] effectiveSpecies(char[] inMat, char[] outMat) {
         char[] effective = new char[inMat.length];
         for (int i = 0; i < inMat.length; i++) {
             effective[i] = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i] : inMat[i];
         }
-        Identifier[] prior = cellMaterials.prior(entry.dimension(), entry.key());
-        cellMaterials.record(entry.dimension(), entry.key(), liveMaterialIds(effective, lut, prior));
+        return effective;
     }
 
     /** The section-Y slice of a column's input mass (for the per-section reconstructed StepTask). */
