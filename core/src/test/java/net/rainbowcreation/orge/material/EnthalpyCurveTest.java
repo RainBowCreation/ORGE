@@ -247,4 +247,65 @@ class EnthalpyCurveTest {
         assertEquals(268f, EnthalpyCurve.deriveT(mass * etaBelow, (float) mass, z, lut, Float.NaN), 1e-2f,
                 "zero latent => no plateau pin, T resumes on slope below threshold");
     }
+
+    // ---- law v5 #6/#7 mixture inverse: T of E = Σ m_k·h_k(T) (the engine's mix_T at data thresholds). ----
+    @Test
+    void mixtureTOfOneComponentIsTOfEta() {
+        Map<Identifier, Material> byId = new HashMap<>();
+        byId.put(ICE, ice());
+        byId.put(WATER, water());
+        byId.put(STEAM, steam());
+        Function<Identifier, Material> lut = byId::get;
+        Material w = water();
+        double hFreezeTop = 2108.0 * 273.0 + L_FREEZE;                 // h_water(273)
+        double hBoilBottom = hFreezeTop + 4186.0 * 100.0;              // h_water(373)
+        double[] etas = {hFreezeTop - L_FREEZE - 4186.0 * 5.0,          // below the freeze band
+                         hFreezeTop - L_FREEZE / 2,                     // inside it
+                         hFreezeTop + 4186.0 * 27.0,                    // liquid slope
+                         hBoilBottom + L_BOIL / 2,                      // inside the boil band
+                         hBoilBottom + L_BOIL + 2080.0 * 10.0};         // past it
+        for (double eta : etas) {
+            float want = EnthalpyCurve.tOfEta(w, lut, eta, Float.NaN);
+            float got = EnthalpyCurve.mixtureT(2.0 * eta, new Material[]{w}, new float[]{2f}, 1, lut, Float.NaN);
+            assertEquals(want, got, 1e-3f, "one-component mixture == tOfEta at eta=" + eta);
+        }
+    }
+
+    @Test
+    void mixtureTPinsAtAComponentLatentBandAndUsesTheSummedSlope() {
+        Map<Identifier, Material> byId = new HashMap<>();
+        byId.put(ICE, ice());
+        byId.put(WATER, water());
+        Function<Identifier, Material> lut = byId::get;
+        Identifier rockId = Identifier.fromNamespaceAndPath("orge", "rock");
+        Material rock = Material.builder(rockId)
+                .thermalConductivity(1f).heatCapacity(840f).molarMass(0f)
+                .defaultMass(2000f).defaultTemperature(Float.NaN)
+                .build(); // chain ROOT, no thresholds: h = cp·T
+        Material[] ms = {rock, water()};
+        float[] m = {2f, 1f};
+        double c = 2.0 * 840.0 + 4186.0;
+        double eTop = 2.0 * 840.0 * 273.0 + (2108.0 * 273.0 + L_FREEZE); // H at the top of water's freeze band
+        assertEquals(273f, EnthalpyCurve.mixtureT(eTop - L_FREEZE / 2, ms, m, 2, lut, Float.NaN), 1e-3f,
+                "inside water's freeze band the whole cell pins at 273 K");
+        assertEquals(273.0 + 1000.0 / c, EnthalpyCurve.mixtureT(eTop + 1000.0, ms, m, 2, lut, Float.NaN), 1e-3,
+                "above the band: one slope C = Σ m_k·cp_k");
+        assertEquals(273.0 - 1000.0 / c,
+                EnthalpyCurve.mixtureT(eTop - L_FREEZE - 1000.0, ms, m, 2, lut, Float.NaN), 1e-3,
+                "below the band: the latent heat is paid back, same slope");
+    }
+
+    @Test
+    void mixtureTSkipsMasslessComponentsAndFallsBackWithNoSubstance() {
+        Function<Identifier, Material> lut = id -> null;
+        Identifier rockId = Identifier.fromNamespaceAndPath("orge", "rock");
+        Material rock = Material.builder(rockId)
+                .thermalConductivity(1f).heatCapacity(840f).molarMass(0f)
+                .defaultMass(2000f).defaultTemperature(Float.NaN)
+                .build();
+        assertEquals(300f, EnthalpyCurve.mixtureT(840.0 * 300.0, new Material[]{rock, rock, null},
+                new float[]{1f, 0f, 5f}, 3, lut, Float.NaN), 1e-3f, "massless and null components carry nothing");
+        assertEquals(285f, EnthalpyCurve.mixtureT(1e6, new Material[]{rock}, new float[]{0f}, 1, lut, 285f),
+                "no substance -> fallback");
+    }
 }

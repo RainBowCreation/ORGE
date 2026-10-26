@@ -41,6 +41,67 @@ public final class DerivedTemperature {
     }
 
     /**
+     * DECODE of a stored cell (read boundary), over its whole composition (law v5 #6/#7): {@code T} is
+     * derived from the cell's ONE stored {@code E} on the MIXTURE curve {@code E = Σ_k m_k·h_k(T)}
+     * ({@link EnthalpyCurve#mixtureT}), the same T the engine reads, then clamped to {@code [0,6000]}. A
+     * cell with at most one occupied resolvable component is {@link #decode} on that component's curve
+     * — bit-identical to the one-component readout.
+     */
+    public static float decodeCell(SectionData data, int cell) {
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        Function<Identifier, Material> lookup = id -> mats.registry().get(id).orElse(null);
+        Composition c = composition(data, cell, lookup);
+        if (c.n <= 1) {
+            return c.n == 1 ? decode(data.enthalpyAt(cell), c.masses[0], c.ids[0])
+                    : decode(data.enthalpyAt(cell), data.massAt(cell), data.materialAt(cell));
+        }
+        float t = EnthalpyCurve.mixtureT(data.enthalpyAt(cell), c.materials, c.masses, c.n, lookup,
+                SectionData.DEFAULT_AMBIENT_K);
+        return StepValidator.clampDerivedKelvin(t);
+    }
+
+    /**
+     * ENCODE of a stored cell (write boundary), over its whole composition: {@code E = Σ_k m_k·h_k(T)} at
+     * the clamped {@code kelvin} — the inverse of {@link #decodeCell}. A cell with at most one occupied
+     * resolvable component is {@link #encode} on that component's curve.
+     */
+    public static double encodeCell(float kelvin, SectionData data, int cell) {
+        ActiveMaterials.State mats = ActiveMaterials.current();
+        Function<Identifier, Material> lookup = id -> mats.registry().get(id).orElse(null);
+        Composition c = composition(data, cell, lookup);
+        if (c.n <= 1) {
+            return c.n == 1 ? encode(kelvin, c.masses[0], c.ids[0])
+                    : encode(kelvin, data.massAt(cell), data.materialAt(cell));
+        }
+        float k = StepValidator.clampDerivedKelvin(kelvin);
+        double e = 0.0;
+        for (int i = 0; i < c.n; i++) {
+            e += EnthalpyCurve.cellE(c.masses[i], c.materials[i], lookup, k);
+        }
+        return e;
+    }
+
+    /** The cell's occupied ({@code m > 0}), resolvable composition slots, in slot order. */
+    private record Composition(Identifier[] ids, Material[] materials, float[] masses, int n) {}
+
+    private static Composition composition(SectionData data, int cell, Function<Identifier, Material> lookup) {
+        Identifier[] ids = new Identifier[SectionData.SLOTS];
+        Material[] ms = new Material[SectionData.SLOTS];
+        float[] masses = new float[SectionData.SLOTS];
+        int n = 0;
+        for (int k = 0; k < SectionData.SLOTS; k++) {
+            Identifier id = k == 0 ? data.materialAt(cell) : data.slotMaterialAt(k, cell);
+            float m = k == 0 ? data.massAt(cell) : data.slotMassAt(k, cell);
+            Material material = id == null ? null : lookup.apply(id);
+            if (material == null || !(m > 0f)) {
+                continue;
+            }
+            ids[n] = id; ms[n] = material; masses[n] = m; n++;
+        }
+        return new Composition(ids, ms, masses, n);
+    }
+
+    /**
      * ENCODE (write boundary): turn a {@code kelvin} edit into the stored extensive enthalpy {@code E = m·h(T)}
      * [J] for a cell of {@code massKg} on {@code species}' enthalpy curve. The intensive {@code kelvin} is
      * clamped to the {@code [0,6000]} derive boundary FIRST (a clamp on an intensive INPUT is sanctioned); the

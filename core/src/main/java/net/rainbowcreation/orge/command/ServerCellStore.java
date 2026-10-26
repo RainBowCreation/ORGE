@@ -8,6 +8,8 @@ import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -23,7 +25,7 @@ import java.util.Optional;
  * Returns {@code empty} only when the dimension has no store; otherwise the stored section, or the
  * synthesized ambient baseline for a never-simulated section (flagged via {@link SectionStore#hasSection}).
  * Temperature is NEVER stored (Law §6/§7): the view re-derives it each call from the cell's stored
- * extensive enthalpy E and mass through {@link DerivedTemperature#decode}.
+ * extensive enthalpy E over the cell's whole composition through {@link DerivedTemperature#decodeCell}.
  *
  * <h2>Write</h2>
  * {@link #write} sets the cell in one shot. The ordering and side effects it hides — each one a shipped
@@ -108,7 +110,7 @@ public final class ServerCellStore implements CellStore {
         // Law §6/§7: T is never stored — encode the kelvin edit to stored extensive E through the named
         // temperature<->enthalpy seam (kelvin clamp + massless/unresolved 0-J fallback live there; E is
         // never clamped).
-        float e = DerivedTemperature.encode(temperatureK, data.massAt(cell), data.materialAt(cell));
+        double e = DerivedTemperature.encodeCell(temperatureK, data, cell);
         data.setEnthalpy(cell, e);
         data.markExternalEdit(); // guard the edit from a stale in-flight write-back clobbering it
         store.put(key, data);
@@ -142,9 +144,20 @@ public final class ServerCellStore implements CellStore {
         @Override public float tempAt(int cell) {
             // Law §6/§7: T is NEVER stored — re-derive it each call from stored extensive E through the
             // named temperature<->enthalpy seam (clamp + massless/unresolved fallback live there).
-            return DerivedTemperature.decode(data.enthalpyAt(cell), data.massAt(cell), data.materialAt(cell));
+            // Over the whole composition (law v5 #7): slot 0 alone is often a trace component.
+            return DerivedTemperature.decodeCell(data, cell);
         }
-        @Override public float massAt(int cell) { return data.massAt(cell); }
+        @Override public float massAt(int cell) { return data.cellMassAt(cell); }
+        @Override public List<Component> composition(int cell) {
+            List<Component> out = new ArrayList<>(SectionData.SLOTS);
+            for (int k = 0; k < SectionData.SLOTS; k++) {
+                float m = k == 0 ? data.massAt(cell) : data.slotMassAt(k, cell);
+                if (m > 0f) {
+                    out.add(new Component(k == 0 ? data.materialAt(cell) : data.slotMaterialAt(k, cell), m));
+                }
+            }
+            return out.isEmpty() ? List.of(new Component(data.materialAt(cell), data.massAt(cell))) : out;
+        }
         @Override public Identifier material(int cell) { return data.materialAt(cell); }
         @Override public SectionData.Form form() { return data.form(); }
         // ambient() provided by the record component
