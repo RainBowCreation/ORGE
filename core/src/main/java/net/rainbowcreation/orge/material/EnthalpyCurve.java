@@ -157,6 +157,63 @@ public final class EnthalpyCurve {
     }
 
     /**
+     * Derived temperature of a MULTI-COMPONENT cell (law v5 #6/#7): the one {@code T} with
+     * {@code E = Σ_k m_k·h_k(T)} — the Java mirror of the engine's {@code mix_T} (sim_engine.hpp MIXTURE
+     * enthalpy curve). The mixture curve is one monotone piecewise-linear function
+     * {@code H(T) = b0 + C·T + Σ_j J_j·[T > t_j]} with {@code C = Σ m_k·cp_k}, each component's own chain
+     * anchor in {@code b0} (lowered by its {@code minTemp} band, the {@link #tOfEta} convention) and one jump
+     * {@code J_j = m_k·L_j} at each latent threshold {@code t_j}. Its exact inverse starts from the jump-free
+     * line {@code T = (E − b0)/C} and folds every breakpoint in ascending order with
+     * {@code T ← min(T, max(t_j, T − J_j/C))} (inside a jump T pins at {@code t_j}: the lever-rule plateau).
+     *
+     * <p>The thresholds sit at each component's DATA {@code minTemp}/{@code maxTemp} with gap {@code G = L}
+     * — the engine's {@code χ_pair = 0} case. The engine moves a vapor pair's threshold to {@code T_sat} of
+     * the cell's pressure; that needs the cell's live pressure and is not reproduced here. For one
+     * component this is exactly {@link #tOfEta}. Components with {@code mass <= 0} or {@code cp <= 0} carry
+     * no enthalpy and are skipped; with none left, returns {@code fallbackT}.
+     */
+    public static float mixtureT(double E, Material[] materials, float[] masses, int n,
+                                 Function<Identifier, Material> lookup, float fallbackT) {
+        double c = 0.0, b0 = 0.0;
+        double[] t = new double[2 * n];
+        double[] jump = new double[2 * n];
+        int nb = 0;
+        for (int k = 0; k < n; k++) {
+            Material m = materials[k];
+            double mk = masses[k];
+            if (m == null || !(mk > 0.0) || !(m.heatCapacity() > 0f)) {
+                continue;
+            }
+            double cp = m.heatCapacity();
+            CurveAnchor a = curveAnchor(m, lookup);
+            c += mk * cp;
+            b0 += mk * (a.hAnchor() - cp * a.tAnchor());
+            if (m.minTarget() != null && m.latentHeatMin() > 0f) {
+                double g = mk * m.latentHeatMin();
+                b0 -= g;
+                t[nb] = m.minTemp(); jump[nb] = g; nb++;
+            }
+            if (m.maxTarget() != null && m.latentHeatMax() > 0f) {
+                t[nb] = m.maxTemp(); jump[nb] = mk * m.latentHeatMax(); nb++;
+            }
+        }
+        if (!(c > 0.0)) {
+            return fallbackT; // no substance / zero capacity
+        }
+        for (int a = 1; a < nb; a++) {                            // ≤ 2·SLOTS entries: insertion sort
+            for (int b = a; b > 0 && t[b] < t[b - 1]; b--) {
+                double tt = t[b]; t[b] = t[b - 1]; t[b - 1] = tt;
+                double jj = jump[b]; jump[b] = jump[b - 1]; jump[b - 1] = jj;
+            }
+        }
+        double T = (E - b0) / c;
+        for (int j = 0; j < nb; j++) {
+            T = Math.min(T, Math.max(t[j], T - jump[j] / c));
+        }
+        return (float) T;
+    }
+
+    /**
      * Derived temperature from stored enthalpy {@code E} and {@code mass} (the inverse decode). Returns
      * {@code fallbackT} when {@code mass <= 0} (massless ⇒ no enthalpy) or {@code cp <= 0} (VOID).
      */
