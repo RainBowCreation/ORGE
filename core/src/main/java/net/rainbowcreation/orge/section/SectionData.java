@@ -234,6 +234,7 @@ public final class SectionData {
      * cell with the current uniform values. No-op if already {@code FULL}.
      */
     private void promote() {
+        thaw();
         if (form == Form.FULL) {
             return;
         }
@@ -297,6 +298,88 @@ public final class SectionData {
         boolean was = legacyOneComponent;
         legacyOneComponent = false;
         return was;
+    }
+
+    // -------------------------------------------------------------------------
+    // Off-thread hand-over (issue #51): a copy-on-write view the scheduler's step thread reads, and
+    // adoption of the section that thread built back into the live store object
+    // -------------------------------------------------------------------------
+
+    /** Set by {@link #share()}: this section's arrays are also held by a view another thread reads, so the
+     *  first mutation copies them first ({@link #thaw()}). Server-thread, like every mutation. */
+    private boolean shared;
+
+    /**
+     * A view of this section's current state for the scheduler's step thread (issue #51): it holds this
+     * section's arrays, palette and composition layer by reference — allocating nothing but the view — and
+     * both sides copy them before their next mutation (copy-on-write), so the view keeps the state it was
+     * taken at however the live section changes afterwards, and a mutation of the view never reaches the
+     * live section. Edit epochs and the legacy mark are copied.
+     */
+    public SectionData share() {
+        shared = true;
+        SectionData v = new SectionData(form, uniformEnthalpy, uniformMass, enthalpy, mass);
+        v.shared = true;
+        v.materials = materials;
+        v.momX = momX;
+        v.momY = momY;
+        v.momZ = momZ;
+        v.p = p;
+        v.slotIx = slotIx;
+        v.slotMass = slotMass;
+        v.swapReady = swapReady;
+        v.editEpoch = editEpoch;
+        v.snapshotEpoch = snapshotEpoch;
+        v.legacyOneComponent = legacyOneComponent;
+        return v;
+    }
+
+    /** Before a mutation of a {@link #share() shared} section: take private copies of everything a view holds. */
+    private void thaw() {
+        if (!shared) {
+            return;
+        }
+        shared = false;
+        enthalpy = enthalpy == null ? null : enthalpy.clone();
+        mass = mass == null ? null : mass.clone();
+        materials = materials == null ? null : materials.copy();
+        momX = momX == null ? null : momX.clone();
+        momY = momY == null ? null : momY.clone();
+        momZ = momZ == null ? null : momZ.clone();
+        p = p == null ? null : p.clone();
+        slotIx = slotIx == null ? null : slotIx.clone();
+        slotMass = slotMass == null ? null : slotMass.clone();
+        swapReady = swapReady == null ? null : swapReady.clone();
+    }
+
+    /** Start this (fresh) section's material layer as a copy of {@code from}'s, palette order included. */
+    public void inheritPalette(SectionData from) {
+        thaw();
+        materials = from.materials == null ? null : from.materials.copy();
+    }
+
+    /**
+     * Take every channel, the palette, the composition layer and the legacy mark of {@code next} by
+     * reference — the write-back's O(1) install of a section its worker built off-thread (issue #51).
+     * This object's edit epochs are kept: they guard edits made to THIS live section. {@code next} must
+     * not be used afterwards (its arrays now belong to this section), nor be a {@link #share() view}.
+     */
+    public void adopt(SectionData next) {
+        shared = false; // every array is replaced: a view of the old ones keeps them to itself
+        form = next.form;
+        uniformEnthalpy = next.uniformEnthalpy;
+        uniformMass = next.uniformMass;
+        enthalpy = next.enthalpy;
+        mass = next.mass;
+        materials = next.materials;
+        momX = next.momX;
+        momY = next.momY;
+        momZ = next.momZ;
+        p = next.p;
+        slotIx = next.slotIx;
+        slotMass = next.slotMass;
+        swapReady = next.swapReady;
+        legacyOneComponent = next.legacyOneComponent;
     }
 
     /** Stamp the current edit state as "seen by this snapshot" (called when the scheduler reads the
@@ -618,11 +701,34 @@ public final class SectionData {
      * aligned for the codec.
      */
     public void setMaterialAt(int i, Identifier id) {
+        thaw();
         if (materials == null) {
             materials = MaterialPalette.allUnset();
         }
         promote();
         materials.set(i, id);
+    }
+
+    /**
+     * The palette slot of cell {@code i}'s material in {@link #rawPalette()}, or {@code -1} when no material
+     * layer exists (every cell reads {@code orge:vacuum}). A slot holding {@link MaterialPalette#UNSET_ID}
+     * reads as {@code orge:vacuum} through {@link #materialAt}. For per-cell loops that resolve the palette
+     * once instead of an id per cell.
+     */
+    public int materialSlotAt(int i) {
+        return materials == null ? -1 : materials.indices()[i];
+    }
+
+    /** The palette slot of composition slot {@code k} of cell {@code i} in {@link #rawPalette()}, or
+     *  {@code -1} when no composition layer exists (the slot is empty: {@code orge:vacuum}, 0 kg). */
+    public int slotMaterialSlotAt(int k, int i) {
+        int q = slotIndex(k, i);
+        return slotIx == null ? -1 : slotIx[q];
+    }
+
+    /** The palette {@link #materialSlotAt}/{@link #slotMaterialSlotAt} index, unset marker included; read only. */
+    public List<Identifier> rawPalette() {
+        return materials == null ? List.of(MaterialPalette.VACUUM_ID) : materials.palette();
     }
 
     /**
@@ -672,6 +778,7 @@ public final class SectionData {
      */
     public void setSlot(int k, int i, Identifier id, float massKg) {
         int q = slotIndex(k, i);
+        thaw();
         if (materials == null) {
             materials = MaterialPalette.allUnset();
         }

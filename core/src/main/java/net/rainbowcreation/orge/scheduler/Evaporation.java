@@ -79,15 +79,42 @@ public final class Evaporation {
      */
     public SkyColumnPass.Visitor visitor(Identifier dim, SurfaceForcing.Climate climate, double dtSeconds,
                                          SectionStore store, Function<Identifier, Material> lookup) {
+        return visitor(dim, climate, dtSeconds, store, lookup, nextDither(dim, climate, lookup));
+    }
+
+    /**
+     * This pass's dither for {@code dim}, advancing the pass count — once per dimension per sky pass, and
+     * only when the pass can evaporate at all — or {@code NaN} when it cannot. Taken on the thread that owns
+     * this ledger, for a {@link #visitor(Identifier, SurfaceForcing.Climate, double, SectionStore, Function,
+     * double)} that may run elsewhere (issue #51).
+     */
+    public double nextDither(Identifier dim, SurfaceForcing.Climate climate, Function<Identifier, Material> lookup) {
         Material water = lookup.apply(WATER);
         Material vapor = water == null || water.maxTarget() == null ? null : lookup.apply(water.maxTarget());
         if (water == null || vapor == null || !(climate.solar() > 0.0) || climate.rainKgPerM2s() > 0.0) {
+            return Double.NaN;
+        }
+        return dither(++passes, dim);
+    }
+
+    /** The evaporation pass with the dither {@code u} of {@link #nextDither}: a no-op when it is {@code NaN}. */
+    public SkyColumnPass.Visitor visitor(Identifier dim, SurfaceForcing.Climate climate, double dtSeconds,
+                                         SectionStore store, Function<Identifier, Material> lookup, double u) {
+        Material water = lookup.apply(WATER);
+        Material vapor = water == null || water.maxTarget() == null ? null : lookup.apply(water.maxTarget());
+        if (Double.isNaN(u) || water == null || vapor == null) {
             return (key, data, cell, w) -> { };
         }
         double k = Math.max(chi(water), chi(vapor)) * G_VAP_PENMAN * A * dtSeconds;
-        double u = dither(++passes, dim);
         return SkyColumnPass.surface((key, data, cell, sumW) ->
                 evaporate(dim, store, key, data, cell, water, vapor, k, u, lookup));
+    }
+
+    /** Add {@code pass}'s ledgers (one sky pass run elsewhere, issue #51) into this one's. */
+    public void absorb(Evaporation pass) {
+        pass.mass.forEach((dim, v) -> mass.merge(dim, v, Double::sum));
+        pass.energy.forEach((dim, v) -> energy.merge(dim, v, Double::sum));
+        pass.evaporated.forEach((dim, v) -> evaporated.merge(dim, v, Double::sum));
     }
 
     /** A cell of the store: {@code data} holds it at section cell index {@code cell}. */

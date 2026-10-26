@@ -118,10 +118,14 @@ public final class OrgeCommands {
         double budgetMs = ticks * 50.0;
         double timeScale = scheduler.onPaceDt() / (ticks / 20.0);
         String[] lines = {
-                String.format("ORGE perf%s: native %.1f ms (ema %.1f, max %.1f) | server %.1f ms (ema %.1f)",
-                        reset ? " (reset)" : "", m.nativeLastMs, m.nativeEmaMs, m.nativeMaxMs, m.serverLastMs, m.serverEmaMs),
-                String.format("latency %d ticks (ema %.1f) | budget %.0f ms/step (%d ticks) | range %d",
-                        m.latencyLastTicks, m.latencyEmaTicks, budgetMs, ticks, scheduler.range()),
+                String.format("ORGE perf%s: native %.1f ms (ema %.1f, max %.1f) | server %.1f ms (ema %.1f, max %.1f)"
+                                + " cpu %.1f ms (ema %.1f, max %.1f)",
+                        reset ? " (reset)" : "", m.nativeLastMs, m.nativeEmaMs, m.nativeMaxMs,
+                        m.serverLastMs, m.serverEmaMs, m.serverMaxMs,
+                        m.serverCpuLastMs, m.serverCpuEmaMs, m.serverCpuMaxMs),
+                String.format("latency %d ticks (ema %.1f) | step thread %.1f ms (ema %.1f) | budget %.0f ms/step (%d ticks) | range %d",
+                        m.latencyLastTicks, m.latencyEmaTicks, m.stepThreadLastMs, m.stepThreadEmaMs,
+                        budgetMs, ticks, scheduler.range()),
                 String.format("steps %d completed, %d late, %d cancelled, %d held | sim/real %.3f (%.1f s / %.1f s)",
                         m.completed, m.late, m.cancelled, m.held, m.ratio(), m.simSeconds, m.realTicks / 20.0),
                 m.keepingUp(budgetMs, timeScale) ? "verdict: keeping up"

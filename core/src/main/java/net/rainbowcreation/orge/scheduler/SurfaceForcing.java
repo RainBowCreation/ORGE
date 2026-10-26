@@ -75,6 +75,11 @@ public final class SurfaceForcing {
     /** Cumulative boundary energy [J] per dimension: + into the world, − out to the sky. */
     private final Map<Identifier, Double> ledger = new HashMap<>();
 
+    /** Add {@code pass}'s ledger (one sky pass run elsewhere, issue #51) into this one's. */
+    public void absorb(SurfaceForcing pass) {
+        pass.ledger.forEach((dim, v) -> ledger.merge(dim, v, Double::sum));
+    }
+
     /** The cumulative forcing energy booked for {@code dim} [J] (0 when never forced). */
     public double ledger(Identifier dim) {
         return ledger.getOrDefault(dim, 0.0);
@@ -121,12 +126,15 @@ public final class SurfaceForcing {
         double h0 = 0.0;         // Σ m_k·h_k(0) [J]
         int occupied = 0;
         Material only = null;
-        for (int k = 0; k < SectionData.SLOTS; k++) {
-            Identifier id = k == 0 ? data.materialAt(cell) : data.slotMaterialAt(k, cell);
+        int slots = data.hasSlots() ? SectionData.SLOTS : 1;   // no composition layer: slots 1.. are empty
+        for (int k = 0; k < slots; k++) {
             float m = k == 0 ? data.massAt(cell) : data.slotMassAt(k, cell);
-            Material mat = lookup.apply(id);
-            if (mat == null || m <= 0f) {
+            if (m <= 0f) {
                 continue; // empty slot: no mass, no heat capacity
+            }
+            Material mat = lookup.apply(k == 0 ? data.materialAt(cell) : data.slotMaterialAt(k, cell));
+            if (mat == null) {
+                continue;
             }
             capacity += (double) m * mat.heatCapacity();
             h0 += (double) m * EnthalpyCurve.hOf(mat, lookup, 0f);

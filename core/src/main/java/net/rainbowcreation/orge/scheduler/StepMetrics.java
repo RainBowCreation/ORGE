@@ -9,7 +9,11 @@ public final class StepMetrics {
     public static final double ALPHA = 0.2;
 
     public double nativeLastMs, nativeEmaMs, nativeMaxMs;
-    public double serverLastMs, serverEmaMs;
+    public double serverLastMs, serverEmaMs, serverMaxMs;
+    /** CPU time the server thread spent on the cycle — its wall time less any time the OS ran other work. */
+    public double serverCpuLastMs, serverCpuEmaMs, serverCpuMaxMs;
+    /** Wall-time of the whole step-thread job: snapshot assembly + native step + write-back preparation. */
+    public double stepThreadLastMs, stepThreadEmaMs;
     public int latencyLastTicks;
     public double latencyEmaTicks;
     public long completed, late, cancelled, held;
@@ -28,11 +32,25 @@ public final class StepMetrics {
         nativeMaxMs = Math.max(nativeMaxMs, nativeMs);
         serverLastMs = serverMs;
         serverEmaMs = ema(serverEmaMs, serverMs, completed);
+        serverMaxMs = Math.max(serverMaxMs, serverMs);
         latencyLastTicks = latencyTicks;
         latencyEmaTicks = ema(latencyEmaTicks, latencyTicks, completed);
         if (!metDeadline) late++;
         simSeconds += dt;
         completed++;
+    }
+
+    /** The completing cycle's server-thread CPU time; call before {@link #onComplete} (shares its count). */
+    void onServerCpu(double ms) {
+        serverCpuLastMs = ms;
+        serverCpuEmaMs = ema(serverCpuEmaMs, ms, completed);
+        serverCpuMaxMs = Math.max(serverCpuMaxMs, ms);
+    }
+
+    /** The completing step's step-thread wall-time; call before {@link #onComplete} (shares its count). */
+    void onStepThread(double ms) {
+        stepThreadLastMs = ms;
+        stepThreadEmaMs = ema(stepThreadEmaMs, ms, completed);
     }
 
     void onRealTick() { realTicks++; }
@@ -53,7 +71,8 @@ public final class StepMetrics {
     }
 
     public void reset() {
-        nativeLastMs = nativeEmaMs = nativeMaxMs = serverLastMs = serverEmaMs = latencyEmaTicks = simSeconds = 0;
+        nativeLastMs = nativeEmaMs = nativeMaxMs = serverLastMs = serverEmaMs = serverMaxMs = latencyEmaTicks = simSeconds = 0;
+        stepThreadLastMs = stepThreadEmaMs = serverCpuLastMs = serverCpuEmaMs = serverCpuMaxMs = 0;
         latencyLastTicks = 0;
         completed = late = cancelled = held = realTicks = 0;
     }

@@ -83,6 +83,11 @@ public final class MaterialPalette {
         }
     }
 
+    /** A deep copy (palette order and indices preserved), sharing nothing with this layer. */
+    MaterialPalette copy() {
+        return new MaterialPalette(new ArrayList<>(palette), indices.clone());
+    }
+
     private void appendVacuum() {
         palette.add(VACUUM_ID);
         byId.put(VACUUM_ID, (char) 0);

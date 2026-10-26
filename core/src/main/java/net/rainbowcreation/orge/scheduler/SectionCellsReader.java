@@ -7,6 +7,8 @@ import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -24,17 +26,36 @@ final class SectionCellsReader {
                                              GeometryAssembler.CellMaterials cellMat,
                                              Function<Identifier, Material> lookup,
                                              char[] priorSpecies, float[] waterlogSeed, float ambientK) {
-        float[] mass = sectionMass(store, key, geo);
+        SectionData stored = store != null && store.hasSection(key) ? store.get(key) : null;
+        if (stored != null) {
+            // Stamp the edit-epoch: the write-back of THIS cycle will skip the section if an
+            // external edit (/orge set) lands after this read, so it can't clobber the edit.
+            stored.markSnapshot();
+        }
+        return read(stored, geo, cellMat, lookup, priorSpecies, waterlogSeed, ambientK);
+    }
+
+    /**
+     * {@link #read(SectionStore, SubchunkKey, GeometryAssembler.Geometry, GeometryAssembler.CellMaterials,
+     * Function, char[], float[], float)} over the section the store holds for the key, or {@code null} when
+     * it holds none (never simulated). Only reads {@code sd}, so the scheduler runs it off-thread over the
+     * section's server-thread capture (issue #51); the caller stamps the live section's edit epoch.
+     */
+    static ColumnAssembler.SectionCells read(SectionData sd,
+                                             GeometryAssembler.Geometry geo,
+                                             GeometryAssembler.CellMaterials cellMat,
+                                             Function<Identifier, Material> lookup,
+                                             char[] priorSpecies, float[] waterlogSeed, float ambientK) {
+        float[] mass = sectionMass(sd, geo);
         // Never simulated (no stored section): its waterlogged blocks have not carried their water yet.
-        boolean seedWaterlog = store == null || !store.hasSection(key);
+        boolean seedWaterlog = sd == null;
         // Durable identity (durable-material §): when this section has a stored material layer, the
         // stored id is AUTHORITATIVE per cell (a broken cell stays orge:vacuum). The assembler resolves
         // it into the batch LUT by appending. A cell with no durable id (no layer, or one its first
         // writer did not touch — issue #54) keeps storedMaterial null ⇒ the assembler falls back to the
         // block's first-touch geo.matIx().
         Identifier[] storedMaterial = new Identifier[SectionData.CELLS];
-        if (store != null && store.hasSection(key) && store.get(key).hasMaterials()) {
-            SectionData sd = store.get(key);
+        if (sd != null && sd.hasMaterials()) {
             for (int i = 0; i < SectionData.CELLS; i++) {
                 storedMaterial[i] = sd.durableMaterialAt(i);
             }
@@ -60,15 +81,13 @@ final class SectionCellsReader {
         // The engine tIn channel: for a stored section it is DERIVED from E below; for a never-
         // simulated section it is the per-cell ambient/source seed.
         float[] temps;
-        if (store != null && store.hasSection(key)) {
-            SectionData sd = store.get(key);
+        if (sd != null) {
             // A legacy (pre-composition) section seeds until its write-back clears the mark (issue #60).
             seedWaterlog = sd.isLegacyOneComponent();
-            // Stamp the edit-epoch: the write-back of THIS cycle will skip the section if an
-            // external edit (/orge set) lands after this read, so it can't clobber the edit.
-            sd.markSnapshot();
             sd.copySlotsInto(slotMaterial, slotMass);
             temps = new float[SectionData.CELLS];
+            // One lookup per distinct stored id in the section (a registry lookup per cell otherwise).
+            Map<Identifier, Material> resolved = new HashMap<>();
             for (int i = 0; i < SectionData.CELLS; i++) {
                 float mi = mass[i];
                 // F2 (law §7 / §1.1): EXTENSIVE momentum p [kg·m/s] crosses RAW (mirror of the stored E
@@ -88,7 +107,7 @@ final class SectionCellsReader {
                 // derives to ambient (no curve). This is the law-§6/§7 fix: the engine never receives
                 // raw E in its Kelvin slot.
                 Identifier durable = sd.durableMaterialAt(i);
-                Material cellM = durable != null ? lookup.apply(durable) : cellMat.at(i);
+                Material cellM = durable != null ? resolved.computeIfAbsent(durable, lookup) : cellMat.at(i);
                 // An unset E (issue #54: a materialized ambient cell) is not a temperature to derive:
                 // seed it exactly as a never-simulated cell (source default T, else biome ambient), so
                 // the assembler encodes E = m·h(T_seed) from the seeded mass.
@@ -113,11 +132,17 @@ final class SectionCellsReader {
      * single seed in {@link ColumnAssembler} (DESIGN 2026-06-01 §6 — exactly one fresh-fluid seed in
      * the pipeline). This method only selects stored-vs-geometry, never fabricates fluid mass.
      */
-    private static float[] sectionMass(SectionStore store, SubchunkKey key, GeometryAssembler.Geometry geo) {
-        boolean has = store != null && store.hasSection(key);
+    private static float[] sectionMass(SectionData sd, GeometryAssembler.Geometry geo) {
         // Never-simulated section: block-derived initial state (includes air/solid masses ColumnAssembler
         // cannot reconstruct). Simulated section: the advected/stored mass verbatim — the fresh-fluid
         // seed for a stored-empty fluid cell is applied downstream by ColumnAssembler, not here.
-        return has ? store.get(key).massArray().clone() : geo.mass();
+        if (sd == null) {
+            return geo.mass();
+        }
+        float[] mass = new float[SectionData.CELLS];
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            mass[i] = sd.massAt(i);
+        }
+        return mass;
     }
 }

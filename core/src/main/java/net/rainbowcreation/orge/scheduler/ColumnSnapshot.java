@@ -6,6 +6,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -19,9 +20,11 @@ import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -32,11 +35,14 @@ import java.util.function.Supplier;
  * projects it to the awake column set + a loaded apron ring, assembles each surviving column into a
  * full-height {@link net.rainbowcreation.orge.engine.ColumnTask} via {@link ColumnAssembler} (reading
  * live blocks + the §5 {@link SectionStore}), then drains this cycle's placement intents into the
- * batch's injection list (spec B3). Publishes the assembled material LUT through {@code lutSink} so the
- * write-back can resolve the engine output species against the same table.
+ * batch's injection list (spec B3).
  *
- * <p>Server-thread-confined; reads the live {@link MinecraftServer} lazily through {@code serverSource}.
- * Returns an empty batch when the server is unbound or there is nothing in range.</p>
+ * <p>Split across threads (issue #51): {@link #capture} runs on the server thread — the selection plus a
+ * copy of what the assembly reads ({@link CapturedColumn}), no per-cell work — and {@link #assemble} builds
+ * the batch from that capture on the scheduler's step thread. {@link #snapshotColumns} does both on the
+ * calling thread and publishes the batch LUT through {@code lutSink} for the in-place write-back. Reads the
+ * live {@link MinecraftServer} lazily through {@code serverSource}; the capture is empty when the server is
+ * unbound or there is nothing in range.</p>
  */
 final class ColumnSnapshot {
 
@@ -58,15 +64,46 @@ final class ColumnSnapshot {
         this.lutSink = lutSink;
     }
 
-    // Server thread only.
+    /** This cycle's capture: the active material state and the captured columns, assembled off-thread.
+     *  A null state is the capture with no server bound: no columns, and the empty batch. */
+    final class Captured implements ThermalWorld.CapturedColumns {
+        private final ActiveMaterials.State mats;
+        private final List<CapturedColumn> columns;
+
+        Captured(ActiveMaterials.State mats, List<CapturedColumn> columns) {
+            this.mats = mats;
+            this.columns = columns;
+        }
+
+        List<CapturedColumn> columns() { return columns; }
+
+        @Override public boolean isEmpty() { return columns.isEmpty(); }
+
+        @Override public ThermalWorld.ColumnBatch assemble() {
+            return mats == null ? new ThermalWorld.ColumnBatch(List.of(), List.of(MaterialLut.VACUUM))
+                    : ColumnSnapshot.this.assemble(mats, columns);
+        }
+    }
+
+    /** Capture and assemble in one go, on the calling (server) thread, publishing the batch LUT. */
     ThermalWorld.ColumnBatch snapshotColumns(int range) {
+        ThermalWorld.ColumnBatch batch = capture(range).assemble();
+        lutSink.accept(batch.lut());
+        return batch;
+    }
+
+    /**
+     * Server-thread half of the snapshot (issue #51): select this cycle's columns and copy what the
+     * assembly reads — per section the live block states, the store section (stamping its edit epoch) and
+     * the recorded engine-output species, per column its queued placement intents. No per-cell work.
+     */
+    Captured capture(int range) {
         MinecraftServer srv = serverSource.get();
         if (srv == null) {
-            return new ThermalWorld.ColumnBatch(List.of(), List.of(MaterialLut.VACUUM));
+            return new Captured(null, List.of());
         }
         ActiveMaterials.State mats = ActiveMaterials.current();
-        MaterialLut lut = new MaterialLut(mats.orderedMaterials(), mats.materialSlots());
-        List<ThermalWorld.ColumnEntry> entries = new ArrayList<>();
+        List<CapturedColumn> captured = new ArrayList<>();
 
         for (ServerLevel level : srv.getAllLevels()) {
             Identifier dim = level.dimension().identifier();
@@ -109,15 +146,59 @@ final class ColumnSnapshot {
             for (long packed : columns) {
                 int cx = unpackCx(packed);
                 int cz = unpackCz(packed);
-                if (LiveMaterials.loadedChunk(level, cx, cz) == null) {
+                LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
+                if (chunk == null) {
                     continue; // unloaded since selection: absent column = wall
                 }
-                ColumnAssembler.SectionSource src =
-                        columnSource(level, dim, store, lut, mats);
-                WaterlogSeeding.Seeds waterlog = new WaterlogSeeding.Seeds();
-                entries.add(new ThermalWorld.ColumnEntry(dim, cx, cz,
-                        ColumnAssembler.assemble(cx, cz, lut, mats.registry(), src, waterlog), waterlog));
+                captured.add(captureColumn(level, dim, store, chunk, cx, cz));
             }
+        }
+        return new Captured(mats, captured);
+    }
+
+    /** Copy one column's 24 sections (block states, store section, recorded species) and its intents. */
+    private CapturedColumn captureColumn(ServerLevel level, Identifier dim, SectionStore store, LevelChunk chunk,
+                                         int cx, int cz) {
+        boolean storeLoaded = store != null && store.isLoaded(cx, cz);
+        CapturedColumn.Section[] sections =
+                new CapturedColumn.Section[ColumnAssembler.MAX_SECTION_Y - ColumnAssembler.MIN_SECTION_Y + 1];
+        for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
+            SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+            LevelChunkSection section = LiveMaterials.sectionOrNull(chunk, sectionY);
+            boolean stored = store != null && store.hasSection(key);
+            SectionData data = null;
+            if (storeLoaded) {
+                SectionData live = store.get(key);
+                if (stored) {
+                    // Stamp the edit-epoch: the write-back of THIS cycle will skip the section if an
+                    // external edit (/orge set) lands after this read, so it can't clobber the edit.
+                    live.markSnapshot();
+                }
+                data = live.share(); // copy-on-write view: no copy unless the live section changes
+            }
+            sections[sectionY - ColumnAssembler.MIN_SECTION_Y] = new CapturedColumn.Section(
+                    section == null ? null : section.getStates().copy(),
+                    BlockChangeCapture.biomeAmbientK(level, key), cellMaterials.prior(dim, key), data, stored);
+        }
+        return new CapturedColumn(dim, cx, cz, sections, pendingInjections.peekColumn(dim, cx, cz));
+    }
+
+    /**
+     * Off-thread half of the snapshot (issue #51): assemble each captured column into a full-height
+     * {@link net.rainbowcreation.orge.engine.ColumnTask} via {@link ColumnAssembler}, then drain the
+     * captured placement intents into the batch's injection list (spec B3). Reads only the capture.
+     */
+    ThermalWorld.ColumnBatch assemble(ActiveMaterials.State mats, List<CapturedColumn> columns) {
+        MaterialLut lut = new MaterialLut(mats.orderedMaterials(), mats.materialSlots());
+        // First-touch material per block, resolved once per batch (it builds an id per call).
+        Map<Block, Material> firstTouch = new HashMap<>();
+        List<ThermalWorld.ColumnEntry> entries = new ArrayList<>(columns.size());
+        for (CapturedColumn c : columns) {
+            WaterlogSeeding.Seeds waterlog = new WaterlogSeeding.Seeds();
+            entries.add(new ThermalWorld.ColumnEntry(c.dimension, c.cx, c.cz,
+                    ColumnAssembler.assemble(c.cx, c.cz, lut, mats.registry(),
+                            capturedSource(c, lut, mats, firstTouch), waterlog),
+                    waterlog, c));
         }
         // ---- Drain placement intents into this batch's injection list (spec B3) ----
         // ORDERING IS LOAD-BEARING: this drain MUST run after all ColumnAssembler.assemble
@@ -130,12 +211,11 @@ final class ColumnSnapshot {
         List<PendingInjections.Intent> drained = new ArrayList<>();
         for (int columnId = 0; columnId < entries.size(); columnId++) {
             ThermalWorld.ColumnEntry e = entries.get(columnId);
-            List<PendingInjections.Intent> colIntents =
-                    pendingInjections.peekColumn(e.dimension(), e.cx(), e.cz());
+            CapturedColumn c = e.captured();
+            List<PendingInjections.Intent> colIntents = c.intents;
             if (colIntents.isEmpty()) {
                 continue;
             }
-            SectionStore store = stores.store(e.dimension());
             char[] colMat = e.task().matIx();
             float[] colMass = e.task().mass();
             int injBefore = injections.size();
@@ -147,8 +227,8 @@ final class ColumnSnapshot {
                 return m != null ? lut.indexOf(m) : 0;
             };
             InjectionDrain.applyToColumn(columnId, colMat, colMass, resolver, colIntents,
-                    engineCell -> recordedIncumbentId(e.dimension(), e.cx(), e.cz(), engineCell),
-                    engineCell -> storedMassAt(store, e.cx(), e.cz(), engineCell),
+                    engineCell -> recordedIncumbentId(c, engineCell),
+                    engineCell -> storedMassAt(c, engineCell),
                     injections, drained);
             if (InjectDebug.on()) {
                 int emitted = injections.size() - injBefore;
@@ -158,63 +238,47 @@ final class ColumnSnapshot {
                                 ? " (emitted<intents => unregistered material, left queued)" : "");
             }
         }
-        lutSink.accept(lut.materials());
         return new ThermalWorld.ColumnBatch(entries, lut.materials(), mats.lutEpoch(), injections, drained);
     }
 
-    /** Recorded engine-output species id for an engine-cell in a column, or null if untracked. */
-    private Identifier recordedIncumbentId(Identifier dim, int cx, int cz, int engineCell) {
-        int x = RegionMarshaller.colX(engineCell);
+    /** Recorded engine-output species id for an engine-cell of a captured column, or null if untracked. */
+    private static Identifier recordedIncumbentId(CapturedColumn c, int engineCell) {
         int engineY = RegionMarshaller.colY(engineCell);
-        int z = RegionMarshaller.colZ(engineCell);
         int sectionY = Math.floorDiv(engineY - 64, 16);      // inverse of engineY = sectionY*16 + sy + 64
         int sy = engineY - 64 - sectionY * 16;
-        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
-        Identifier[] prior = cellMaterials.prior(dim, key);
-        int sectionCell = x + 16 * sy + 256 * z;
+        Identifier[] prior = c.section(sectionY).prior();
+        int sectionCell = RegionMarshaller.colX(engineCell) + 16 * sy + 256 * RegionMarshaller.colZ(engineCell);
         return (prior != null && sectionCell < prior.length) ? prior[sectionCell] : null;
     }
 
-    /** Stored mass (kg) for an engine-cell in a column. */
-    private float storedMassAt(SectionStore store, int cx, int cz, int engineCell) {
-        if (store == null) {
-            return 0f;
-        }
-        int x = RegionMarshaller.colX(engineCell);
+    /** Stored mass (kg) for an engine-cell of a captured column (0 when its store was not loaded). */
+    private static float storedMassAt(CapturedColumn c, int engineCell) {
         int engineY = RegionMarshaller.colY(engineCell);
-        int z = RegionMarshaller.colZ(engineCell);
         int sectionY = Math.floorDiv(engineY - 64, 16);
         int sy = engineY - 64 - sectionY * 16;
-        SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
-        if (!store.isLoaded(cx, cz)) {
-            return 0f;
-        }
-        SectionData data = store.get(key);
+        SectionData data = c.section(sectionY).data();
         if (data == null) {
             return 0f;
         }
-        int sectionCell = x + 16 * sy + 256 * z;
-        return data.massAt(sectionCell);
+        return data.massAt(RegionMarshaller.colX(engineCell) + 16 * sy + 256 * RegionMarshaller.colZ(engineCell));
     }
 
     /**
-     * A per-section reader for {@link ColumnAssembler}: matIx from live blocks (via
-     * {@link LiveMaterials}/{@link GeometryAssembler}); mass/T from the {@link SectionStore} (the
-     * §10 advected state — the fresh-fluid seed is applied once by {@link ColumnAssembler}, not here),
-     * or the per-cell ambient seed for a never-simulated / out-of-world section. A section not loaded
-     * in the chunk is read as
-     * full ambient air (matIx 0 / void with ambient T) — it is inside a present (loaded) column, so it
-     * is a real defined cell, never "unknown".
+     * A per-section reader for {@link ColumnAssembler} over a captured column: matIx from the captured
+     * blocks (via {@link LiveMaterials}/{@link GeometryAssembler}); mass/T from the captured store section
+     * (the §10 advected state — the fresh-fluid seed is applied once by {@link ColumnAssembler}, not here),
+     * or the per-cell ambient seed for a never-simulated / out-of-world section. A section the chunk does
+     * not have is read as full ambient air (matIx 0 / void with ambient T) — it is inside a present
+     * (loaded) column, so it is a real defined cell, never "unknown".
      */
-    private ColumnAssembler.SectionSource columnSource(ServerLevel level, Identifier dim,
-                                                       SectionStore store, MaterialLut lut,
-                                                       ActiveMaterials.State mats) {
+    private static ColumnAssembler.SectionSource capturedSource(CapturedColumn c, MaterialLut lut,
+                                                                ActiveMaterials.State mats,
+                                                                Map<Block, Material> firstTouch) {
+        Material water = mats.registry().get(ColumnAssembler.WATER_ID).orElse(null);
         return (cx, cz, sectionY) -> {
-            SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
-            LevelChunk chunk = LiveMaterials.loadedChunk(level, cx, cz);
-            LevelChunkSection section = chunk == null ? null : LiveMaterials.sectionOrNull(chunk, sectionY);
-            float ambientK = BlockChangeCapture.biomeAmbientK(level, key);
-            if (section == null) {
+            CapturedColumn.Section s = c.section(sectionY);
+            float ambientK = s.ambientK();
+            if (s.blocks() == null) {
                 // No block section here (above world top / empty subchunk): treat as void/ambient. matIx
                 // 0 (void) → ColumnAssembler leaves it as-is (not a fluid, so no seed); mass 0; ambient T.
                 char[] mat = new char[SectionData.CELLS];
@@ -223,31 +287,30 @@ final class ColumnSnapshot {
                 java.util.Arrays.fill(temp, ambientK);
                 return new ColumnAssembler.SectionCells(mat, mass, temp);
             }
-            final LevelChunkSection sec = section;
-            GeometryAssembler.CellMaterials cellMat =
-                    i -> LiveMaterials.materialFor(LiveMaterials.blockAt(sec, i), mats.registry());
-            GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
             // A waterlogged live block holds ρ_water·V_pore of water (proposal §12 Q4 (B)); the assembler
             // seeds it once (a never-simulated or legacy cell), never into a drained cell.
+            Material[] blockMat = new Material[SectionData.CELLS];
             float[] waterlogSeed = new float[SectionData.CELLS];
-            Material water = mats.registry().get(ColumnAssembler.WATER_ID).orElse(null);
             for (int i = 0; i < SectionData.CELLS; i++) {
-                BlockState st = LiveMaterials.blockStateAt(sec, i);
+                BlockState st = s.blockAt(i);
+                blockMat[i] = firstTouch.computeIfAbsent(st.getBlock(),
+                        b -> LiveMaterials.materialFor(b, mats.registry()));
                 if (st.hasProperty(BlockStateProperties.WATERLOGGED) && st.getValue(BlockStateProperties.WATERLOGGED)) {
-                    waterlogSeed[i] = ColumnAssembler.waterlogSeedKg(cellMat.at(i), water);
+                    waterlogSeed[i] = ColumnAssembler.waterlogSeedKg(blockMat[i], water);
                 }
             }
+            GeometryAssembler.CellMaterials cellMat = i -> blockMat[i];
+            GeometryAssembler.Geometry geo = GeometryAssembler.assemble(cellMat, lut);
             // Last cycle's recorded engine-output species (the CellMaterialTracker signature) feeds the
-            // ColumnAssembler seed gate and the InjectionDrain incumbent lookup below. Identity itself is
-            // now durable (persisted into SectionStore at write-back), so there is no longer a block-diff
-            // reseed here — material changes arrive as place/break EVENTS, not a snapshot-time diff.
-            Identifier[] priorMat = cellMaterials.prior(dim, key);
-            // Translate last cycle's recorded engine-output species into this section's LUT space for the
-            // ColumnAssembler seed gate: a fluid cell at 0 kg is reseeded only when its label is NEW
-            // relative to priorSpecies (genuine placement), never when the engine drained it (prior ==
-            // current ⇒ no fabrication). An untracked section yields all-void ⇒ every fresh fluid seeds.
-            char[] priorSpecies = priorSpeciesIndices(priorMat, lut);
-            return SectionCellsReader.read(store, key, geo, cellMat,
+            // ColumnAssembler seed gate and the InjectionDrain incumbent lookup. Identity itself is durable
+            // (persisted into SectionStore at write-back), so there is no longer a block-diff reseed here —
+            // material changes arrive as place/break EVENTS, not a snapshot-time diff.
+            // Translated into this batch's LUT space for the seed gate: a fluid cell at 0 kg is reseeded
+            // only when its label is NEW relative to priorSpecies (genuine placement), never when the engine
+            // drained it (prior == current ⇒ no fabrication). An untracked section yields all-void ⇒ every
+            // fresh fluid seeds.
+            char[] priorSpecies = priorSpeciesIndices(s.prior(), lut);
+            return SectionCellsReader.read(s.stored() ? s.data() : null, geo, cellMat,
                     id -> mats.registry().get(id).orElse(null), priorSpecies, waterlogSeed, ambientK);
         };
     }

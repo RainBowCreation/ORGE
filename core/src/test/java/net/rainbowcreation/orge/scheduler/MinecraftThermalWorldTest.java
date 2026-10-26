@@ -582,4 +582,80 @@ class MinecraftThermalWorldTest {
         assertTrue(world.hydrationDrain().massLedger(DIM, SkyTestWorld.WATER) < 0);
         assertFalse(activeSet.isAsleep(DIM, key), "the drained section is woken so it steps and reconciles");
     }
+    // ---- Issue #51: the sky pass on the step thread over the snapshot's capture ----
+
+    /** Column (0,0) of {@code store} as the snapshot captures it, headless: each section's store view. */
+    private static CapturedColumn captureColumn(SectionStore store, Identifier dim) {
+        CapturedColumn.Section[] secs =
+                new CapturedColumn.Section[ColumnAssembler.MAX_SECTION_Y - ColumnAssembler.MIN_SECTION_Y + 1];
+        for (int sy = ColumnAssembler.MIN_SECTION_Y; sy <= ColumnAssembler.MAX_SECTION_Y; sy++) {
+            SubchunkKey key = new SubchunkKey(0, sy, 0);
+            boolean stored = store.hasSection(key);
+            secs[sy - ColumnAssembler.MIN_SECTION_Y] =
+                    new CapturedColumn.Section(null, 285f, null, store.get(key).share(), stored);
+        }
+        return new CapturedColumn(dim, 0, 0, secs, List.of());
+    }
+
+    /**
+     * The sky pass run on the step thread over a capture (forcing + rain or evaporation in one walk) leaves
+     * the captured sections exactly as the server-thread pass leaves the store, books the same ledgers, and
+     * does not touch the live store it was captured from.
+     */
+    private static void assertStepThreadSkyPassMatchesTheStorePass(Path dir, Identifier surfaceMaterial,
+                                                                   long dayTime, float rain) {
+        SectionStoreManager ref = SkyTestWorld.loaded(dir.resolve("ref"), DIM);
+        SectionStoreManager live = SkyTestWorld.loaded(dir.resolve("live"), DIM);
+        SkyTestWorld.flatWorld(ref.store(DIM), surfaceMaterial, 300f);
+        SkyTestWorld.flatWorld(live.store(DIM), surfaceMaterial, 300f);
+
+        MinecraftThermalWorld refWorld = new MinecraftThermalWorld(ref);
+        refWorld.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0)));
+        refWorld.applySurfaceForcing(DIM, dayTime, rain, 1.0, SkyTestWorld.lookup());
+
+        MinecraftThermalWorld liveWorld = new MinecraftThermalWorld(live);
+        SurfaceForcing.Climate climate = SurfaceForcing.Climate.forDimension(DIM, dayTime, rain).orElseThrow();
+        CapturedColumn c = captureColumn(live.store(DIM), DIM);
+        MinecraftThermalWorld.SkyLedgers ledgers = MinecraftThermalWorld.forceCaptured(c,
+                new MinecraftThermalWorld.SkyPass(climate,
+                        liveWorld.evaporation().nextDither(DIM, climate, SkyTestWorld.lookup())),
+                1.0, SkyTestWorld.lookup());
+
+        SectionStoreManager untouched = SkyTestWorld.loaded(dir.resolve("untouched"), DIM);
+        SkyTestWorld.flatWorld(untouched.store(DIM), surfaceMaterial, 300f);
+        for (int sy = 2; sy <= 5; sy++) {
+            SubchunkKey key = new SubchunkKey(0, sy, 0);
+            SectionData want = ref.store(DIM).get(key);
+            SectionData got = c.section(sy).data();
+            SectionData before = untouched.store(DIM).get(key);
+            SectionData liveNow = live.store(DIM).get(key);
+            for (int i = 0; i < SectionData.CELLS; i++) {
+                assertEquals(want.enthalpyAt(i), got.enthalpyAt(i), 0.0, "E sy=" + sy + " cell " + i);
+                assertEquals(want.massAt(i), got.massAt(i), 0f, "mass sy=" + sy + " cell " + i);
+                assertEquals(want.materialAt(i), got.materialAt(i), "species sy=" + sy + " cell " + i);
+                for (int k = 1; k < SectionData.SLOTS; k++) {
+                    assertEquals(want.slotMaterialAt(k, i), got.slotMaterialAt(k, i));
+                    assertEquals(want.slotMassAt(k, i), got.slotMassAt(k, i), 0f);
+                }
+                assertEquals(before.enthalpyAt(i), liveNow.enthalpyAt(i), 0.0, "the live store is untouched");
+                assertEquals(before.cellMassAt(i), liveNow.cellMassAt(i), 0f, "the live store is untouched");
+            }
+        }
+        assertEquals(refWorld.surfaceForcing().ledger(DIM), ledgers.forcing().ledger(DIM), 0.0);
+        assertEquals(refWorld.rainSeeding().mass(DIM), ledgers.rain().mass(DIM), 0.0);
+        assertEquals(refWorld.rainSeeding().energy(DIM), ledgers.rain().energy(DIM), 0.0);
+        assertEquals(refWorld.evaporation().mass(DIM), ledgers.evaporation().mass(DIM), 0.0);
+        assertEquals(refWorld.evaporation().energy(DIM), ledgers.evaporation().energy(DIM), 0.0);
+        assertEquals(refWorld.evaporation().evaporated(DIM), ledgers.evaporation().evaporated(DIM), 0.0);
+    }
+
+    @Test
+    void stepThreadSkyPassForcesAndEvaporatesExactlyLikeTheStorePass(@TempDir Path dir) {
+        assertStepThreadSkyPassMatchesTheStorePass(dir, SkyTestWorld.WATER, 6000L, 0f);   // clear noon
+    }
+
+    @Test
+    void stepThreadSkyPassForcesAndRainsExactlyLikeTheStorePass(@TempDir Path dir) {
+        assertStepThreadSkyPassMatchesTheStorePass(dir, null, 18000L, 1f);                // raining night
+    }
 }

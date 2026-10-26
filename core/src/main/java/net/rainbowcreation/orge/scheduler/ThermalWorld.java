@@ -54,10 +54,17 @@ public interface ThermalWorld {
     /** One full-height column ({@link ColumnTask}, {@link net.rainbowcreation.orge.engine.RegionMarshaller#CHUNK_N}
      *  cells) plus the key it came from for write-back, and the waterlogged-block water its assembly seeded
      *  (booked as a boundary placement when its section is written back, issue #60). */
-    record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task, WaterlogSeeding.Seeds waterlog) {
+    record ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task, WaterlogSeeding.Seeds waterlog,
+                       CapturedColumn captured) {
         /** A column whose assembly seeded no waterlogged-block water. */
         public ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task) {
             this(dimension, cx, cz, task, new WaterlogSeeding.Seeds());
+        }
+
+        /** A column assembled without a server-thread capture (headless): its write-back reads the live
+         *  store when it is applied. */
+        public ColumnEntry(Identifier dimension, int cx, int cz, ColumnTask task, WaterlogSeeding.Seeds waterlog) {
+            this(dimension, cx, cz, task, waterlog, null);
         }
     }
 
@@ -83,6 +90,70 @@ public interface ThermalWorld {
      */
     default ColumnBatch snapshotColumns(int range) {
         return new ColumnBatch(List.of(), List.of(MaterialLut.VACUUM));
+    }
+
+    /**
+     * A column snapshot split across threads (issue #51). {@link #captureColumns} runs on the server
+     * thread and copies only what the snapshot reads from the world and the store; {@link #assemble}
+     * builds the {@link ColumnBatch} from that copy on any thread — the scheduler runs it on its step
+     * thread, so the per-cell assembly never costs the server tick.
+     */
+    interface CapturedColumns {
+        /** Nothing in range: no batch to assemble, the scheduler stays idle. */
+        boolean isEmpty();
+
+        /** Build the batch from the capture. Touches no live world or store state; any thread. */
+        ColumnBatch assemble();
+
+        /**
+         * Whether this capture took the cycle's sky pass with it (it runs during {@link #assemble} and lands
+         * with the write-back), so a cycle that writes nothing back also loses its pass. Default {@code false}:
+         * the pass already ran on the store before the capture.
+         */
+        default boolean defersSkyPass() {
+            return false;
+        }
+    }
+
+    /**
+     * Server-thread half of {@link #snapshotColumns}: capture this cycle's column set at {@code range}.
+     * The default assembles on the spot (headless worlds that supply a ready batch).
+     */
+    default CapturedColumns captureColumns(int range) {
+        ColumnBatch batch = snapshotColumns(range);
+        return new CapturedColumns() {
+            @Override public boolean isEmpty() { return batch.entries().isEmpty(); }
+            @Override public ColumnBatch assemble() { return batch; }
+        };
+    }
+
+    /**
+     * {@link #captureColumns(int)} for a cycle that also runs the sky pass for {@code forcingDtSeconds}
+     * ({@code 0} = no pass this cycle). The default runs the pass first, on the calling (server) thread —
+     * {@link #applySurfaceForcing} — so the capture reads the forced store; the live world runs it on the
+     * step thread over the capture instead (issue #51).
+     */
+    default CapturedColumns captureColumns(int range, double forcingDtSeconds) {
+        if (forcingDtSeconds > 0) {
+            applySurfaceForcing(forcingDtSeconds);
+        }
+        return captureColumns(range);
+    }
+
+    /** The server-thread half of a column write-back prepared off-thread (issue #51). */
+    interface PreparedWrite {
+        /** Install the prepared column into the store and the world. Server thread only. */
+        void apply();
+    }
+
+    /**
+     * Off-thread half of {@link #writeBackColumn}: everything per-cell is computed now, on the calling
+     * thread, from {@code entry}'s capture; {@link PreparedWrite#apply} installs it on the server thread.
+     * {@code lut} is the batch material table. The default defers the whole write-back to apply time
+     * (headless worlds).
+     */
+    default PreparedWrite prepareWriteBack(ColumnEntry entry, ColumnResult result, List<Material> lut) {
+        return () -> writeBackColumn(entry, result);
     }
 
     /**

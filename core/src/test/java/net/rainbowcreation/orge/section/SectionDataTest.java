@@ -404,4 +404,117 @@ class SectionDataTest {
         assertEquals(6.0e8 + 3.0, s.enthalpyAt(8), 0.0, "the live array is double too");
         assertEquals(6.0e8, s.enthalpyAt(9), 0.0, "promotion back-fills the exact uniform E");
     }
+    // -------------------------------------------------------------------------
+    // Off-thread hand-over (issue #51): copy-on-write share() + adopt()
+    // -------------------------------------------------------------------------
+
+    private static final net.minecraft.resources.Identifier STONE =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "stone");
+
+    /** A FULL section carrying every channel: E, mass, materials, momentum, p, swapReady, a slot. */
+    private static SectionData everyChannel() {
+        SectionData s = fullUniform(5e5f, 1000f);
+        for (int i = 0; i < SectionData.CELLS; i++) {
+            s.setMaterialAt(i, STONE);
+            s.setMomentum(i, 1f, 2f, 3f);
+            s.setPressure(i, 4f);
+            s.setSwapReady(i, 0.5f);
+        }
+        s.setSlot(1, 7, WATER, 12f);
+        return s;
+    }
+
+    @Test
+    void share_viewKeepsTheCapturedStateThroughEveryLiveMutation() {
+        SectionData live = everyChannel();
+        SectionData view = live.share();
+
+        live.setEnthalpy(0, 1.0);
+        live.massArray()[1] = 2f;
+        live.enthalpyArray()[2] = 3.0;
+        live.setMass(3, 4f);
+        live.setMaterialAt(4, WATER);
+        live.setMomentum(5, 9f, 9f, 9f);
+        live.momXArray()[6] = 9f;
+        live.setPressure(7, 9f);
+        live.pArray()[8] = 9f;
+        live.setSwapReady(9, 9f);
+        live.swapReadyArray()[10] = 9f;
+        live.setSlot(1, 7, STONE, 99f);
+
+        assertEquals(5e5f, view.enthalpyAt(0));
+        assertEquals(1000f, view.massAt(1));
+        assertEquals(5e5f, view.enthalpyAt(2));
+        assertEquals(1000f, view.massAt(3));
+        assertEquals(STONE, view.materialAt(4));
+        assertEquals(1f, view.momXAt(5));
+        assertEquals(1f, view.momXAt(6));
+        assertEquals(4f, view.pAt(7));
+        assertEquals(4f, view.pAt(8));
+        assertEquals(0.5f, view.swapReadyAt(9));
+        assertEquals(0.5f, view.swapReadyAt(10));
+        assertEquals(WATER, view.slotMaterialAt(1, 7));
+        assertEquals(12f, view.slotMassAt(1, 7));
+
+        // ...while the live section has every change
+        assertEquals(1.0, live.enthalpyAt(0));
+        assertEquals(2f, live.massAt(1));
+        assertEquals(3.0, live.enthalpyAt(2));
+        assertEquals(4f, live.massAt(3));
+        assertEquals(WATER, live.materialAt(4));
+        assertEquals(9f, live.momXAt(5));
+        assertEquals(9f, live.momXAt(6));
+        assertEquals(9f, live.pAt(7));
+        assertEquals(9f, live.pAt(8));
+        assertEquals(9f, live.swapReadyAt(9));
+        assertEquals(9f, live.swapReadyAt(10));
+        assertEquals(STONE, live.slotMaterialAt(1, 7));
+        assertEquals(99f, live.slotMassAt(1, 7));
+    }
+
+    /** The server-thread capture of a fully simulated section allocates the view object, not its 4096-cell
+     *  channels (~170 KB per section, ~4 MB per column) — the snapshot's server-thread share of issue #51. */
+    @Test
+    void share_allocatesNoChannelCopy() {
+        SectionData live = everyChannel();
+        com.sun.management.ThreadMXBean mx =
+                (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        live.share(); // warm up (class init, JIT)
+        long before = mx.getCurrentThreadAllocatedBytes();
+        for (int k = 0; k < 24; k++) {
+            live.share();
+        }
+        long perColumn = mx.getCurrentThreadAllocatedBytes() - before;
+        assertTrue(perColumn < 16 * 1024, "24 shares (one column) allocated " + perColumn + " bytes");
+    }
+
+    @Test
+    void adopt_installsEveryChannelOfTheNextSectionAndKeepsTheEditEpochs() {
+        SectionData live = fullUniform(1f, 1f);
+        live.markExternalEdit();                     // an edit after the (absent) snapshot: epochs differ
+        SectionData next = everyChannel();
+        next.setEnthalpy(11, 77.0);
+
+        live.adopt(next);
+
+        assertEquals(77.0, live.enthalpyAt(11));
+        assertEquals(1000f, live.massAt(0));
+        assertEquals(STONE, live.materialAt(0));
+        assertEquals(1f, live.momXAt(0));
+        assertEquals(4f, live.pAt(0));
+        assertEquals(0.5f, live.swapReadyAt(0));
+        assertEquals(WATER, live.slotMaterialAt(1, 7));
+        assertTrue(live.editedSinceSnapshot(), "the live section's edit epochs are its own");
+    }
+
+    @Test
+    void adopt_endsTheSharingOfTheOldArrays() {
+        SectionData live = everyChannel();
+        SectionData view = live.share();
+        live.adopt(everyChannel());
+        double[] adopted = live.enthalpyArray();
+        live.setEnthalpy(0, 123.0);
+        assertSame(adopted, live.enthalpyArray(), "the adopted arrays are not shared: mutated in place");
+        assertEquals(5e5f, view.enthalpyAt(0), "and the old view is untouched");
+    }
 }

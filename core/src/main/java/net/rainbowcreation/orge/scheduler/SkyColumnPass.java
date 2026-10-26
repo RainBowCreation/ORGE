@@ -2,12 +2,15 @@ package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.section.MaterialPalette;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -120,29 +123,109 @@ public final class SkyColumnPass {
     /** Walk column {@code (cx, cz)} of {@code store}, resolving stored material ids through {@code lookup}. */
     public static void walk(SectionStore store, int cx, int cz,
                             Function<Identifier, Material> lookup, Visitor visitor) {
+        // One registry lookup per distinct id per column, not per cell slot (issue #51: the pass runs on the
+        // server thread over every stored cell above the surface).
+        Map<Identifier, Optional<Material>> resolved = new HashMap<>();
+        Function<Identifier, Material> memo =
+                id -> resolved.computeIfAbsent(id, k -> Optional.ofNullable(lookup.apply(k))).orElse(null);
+        // Each stored section once per column: its palette resolved to materials, and whether none of them
+        // emits (ε = 0 for every cell, e.g. dry air) — such a section hands out no exposure and passes τ
+        // through unchanged, so the cell walk skips it whole.
+        int n = ColumnAssembler.MAX_SECTION_Y - ColumnAssembler.MIN_SECTION_Y + 1;
+        Section[] sections = new Section[n];
+        for (int sectionY = ColumnAssembler.MIN_SECTION_Y; sectionY <= ColumnAssembler.MAX_SECTION_Y; sectionY++) {
+            SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
+            if (store.hasSection(key)) {
+                Section sec = new Section(key, store.get(key), memo);
+                sections[sectionY - ColumnAssembler.MIN_SECTION_Y] = sec.transparent ? null : sec;
+            }
+        }
         for (int z = 0; z < 16; z++) {
             for (int x = 0; x < 16; x++) {
-                walkCellColumn(store, cx, cz, x, z, lookup, visitor);
+                walkCellColumn(x, z, visitor, sections);
                 visitor.columnDone();
             }
         }
     }
 
-    private static void walkCellColumn(SectionStore store, int cx, int cz, int x, int z,
-                                       Function<Identifier, Material> lookup, Visitor visitor) {
+    /** One stored section of the walked column, its palette resolved once to materials. */
+    private static final class Section {
+        final SubchunkKey key;
+        final SectionData data;
+        /** Slot-0 material per palette slot (the unset marker reads as vacuum), composition-slot material per
+         *  palette slot, and the material a cell with no layer reads ({@code orge:vacuum}). */
+        final Material[] slot0;
+        final Material[] slotK;
+        final Material vacuum;
+        final boolean transparent;
+        private final Function<Identifier, Material> lookup;
+
+        Section(SubchunkKey key, SectionData data, Function<Identifier, Material> lookup) {
+            this.key = key;
+            this.data = data;
+            this.lookup = lookup;
+            List<Identifier> raw = data.rawPalette();
+            slot0 = new Material[raw.size()];
+            slotK = new Material[raw.size()];
+            vacuum = lookup.apply(MaterialPalette.VACUUM_ID);
+            for (int j = 0; j < raw.size(); j++) {
+                Identifier id = raw.get(j);
+                slotK[j] = lookup.apply(id);
+                slot0[j] = MaterialPalette.UNSET_ID.equals(id) ? vacuum : slotK[j];
+            }
+            transparent = transparent(data, lookup);
+        }
+
+        /** {@link SkyColumnPass#cellEmissivity} over the resolved palette. */
+        double emissivity(int cell) {
+            double vSum = 0.0;
+            double vEps = 0.0;
+            int slots = data.hasSlots() ? SectionData.SLOTS : 1;   // no composition layer: slots 1.. are empty
+            for (int k = 0; k < slots; k++) {
+                int j = k == 0 ? data.materialSlotAt(cell) : data.slotMaterialSlotAt(k, cell);
+                // A visitor that wrote a new species into a cell it was handed grew the palette; only that
+                // (already walked) cell can reference the new slots, but resolve such an index directly.
+                Material mat = j < 0 ? vacuum
+                        : j >= slotK.length ? lookup.apply(k == 0 ? data.materialAt(cell) : data.slotMaterialAt(k, cell))
+                        : k == 0 ? slot0[j] : slotK[j];
+                if (mat == null) {
+                    continue; // unknown / vacuum id: no substance, no volume
+                }
+                float m = k == 0 ? data.massAt(cell) : data.slotMassAt(k, cell);
+                double v = Math.max(0f, m) / ((double) mat.defaultMass() + EPS_V);
+                vSum += v;
+                vEps += v * mat.emissivity();
+            }
+            return vEps / (vSum + EPS_V);
+        }
+    }
+
+    /** Whether no cell of {@code data} can emit: every material of its palette — which slot 0 and the
+     *  composition slots both intern into — has ε = 0, so every cell's volume-mixed ε is 0. */
+    private static boolean transparent(SectionData data, Function<Identifier, Material> lookup) {
+        for (Identifier id : data.palette()) {
+            Material m = lookup.apply(id);
+            if (m != null && m.emissivity() != 0.0) {
+                return false;
+            }
+        }
+        // A section with no material layer reads every cell as orge:vacuum, which is in the palette.
+        return true;
+    }
+
+    private static void walkCellColumn(int x, int z, Visitor visitor, Section[] sections) {
         double tau = 1.0;
         for (int sectionY = ColumnAssembler.MAX_SECTION_Y; sectionY >= ColumnAssembler.MIN_SECTION_Y; sectionY--) {
-            SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
-            if (!store.hasSection(key)) {
-                continue;
+            Section sec = sections[sectionY - ColumnAssembler.MIN_SECTION_Y];
+            if (sec == null) {
+                continue; // not stored (no state), or transparent
             }
-            SectionData data = store.get(key);
             for (int sy = 15; sy >= 0; sy--) {
                 int cell = x + 16 * sy + 256 * z;
-                double eps = cellEmissivity(data, cell, lookup);
+                double eps = sec.emissivity(cell);
                 double w = tau * eps;
                 if (w > 0.0) {
-                    visitor.exposed(key, data, cell, w);
+                    visitor.exposed(sec.key, sec.data, cell, w);
                 }
                 tau -= w;
                 if (tau < TAU_MIN) {
@@ -159,7 +242,8 @@ public final class SkyColumnPass {
     static double cellEmissivity(SectionData data, int cell, Function<Identifier, Material> lookup) {
         double vSum = 0.0;
         double vEps = 0.0;
-        for (int k = 0; k < SectionData.SLOTS; k++) {
+        int slots = data.hasSlots() ? SectionData.SLOTS : 1;   // no composition layer: slots 1.. are empty
+        for (int k = 0; k < slots; k++) {
             Identifier id = k == 0 ? data.materialAt(cell) : data.slotMaterialAt(k, cell);
             float m = k == 0 ? data.massAt(cell) : data.slotMassAt(k, cell);
             Material mat = lookup.apply(id);

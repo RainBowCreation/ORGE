@@ -9,6 +9,8 @@ import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.section.MaterialPalette;
 import net.rainbowcreation.orge.section.SectionData;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Function;
 
 /** Builds one full-height engine column (CHUNK_N cells, idx = x + 16*y + 6144*z) from the 24 vanilla
@@ -160,6 +162,8 @@ public final class ColumnAssembler {
         // EnthalpyCurve lookup (law §6/§7): returns null for an absent/unresolvable id, matching the
         // contract every derive/encode site already uses (id -> registry.get(id).orElse(null)).
         Function<Identifier, Material> lookup = id -> registry.get(id).orElse(null);
+        // Batch-LUT index per stored id, resolved once per column (a registry + LUT lookup per cell otherwise).
+        Map<Identifier, Character> storedIx = new HashMap<>();
         Material water = registry.get(WATER_ID).orElse(null);
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
@@ -175,7 +179,7 @@ public final class ColumnAssembler {
                         Identifier sid = cells.storedMaterial()[si];
                         char mat;
                         if (sid != null) {
-                            mat = storedIndex(sid, lut, registry); // appends if absent — stored is authoritative
+                            mat = storedIx.computeIfAbsent(sid, id -> storedIndex(id, lut, registry)); // appends if absent — stored is authoritative
                         } else {
                             mat = cells.matIx()[si];               // unstored → block's first-touch index
                         }
@@ -186,7 +190,8 @@ public final class ColumnAssembler {
                             float sm = cells.slotMass()[(k - 1) * SEC + si];
                             if (sm > 0f) {
                                 int q = (k - 1) * N + ci;
-                                slotIx[q] = storedIndex(cells.slotMaterial()[(k - 1) * SEC + si], lut, registry);
+                                slotIx[q] = storedIx.computeIfAbsent(cells.slotMaterial()[(k - 1) * SEC + si],
+                                        id -> storedIndex(id, lut, registry));
                                 slotMass[q] = sm;
                                 slotTotal += sm;
                             }

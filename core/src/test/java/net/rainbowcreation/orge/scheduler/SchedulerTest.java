@@ -30,6 +30,8 @@ class SchedulerTest {
         Callable<List<StepResult>> task;
         boolean done;
         boolean cancelled;
+        /** The runner has begun the step (a real runner's step thread picked it up). */
+        boolean started;
         List<StepResult> canned;
         RuntimeException failure;
 
@@ -48,6 +50,7 @@ class SchedulerTest {
                     try { return task.call(); } catch (Exception e) { throw new RuntimeException(e); }
                 }
                 @Override public void cancel() { cancelled = true; }
+                @Override public boolean started() { return started; }
             };
         }
     }
@@ -245,6 +248,79 @@ class SchedulerTest {
         assertTrue(runner.cancelled, "step cancelled after the grace window");
         assertEquals(0, world.writtenResults.size(), "no write-back on a missed deadline (held previous)");
         assertEquals(1, w.range(), "late step dropped the range from 2 to 1");
+    }
+
+    /**
+     * Issue #51: a step the runner has begun is never cancelled for being slow. On a loaded host one native
+     * step outlasted the 40-tick grace every time, so every step was cancelled — its work discarded while
+     * it kept running — and nothing was ever simulated. Past the grace window it is still held, and when it
+     * lands it writes back, counted late.
+     */
+    @Test
+    void startedStepPastTheGraceWindowIsNotCancelledAndWritesBackLate() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Worker w = worker();
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, w);
+
+        for (int i = 0; i < 5; i++) s.onServerTick();
+        runner.started = true;                                    // the step thread is running it
+        for (int i = 0; i < Scheduler.TICKS_PER_STEP * 30; i++) s.onServerTick();
+        assertFalse(runner.cancelled, "a started step is not cancelled past the grace window");
+        assertEquals(0, s.metrics().cancelled, "no cancel counted");
+        assertEquals(0, world.writtenResults.size(), "previous values held while it runs");
+        assertEquals(1, world.snapshots, "and nothing else is submitted behind it");
+
+        runner.done = true;
+        s.onServerTick();
+        assertEquals(1, world.writtenResults.size(), "the slow step's result is written back");
+        assertEquals(1, s.metrics().completed, "and counted completed");
+        assertEquals(1, s.metrics().late, "late");
+        assertEquals(1, w.range(), "and as a late step it drops the range");
+    }
+
+    /**
+     * Issue #51: the per-cell snapshot assembly and the per-cell write-back preparation run on the step
+     * thread, never on the server tick — on a live server they took seconds per cycle on the server thread
+     * (and once tripped the watchdog). Only the capture and the install run on the calling (server) thread.
+     */
+    @Test
+    void snapshotAssemblyAndWriteBackPreparationRunOnTheStepThread() throws Exception {
+        Thread server = Thread.currentThread();
+        List<String> events = java.util.Collections.synchronizedList(new ArrayList<>());
+        ThermalWorld.ColumnBatch batch = oneColumnBatch(300f);
+        ThermalWorld world = new ThermalWorld() {
+            @Override public CapturedColumns captureColumns(int range) {
+                events.add("capture@" + (Thread.currentThread() == server ? "server" : "step"));
+                return new CapturedColumns() {
+                    @Override public boolean isEmpty() { return false; }
+                    @Override public ColumnBatch assemble() {
+                        events.add("assemble@" + (Thread.currentThread() == server ? "server" : "step"));
+                        return batch;
+                    }
+                };
+            }
+            @Override public PreparedWrite prepareWriteBack(ColumnEntry entry, ColumnResult result,
+                                                            List<Material> lut) {
+                events.add("prepare@" + (Thread.currentThread() == server ? "server" : "step"));
+                return () -> events.add("apply@" + (Thread.currentThread() == server ? "server" : "step"));
+            }
+        };
+        ExecutorStepRunner runner = new ExecutorStepRunner();
+        try {
+            Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
+            for (int i = 0; i < 5; i++) s.onServerTick();             // the boundary tick submits
+            long deadline = System.nanoTime() + 30_000_000_000L;
+            while (!events.contains("apply@server") && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+                s.onServerTick();
+            }
+            assertEquals(List.of("capture@server", "assemble@step", "prepare@step", "apply@server"), events);
+            assertEquals(1, s.metrics().completed);
+        } finally {
+            runner.shutdown();
+        }
     }
 
     @Test
@@ -509,6 +585,63 @@ class SchedulerTest {
         s.onServerTick();                                                          // tick 26: complete → IDLE
         for (int i = 0; i < 4; i++) s.onServerTick();                             // ticks 27..30: next boundary
         assertEquals(List.of(30 / 20.0), world.forcingDts, "the late pass forces all 30 elapsed ticks");
+    }
+
+    /** Issue #51: a started step now runs however long it takes, so the pass after a long overrun would force
+     *  the whole overrun in one explicit jump; it forces at most {@link Scheduler#MAX_FORCING_SECONDS}. */
+    @Test
+    void skyForcingAfterALongOverrunIsCappedAtMaxForcingSeconds() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(new RecordingEngine(), world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick();      // submit at tick 5
+        runner.started = true;
+        for (int i = 0; i < 60 * 20; i++) s.onServerTick();                        // a minute in flight
+        runner.done = true;
+        s.onServerTick();                                                          // lands → IDLE
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick();      // next boundary
+        assertEquals(List.of(Scheduler.MAX_FORCING_SECONDS), world.forcingDts,
+                "a minute of overrun forces " + Scheduler.MAX_FORCING_SECONDS + " s, not 60 s at once");
+    }
+
+    /** A capture that carries the sky pass with it (the live world runs it on the step thread) lands the pass
+     *  only with the write-back; a HELD cycle hands its forcing time back to the next pass (issue #51). */
+    @Test
+    void aHeldCycleHandsItsDeferredSkyPassBackToTheNextPass() {
+        FakeRunner runner = new FakeRunner();
+        List<Double> carried = new ArrayList<>();
+        ThermalWorld.ColumnBatch batch = oneColumnBatch(300f);
+        ThermalWorld world = new ThermalWorld() {
+            @Override public CapturedColumns captureColumns(int range, double forcingDt) {
+                carried.add(forcingDt);
+                return new CapturedColumns() {
+                    @Override public boolean isEmpty() { return false; }
+                    @Override public boolean defersSkyPass() { return true; }
+                    @Override public ColumnBatch assemble() { return batch; }
+                };
+            }
+        };
+        OrgeEngine fabricating = new OrgeEngine() {                               // +1 kg everywhere: HELD
+            @Override public void registerMaterials(int lutEpoch, List<Material> table) { }
+            @Override public List<ColumnResult> stepWorld(List<ColumnTask> in, int lutEpoch, double dt, int passes) {
+                List<ColumnResult> out = new ArrayList<>();
+                for (ColumnTask t : in) {
+                    float[] m = t.mass().clone();
+                    for (int i = 0; i < m.length; i++) m[i] += 1f;
+                    out.add(new ColumnResult(t.matIx().clone(), m, t.temperature().clone()));
+                }
+                return out;
+            }
+            @Override public double lastStepMillis() { return 0.0; }
+        };
+        Scheduler s = new Scheduler(fabricating, world, runner, worker());
+        tickCompleting(s, runner, Scheduler.TICKS_PER_STEP);                      // tick 20: carries 1 s; HELD at 21
+        tickCompleting(s, runner, Scheduler.ADVECTION_TICKS);                     // tick 25
+        assertEquals(4, s.metrics().held, "every fabricating step so far is held (ticks 5..20)");
+        assertEquals(List.of(0.0, 0.0, 0.0, 1.0), carried.subList(0, 4), "tick 20's capture carries one second of sky");
+        assertEquals(1.25, carried.get(4), 1e-12,
+                "the held cycle's second is handed back: tick 25's capture carries it plus the 5 ticks since");
     }
 
     @Test

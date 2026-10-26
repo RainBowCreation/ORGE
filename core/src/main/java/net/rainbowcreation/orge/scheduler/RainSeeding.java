@@ -42,6 +42,12 @@ public final class RainSeeding {
     /** Cumulative enthalpy [J] the rain brought per dimension. */
     private final Map<Identifier, Double> energy = new HashMap<>();
 
+    /** Add {@code pass}'s ledgers (one sky pass run elsewhere, issue #51) into this one's. */
+    public void absorb(RainSeeding pass) {
+        pass.mass.forEach((dim, v) -> mass.merge(dim, v, Double::sum));
+        pass.energy.forEach((dim, v) -> energy.merge(dim, v, Double::sum));
+    }
+
     /** Rain water [kg] seeded into {@code dim} so far (0 when it never rained there). */
     public double mass(Identifier dim) {
         return mass.getOrDefault(dim, 0.0);

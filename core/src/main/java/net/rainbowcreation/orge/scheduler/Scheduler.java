@@ -56,6 +56,11 @@ public final class Scheduler {
      *  slow-motion). Audit-tunable. */
     public static final double MAX_CATCHUP_SECONDS = 0.5;
 
+    /** Max seconds one sky pass forces (2× its one-second cadence). The pass is explicit in time, so a long
+     *  overrun is not forced in one jump: beyond this the sky's real-time debt is dropped, like the step's
+     *  catch-up beyond {@link #MAX_CATCHUP_SECONDS} (issue #51 — started steps now run however long). */
+    public static final double MAX_FORCING_SECONDS = 2.0;
+
     /** Range bounds + health-throttle tunables (DESIGN §8; v1 constants). */
     public static final int DEFAULT_RANGE = 2;
     public static final int MAX_RANGE = 4;
@@ -69,6 +74,9 @@ public final class Scheduler {
      */
     public static final double COMPUTE_BUDGET_MILLIS = 30.0;
     public static final int ON_TIME_TICKS_TO_CLIMB = 5;
+
+    /** While a started step overruns, a warning is logged every this many ticks. */
+    static final int SLOW_STEP_LOG_TICKS = 20 * 60;
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ORGE");
 
@@ -102,29 +110,51 @@ public final class Scheduler {
     private final StepMetrics metrics = new StepMetrics();
     private double pendingDt;
 
-    /** The in-flight cycle's column inputs (captured at submit) + the engine's per-column outputs
-     *  (set inside the runner task before it returns; read by {@link #complete} after isDone()). The
-     *  StepRunner stays typed to {@link StepResult}; the column results ride this field, made visible by
-     *  the Future happens-before in {@code pending.result()}. */
-    private List<ThermalWorld.ColumnEntry> pendingColumns;
-    private List<ColumnResult> pendingColumnResults;
+    /**
+     * One submitted cycle: written by the step thread while it assembles, steps and prepares the batch, and
+     * read by the server thread only once the step's Future is done (its happens-before, taken in
+     * {@code pending.result()}, publishes every field). Each submission gets a fresh one, so a step that is
+     * cancelled but keeps running can only write into its own abandoned cycle (issue #51).
+     */
+    private static final class Cycle {
+        /** The batch's columns (assembled from the server-thread capture) and its material table, which
+         *  the region-wide §9 ledger keys species off. */
+        List<ThermalWorld.ColumnEntry> columns;
+        List<Material> materials;
+        /** The engine's per-column outputs. The StepRunner stays typed to {@link StepResult}; the column
+         *  results ride this field. */
+        List<ColumnResult> columnResults;
+        /** The injection-aware engine result (null on an empty cycle). Carries the per-species placement
+         *  ledger deltas ({@code injected}/{@code sealedLoss}) the §9 gate declares via {@code ledger.expect}. */
+        net.rainbowcreation.orge.engine.RegionStepResult regionResult;
+        /** The intents drained for this batch. Cleared from the queue only on a successful, non-held
+         *  write-back (durability: a HELD region leaves them queued for next try). */
+        List<PendingInjections.Intent> drained = List.of();
+        /** The §9 verdict, and the column write-backs prepared for a conserved region (empty on HOLD). */
+        boolean conserved;
+        List<ThermalWorld.PreparedWrite> writes = List.of();
+        /** Wall-time of the step-thread job (assembly + native step + preparation). */
+        long stepThreadNanos;
+    }
 
-    /** The in-flight job's injection-aware engine result (set inside the runner task when injections
-     *  were submitted; null on a 4-arg/empty cycle). Carries the per-species placement ledger deltas
-     *  ({@code injected}/{@code sealedLoss}) the §9 gate declares via {@code ledger.expect(...)}. */
-    private net.rainbowcreation.orge.engine.RegionStepResult pendingRegionResult;
-    /** The intents drained for this cycle's batch (captured at submit). Cleared from the queue only on
-     *  a successful, non-held write-back (durability: a HELD region leaves them queued for next try). */
-    private List<PendingInjections.Intent> pendingDrained = List.of();
+    /** The in-flight cycle (null while IDLE). */
+    private Cycle cycle;
 
-    /** Whether the in-flight job ran advection (captured at submit), to pick the writeback set. */
+    /** Ticks of sky-pass time the in-flight cycle's capture carries (0 when its pass already ran on the store). */
+    private int pendingDeferredForcingTicks;
+
+    /** Whether the in-flight job ran advection (set at submit), to pick the writeback set. */
     private boolean pendingAdvection;
-    /** Batch material table (captured at submit): the region-wide §9 ledger keys species off it. */
-    private List<Material> pendingMaterials;
 
     /** Server-thread nanos spent in {@code world.snapshot(...)} for the in-flight cycle; summed
      *  with the {@code complete()} body and fed to the health throttle (NOT the native step). */
     private long pendingSnapshotNanos;
+    /** The same, in server-thread CPU time (the wall time less what the OS ran instead on a loaded host). */
+    private long pendingSnapshotCpuNanos;
+
+    /** Per-thread CPU clock for the server-thread CPU metric ({@code -1} where unsupported, which reads as 0). */
+    private static final java.lang.management.ThreadMXBean THREADS =
+            java.lang.management.ManagementFactory.getThreadMXBean();
 
     /** Backwards-compatible constructor: no phase change, no reconcile (used by unit tests). */
     public Scheduler(OrgeEngine engine, ThermalWorld world, StepRunner runner, Worker worker) {
@@ -177,14 +207,20 @@ public final class Scheduler {
         if (state == State.AWAITING) {
             ticksSinceSubmit++;
             if (pending.isDone()) {
-                // A step finishing within the grace window still writes back (counted late if it
-                // overran the deadline); the cancel below only fires for a step STILL not done.
+                // A step finishing past the deadline still writes back, counted late (issue #51: however
+                // long the native step took, its work is never thrown away).
                 complete(ticksSinceSubmit <= TICKS_PER_STEP);
-            } else if (ticksSinceSubmit >= TICKS_PER_STEP * 2) {
-                pending.cancel();
+            } else if (!pending.started() && ticksSinceSubmit >= TICKS_PER_STEP * 2 && pending.cancelIfNotStarted()) {
+                // Only a step the runner never began is cancelled after the grace window. A started step
+                // runs to completion: cancelling cannot stop the native call, it only discards the result
+                // while the next submission queues behind it on the single step thread (issue #51).
                 worker.reportLate();
                 metrics.onCancel();
+                recreditSkyPass();
                 toIdle();
+            } else if (ticksSinceSubmit % SLOW_STEP_LOG_TICKS == 0) {
+                LOGGER.warn("[ORGE] simulation step still running after {} ticks; holding previous values until it lands",
+                        ticksSinceSubmit);
             }
             return; // never submit in the same tick we serviced an in-flight step
         }
@@ -200,56 +236,68 @@ public final class Scheduler {
      * (spec 2026-06-02 A5/B1), so heat and flow advance by the same simulated time.
      */
     private void submit() {
-        // Measure the server-thread cost of assembling the column snapshot (active+apron, full-height
-        // columns): a dominant per-cycle cost ON the server thread that must feed the health throttle.
+        // Measure the server-thread cost of this cycle's IDLE work and snapshot capture (wall and CPU time):
+        // with the complete() body it is the per-cycle server-thread cost that feeds the health throttle.
         long snapStart = System.nanoTime();
+        long snapCpuStart = THREADS.getCurrentThreadCpuTime();
         // Thirsty farmland (spec 2026-10-25-thirsty-farmland §3) drains the store at the same IDLE, pre-snapshot
         // point as the sky forcing below, so the drained water is what this step simulates.
         world.applyHydrationDrain();
-        // Sky forcing (spec 2026-10-25 §4) writes the store's E while IDLE — no step is in flight whose
-        // write-back could overwrite it — and BEFORE the snapshot, so this step simulates the forced E.
+        // Sky forcing (spec 2026-10-25 §4) once a second has elapsed, forcing the whole elapsed time, BEFORE
+        // the snapshot reads the columns, so this step simulates the forced state. It runs with the capture:
+        // the live world runs it on the step thread over the captured columns (issue #51).
+        double forcingDt = 0.0;
         if (ticksSinceForcing >= TICKS_PER_STEP) {
-            world.applySurfaceForcing(ticksSinceForcing / 20.0);
+            forcingDt = Math.min(ticksSinceForcing / 20.0, MAX_FORCING_SECONDS);
             ticksSinceForcing = 0;
         }
-        ThermalWorld.ColumnBatch batch = world.snapshotColumns(worker.range());
+        // Server-thread half of the snapshot: copy what it reads (issue #51). The per-cell assembly, the
+        // native step and the per-cell write-back preparation all run on the step thread below.
+        ThermalWorld.CapturedColumns captured = world.captureColumns(worker.range(), forcingDt);
         pendingSnapshotNanos = System.nanoTime() - snapStart;
-        if (batch.entries().isEmpty()) {
+        pendingSnapshotCpuNanos = THREADS.getCurrentThreadCpuTime() - snapCpuStart;
+        if (captured.isEmpty()) {
             return; // stay IDLE; nothing to simulate this step
         }
-        List<ColumnTask> input = new ArrayList<>(batch.entries().size());
-        for (ThermalWorld.ColumnEntry e : batch.entries()) input.add(e.task());
-        List<Material> lut = batch.lut();
-        pendingMaterials = lut;
-        final int lutEpoch = batch.lutEpoch();
+        // A sky pass the capture took along only lands with the write-back: remember its time so a cycle
+        // that lands nothing hands it back to the next pass.
+        pendingDeferredForcingTicks = captured.defersSkyPass() ? (int) Math.round(forcingDt * 20.0) : 0;
         pendingAdvection = true;
-        pendingColumns = batch.entries();
-        pendingColumnResults = null;
-        pendingRegionResult = null;
-        // This cycle's placements: displace-and-inject into the engine + the intents they came from
-        // (cleared from the queue only on a successful write-back, see writeBackColumns).
-        final List<net.rainbowcreation.orge.engine.EngineInjection> injections = batch.injections();
-        pendingDrained = batch.drained();
+        final boolean advection = pendingAdvection;
+        final Cycle c = new Cycle();
+        cycle = c;
         final double dt = nextDt();
         pendingDt = dt;
-        if (InjectDebug.on() && !injections.isEmpty()) {
-            InjectDebug.LOG.info("[dispatch] injections={} drained={} dt={}",
-                    injections.size(), pendingDrained.size(), dt);
-        }
         pending = runner.submit(() -> {
+            long jobStart = System.nanoTime();
+            ThermalWorld.ColumnBatch batch = captured.assemble();
+            c.columns = batch.entries();
+            c.materials = batch.lut();
+            // This cycle's placements: displace-and-inject into the engine + the intents they came from
+            // (cleared from the queue only on a successful write-back, see writeBackColumns).
+            final List<net.rainbowcreation.orge.engine.EngineInjection> injections = batch.injections();
+            c.drained = batch.drained();
+            if (InjectDebug.on() && !injections.isEmpty()) {
+                InjectDebug.LOG.info("[dispatch] injections={} drained={} dt={}",
+                        injections.size(), c.drained.size(), dt);
+            }
+            List<ColumnTask> input = new ArrayList<>(batch.entries().size());
+            for (ThermalWorld.ColumnEntry e : batch.entries()) input.add(e.task());
             // ONE combined call: orgeStepWorld sub-cycles n=round(dt/0.25) interleaved
             // conduction(sub_dt) -> advection(sub_dt) sub-steps (spec 2026-06-02 A5/B1). The
             // 5-arg overload applies this cycle's injections once before advection and returns the
             // per-species placement ledger (injected/sealedLoss) for the §9 gate to declare.
             if (input.isEmpty()) {
-                pendingColumnResults = List.of();
+                c.columnResults = List.of();
             } else {
                 net.rainbowcreation.orge.engine.RegionStepResult rr =
-                        engine.stepWorld(input, lutEpoch, dt,
+                        engine.stepWorld(input, batch.lutEpoch(), dt,
                                 OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, injections);
-                pendingRegionResult = rr;
-                pendingColumnResults = rr.columns();
+                c.regionResult = rr;
+                c.columnResults = rr.columns();
             }
+            prepareWriteBacks(c, advection);
+            c.stepThreadNanos = System.nanoTime() - jobStart;
             return List.of();
         });
         ticksSinceSubmit = 0;
@@ -301,16 +349,18 @@ public final class Scheduler {
     public double onPaceDt() { return stepDt(ticksPerStep, ticksPerStep, fixedDt); }
 
     private void complete(boolean metDeadline) {
-        // Time the server-thread phase of this cycle (write-back + §9 + phase/reconcile). Summed
-        // with the snapshot time measured in submit() to give the per-cycle server-thread cost,
+        // Time the server-thread phase of this cycle (installing the prepared write-backs, or the HOLD).
+        // Summed with the capture time measured in submit() to give the per-cycle server-thread cost,
         // which feeds the health throttle (NOT engine.lastStepMillis(), the off-thread native step).
         long completeStart = System.nanoTime();
+        long completeCpuStart = THREADS.getCurrentThreadCpuTime();
         try {
-            pending.result(); // propagates a step failure; column results ride pendingColumnResults
+            pending.result(); // propagates a step failure; publishes the cycle the step thread filled
         } catch (RuntimeException e) {
             // A failed step never corrupts the store: hold previous values, treat as late.
             LOGGER.warn("[ORGE] simulation step failed; holding previous values", e);
             worker.reportLate();
+            recreditSkyPass();
             toIdle();
             return;
         }
@@ -324,86 +374,113 @@ public final class Scheduler {
             // engine.lastStepMillis() is the off-thread native step; logged for audit only — it
             // does NOT drive the throttle (that would be blind to the dominant server-thread cost).
             worker.noteStep(serverThreadMillis, metDeadline);
+            metrics.onStepThread(cycle.stepThreadNanos / 1_000_000.0);
+            metrics.onServerCpu((pendingSnapshotCpuNanos + THREADS.getCurrentThreadCpuTime() - completeCpuStart) / 1_000_000.0);
             metrics.onComplete(engine.lastStepMillis(), serverThreadMillis, ticksSinceSubmit, metDeadline, pendingDt);
             toIdle();
         }
     }
 
     /**
-     * Validate the whole region's columns once (region-wide per-species §9 ledger) and write each back.
+     * Step thread, after the native step (issue #51): validate the whole region's columns once
+     * (region-wide per-species §9 ledger) and, for a conserved region, prepare each column's write-back.
      * Mirrors the old advection-batch HOLD semantics at region granularity: a cross-column transfer
      * cancels in the region sum (the donor column's after-sum drops, the recipient's rises), so a fall
      * or X/Z flow between two co-stepped columns is accepted while genuine fabrication is rejected. On a
-     * non-conserving region NOTHING is written this cycle (atomic HOLD). Runs on the server thread; its
-     * wall-time is part of the per-cycle budget the throttle measures.
+     * non-conserving region NOTHING is written this cycle (atomic HOLD).
      */
-    private void writeBackColumns(boolean metDeadline) {
-        List<ColumnResult> results = pendingColumnResults;
-        if (results == null) {
+    private void prepareWriteBacks(Cycle c, boolean advection) {
+        List<ColumnResult> results = c.columnResults;
+        if (results == null || results.isEmpty()) {
             return; // step produced no results (e.g. empty input) — nothing to write
         }
-        if (results.size() < pendingColumns.size()) {
-            LOGGER.warn("[ORGE] engine returned {} columns for {} requested; trailing columns hold previous values",
-                    results.size(), pendingColumns.size());
-        }
-        int n = Math.min(results.size(), pendingColumns.size());
-        if (!pendingAdvection) {
-            // Conduction-only cycle (none submitted today, but the cadence is audit-tunable): T-only,
-            // mass carried through. No conservation gate needed — conduction moves no mass.
+        int n = Math.min(results.size(), c.columns.size());
+        List<ThermalWorld.PreparedWrite> writes = new ArrayList<>(n);
+        if (advection) {
+            // Region-wide per-species conservation: feed EVERY column's (before, after, inSpecies,
+            // outSpecies) through one ledger and decide ONCE. Conserved → write each column back; else
+            // HOLD the whole region.
+            StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
             for (int i = 0; i < n; i++) {
-                world.writeBackColumn(pendingColumns.get(i), results.get(i));
+                ThermalWorld.ColumnEntry e = c.columns.get(i);
+                ColumnResult r = results.get(i);
+                ledger.add(r.mass(), e.task().mass(), e.task().matIx(), r.matIx(), c.materials);
             }
+            if (c.regionResult != null) {
+                // A4: declare this cycle's placement deltas so a legit injection (after-before = injected
+                // - sealedLoss) does NOT read as fabrication and HOLD the region.
+                ledger.expect(c.regionResult.injected(), c.regionResult.sealedLoss());
+            }
+            if (!ledger.conserved()) {
+                return; // HELD: nothing prepared, c.conserved stays false
+            }
+        }
+        // A conduction-only cycle (none submitted today, but the cadence is audit-tunable) is T-only with
+        // mass carried through: no conservation gate needed — conduction moves no mass.
+        for (int i = 0; i < n; i++) {
+            writes.add(world.prepareWriteBack(c.columns.get(i), results.get(i), c.materials));
+        }
+        c.conserved = true;
+        c.writes = writes;
+    }
+
+    /**
+     * Server thread: install the write-backs the step thread prepared, or HOLD the region the §9 ledger
+     * rejected. Runs on the server thread; its wall-time is part of the per-cycle budget the throttle
+     * measures.
+     */
+    private void writeBackColumns(boolean metDeadline) {
+        Cycle c = cycle;
+        List<ColumnResult> results = c.columnResults;
+        if (results == null || c.columns == null) {
+            return; // step produced no results (e.g. empty input) — nothing to write
+        }
+        if (results.size() < c.columns.size()) {
+            LOGGER.warn("[ORGE] engine returned {} columns for {} requested; trailing columns hold previous values",
+                    results.size(), c.columns.size());
+        }
+        int n = Math.min(results.size(), c.columns.size());
+        if (n == 0) {
             return;
         }
-        // Region-wide per-species conservation: feed EVERY column's (before, after, inSpecies, outSpecies)
-        // through one ledger and decide ONCE. Conserved → write each column back; else HOLD the whole region.
-        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
-        for (int i = 0; i < n; i++) {
-            ThermalWorld.ColumnEntry e = pendingColumns.get(i);
-            ColumnResult r = results.get(i);
-            ledger.add(r.mass(), e.task().mass(), e.task().matIx(), r.matIx(), pendingMaterials);
-        }
-        if (pendingRegionResult != null) {
-            // A4: declare this cycle's placement deltas so a legit injection (after-before = injected
-            // - sealedLoss) does NOT read as fabrication and HOLD the region.
-            ledger.expect(pendingRegionResult.injected(), pendingRegionResult.sealedLoss());
-        }
-        if (!ledger.conserved()) {
-            if (InjectDebug.on() && !pendingDrained.isEmpty()) {
+        if (!c.conserved) {
+            if (InjectDebug.on() && !c.drained.isEmpty()) {
                 InjectDebug.LOG.info("[gate] HELD conserved=false injected={} sealedLoss={} keptIntents={}",
-                        pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.injected()) : "[]",
-                        pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.sealedLoss()) : "[]",
-                        pendingDrained.size());
+                        c.regionResult != null ? InjectDebug.nonzero(c.regionResult.injected()) : "[]",
+                        c.regionResult != null ? InjectDebug.nonzero(c.regionResult.sealedLoss()) : "[]",
+                        c.drained.size());
             }
             LOGGER.warn("[ORGE] region step mass not conserved (per-species); holding {} columns this cycle", n);
             metrics.onHeld();
+            recreditSkyPass();
             return; // HELD — drained intents stay queued for the next try (durability)
         }
-        for (int i = 0; i < n; i++) {
-            world.writeBackColumn(pendingColumns.get(i), results.get(i));
+        for (ThermalWorld.PreparedWrite w : c.writes) {
+            w.apply();
         }
-        if (!pendingDrained.isEmpty()) {
+        if (pendingAdvection && !c.drained.isEmpty()) {
             if (InjectDebug.on()) {
                 InjectDebug.LOG.info("[gate] OK wrote={} injected={} sealedLoss={} clearedIntents={}",
-                        n, pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.injected()) : "[]",
-                        pendingRegionResult != null ? InjectDebug.nonzero(pendingRegionResult.sealedLoss()) : "[]",
-                        pendingDrained.size());
+                        n, c.regionResult != null ? InjectDebug.nonzero(c.regionResult.injected()) : "[]",
+                        c.regionResult != null ? InjectDebug.nonzero(c.regionResult.sealedLoss()) : "[]",
+                        c.drained.size());
             }
             // Success ⇒ the placements are now durably in the store; clear them from the queue.
-            world.pendingInjections().remove(pendingDrained);
-            pendingDrained = List.of();
+            world.pendingInjections().remove(c.drained);
         }
     }
 
+    /** The in-flight cycle lands nothing: a sky pass its capture carried is handed back to the next pass. */
+    private void recreditSkyPass() {
+        ticksSinceForcing += pendingDeferredForcingTicks;
+        pendingDeferredForcingTicks = 0;
+    }
 
     private void toIdle() {
         pending = null;
-        pendingColumns = null;
-        pendingColumnResults = null;
-        // Drop the injection-aware result so a subsequent conduction-only/empty cycle can't reuse stale
-        // placement deltas. pendingDrained is NOT cleared here: when a region HOLDs (or a step fails)
-        // the intents must survive — the next submit re-drains them from the still-populated queue.
-        pendingRegionResult = null;
+        // The cycle goes with the step: a HELD region's intents were never removed from the queue, so the
+        // next submit re-drains them from it.
+        cycle = null;
         ticksSinceSubmit = 0;
         state = State.IDLE;
         // tickCounter is NOT reset here: it free-runs on the 5-tick cadence grid so the cadences

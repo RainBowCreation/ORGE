@@ -169,4 +169,84 @@ class ColumnWriteBackTest {
         assertEquals(0f, after.slotMassAt(1, 1 + 16 + 256), "the stored slot was overwritten empty");
         assertFalse(after.hasSlots(), "an all-empty layer is released");
     }
+    // -------------------------------------------------------------------------
+    // Issue #51: the write-back prepared off-thread from the snapshot's capture
+    // -------------------------------------------------------------------------
+
+    /** The column as the snapshot captures it, headless: each section's store view, no live blocks. */
+    private static CapturedColumn capture(SectionStore store) {
+        CapturedColumn.Section[] secs =
+                new CapturedColumn.Section[ColumnAssembler.MAX_SECTION_Y - ColumnAssembler.MIN_SECTION_Y + 1];
+        for (int sy = ColumnAssembler.MIN_SECTION_Y; sy <= ColumnAssembler.MAX_SECTION_Y; sy++) {
+            SubchunkKey key = new SubchunkKey(0, sy, 0);
+            boolean stored = store.hasSection(key);
+            SectionData live = store.get(key);
+            if (stored) live.markSnapshot();
+            secs[sy - ColumnAssembler.MIN_SECTION_Y] = new CapturedColumn.Section(null, 290f, null, live.share(), stored);
+        }
+        return new CapturedColumn(DIM, 0, 0, secs, List.of());
+    }
+
+    private static ColumnResult oneComponent(ColumnTask task) {
+        return result(task, new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
+    }
+
+    private static long allocatedBytes() {
+        return ((com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean())
+                .getCurrentThreadAllocatedBytes();
+    }
+
+    /**
+     * Preparing touches no store state (it runs on the step thread); applying installs the result on the
+     * server thread without per-cell work — a whole column allocates a few KB there, not the ~MB of
+     * per-section slices the server thread used to build (issue #51).
+     */
+    @Test
+    void capturedWriteBackIsPreparedPureAndAppliedWithoutPerCellAllocation(@TempDir Path dir) {
+        SectionStoreManager mgr = loaded(dir);
+        SectionStore store = mgr.store(DIM);
+        MinecraftThermalWorld w = world(mgr);
+        ColumnTask task = sandTask();
+        SubchunkKey key = new SubchunkKey(0, SECTION_Y, 0);
+
+        // warm-up cycle (class init / JIT), then the measured one
+        w.prepareWriteBack(new ThermalWorld.ColumnEntry(DIM, 0, 0, task, new WaterlogSeeding.Seeds(),
+                capture(store)), oneComponent(task), lut()).apply();
+        store.get(key).setMass(0, 1f);                         // a stored state the next result overwrites
+
+        ThermalWorld.PreparedWrite pw = w.prepareWriteBack(new ThermalWorld.ColumnEntry(DIM, 0, 0, task,
+                new WaterlogSeeding.Seeds(), capture(store)), oneComponent(task), lut());
+        assertEquals(1f, store.get(key).massAt(0), "preparing writes nothing to the store");
+
+        long before = allocatedBytes();
+        pw.apply();
+        long bytes = allocatedBytes() - before;
+        assertTrue(bytes < 64 * 1024, "installing one column allocated " + bytes + " bytes on the server thread");
+
+        SectionData d = store.get(key);
+        assertEquals(1600f, d.massAt(0), "the engine's mass is installed");
+        assertEquals(3.9e8f, d.enthalpyAt(0), 0.0, "its energy");
+        assertEquals(SAND, d.materialAt(0), "its species");
+    }
+
+    /** An edit landing after the capture keeps its section: the prepared result is stale there (issue #51
+     *  moves the preparation off-thread; the edit-epoch guard still runs at install time). */
+    @Test
+    void capturedWriteBackSkipsASectionEditedAfterTheCapture(@TempDir Path dir) {
+        SectionStoreManager mgr = loaded(dir);
+        SectionStore store = mgr.store(DIM);
+        MinecraftThermalWorld w = world(mgr);
+        ColumnTask task = sandTask();
+        SubchunkKey key = new SubchunkKey(0, SECTION_Y, 0);
+        w.writeBackColumn(new ThermalWorld.ColumnEntry(DIM, 0, 0, task), oneComponent(task));
+
+        ThermalWorld.PreparedWrite pw = w.prepareWriteBack(new ThermalWorld.ColumnEntry(DIM, 0, 0, task,
+                new WaterlogSeeding.Seeds(), capture(store)), oneComponent(task), lut());
+        SectionData live = store.get(key);
+        live.setEnthalpy(5, 42.0);                             // /orge set after the capture
+        live.markExternalEdit();
+        pw.apply();
+
+        assertEquals(42.0, store.get(key).enthalpyAt(5), 0.0, "the edit survives the stale write-back");
+    }
 }

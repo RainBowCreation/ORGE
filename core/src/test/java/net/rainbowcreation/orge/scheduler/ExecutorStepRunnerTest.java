@@ -80,4 +80,37 @@ class ExecutorStepRunnerTest {
             runner.shutdown();
         }
     }
+    /** Issue #51: a step is either never run or never cancelled — a started step reports started and refuses
+     *  {@code cancelIfNotStarted}; one still queued behind it is cancelled and never runs. */
+    @Test
+    void cancelIfNotStartedCancelsOnlyAStepThatNeverBegan() throws Exception {
+        ExecutorStepRunner runner = new ExecutorStepRunner();
+        try {
+            java.util.concurrent.CountDownLatch running = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicBoolean queuedRan = new java.util.concurrent.atomic.AtomicBoolean();
+            StepRunner.Handle first = runner.submit(() -> {
+                running.countDown();
+                release.await();
+                return List.of();
+            });
+            StepRunner.Handle queued = runner.submit(() -> {
+                queuedRan.set(true);
+                return List.of();
+            });
+            assertTrue(running.await(2, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(first.started(), "the step thread is running the first step");
+            assertFalse(first.cancelIfNotStarted(), "a started step is not cancelled");
+            assertFalse(queued.started(), "the second is still queued");
+            assertTrue(queued.cancelIfNotStarted(), "a queued step is cancelled");
+            release.countDown();
+            awaitDone(first);
+            assertEquals(List.of(), first.result(), "the started step ran to completion");
+            awaitDone(queued);
+            Thread.sleep(50);
+            assertFalse(queuedRan.get(), "the cancelled step never ran");
+        } finally {
+            runner.shutdown();
+        }
+    }
 }

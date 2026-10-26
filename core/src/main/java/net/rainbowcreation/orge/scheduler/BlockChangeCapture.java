@@ -17,6 +17,8 @@ import net.rainbowcreation.orge.section.SectionStore;
 import net.rainbowcreation.orge.section.SectionStoreManager;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -64,15 +66,51 @@ final class BlockChangeCapture {
         return capturingWakeSink;
     }
 
+    /** A section of a dimension. */
+    private record DimSection(Identifier dim, SubchunkKey key) {}
+
+    /** Above this many distinct changed sections the log stops listing them and reports every section changed. */
+    static final int MAX_LOGGED_SECTIONS = 4096;
+
+    /** Sections a block changed in since the last {@link #markCaptured} — by anything but ORGE's own writes
+     *  (issue #51: the write-back's block plans were made from that capture, so they are stale there). */
+    private final Set<DimSection> changedSinceCapture = new HashSet<>();
+    private boolean changeLogOverflow;
+
+    /** A cycle's capture was just taken: start a fresh change log. */
+    void markCaptured() {
+        changedSinceCapture.clear();
+        changeLogOverflow = false;
+    }
+
+    /** Whether a block of {@code key} changed since the last capture (not by ORGE's own writes). */
+    boolean changedSinceCapture(Identifier dim, SubchunkKey key) {
+        return changeLogOverflow || changedSinceCapture.contains(new DimSection(dim, key));
+    }
+
+    private void logChange(Identifier dim, int blockX, int blockY, int blockZ) {
+        if (LiveMaterials.inSelfWrite() || changeLogOverflow) {
+            return;
+        }
+        changedSinceCapture.add(new DimSection(dim, new SubchunkKey(SectionPos.blockToSectionCoord(blockX),
+                SectionPos.blockToSectionCoord(blockY), SectionPos.blockToSectionCoord(blockZ))));
+        if (changedSinceCapture.size() > MAX_LOGGED_SECTIONS) {
+            changedSinceCapture.clear();
+            changeLogOverflow = true;
+        }
+    }
+
     private final WakeSink capturingWakeSink = new WakeSink() {
         @Override
         public void wakeBlock(Identifier dim, int blockX, int blockY, int blockZ) {
+            logChange(dim, blockX, blockY, blockZ);
             captureBlockChange(dim, blockX, blockY, blockZ);    // enqueue intent if a displacement placement
             activeSet.wakeBlock(dim, blockX, blockY, blockZ);   // unchanged wake behaviour
         }
 
         @Override
         public void wakeBreak(Identifier dim, int blockX, int blockY, int blockZ) {
+            logChange(dim, blockX, blockY, blockZ);
             // Event-driven BREAK (spec Part 4): the BlockEvent.BREAK signal is authoritative — do NOT read
             // the (still-outgoing, pre-event) world block. Turn the cell into durable orge:vacuum and wake
             // the section so neighbours flow into it via normal advection.

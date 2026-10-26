@@ -8,12 +8,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * {@link StepRunner} backed by a single daemon background thread — the one server-side
  * fallback engine instance (DESIGN §3 keeps exactly one). Daemon so it never blocks JVM exit.
  */
 public final class ExecutorStepRunner implements StepRunner {
+
+    private static final int NEW = 0, RUNNING = 1, CANCELLED = 2;
 
     private ExecutorService executor = newExecutor();
 
@@ -34,8 +37,30 @@ public final class ExecutorStepRunner implements StepRunner {
         if (executor.isShutdown()) {
             executor = newExecutor();
         }
-        Future<List<StepResult>> future = executor.submit(task);
+        // NEW → RUNNING when the step thread picks the step up, NEW → CANCELLED when cancelIfNotStarted
+        // wins: the two are exclusive, so a step is either never run or never cancelled.
+        AtomicInteger state = new AtomicInteger(NEW);
+        Future<List<StepResult>> future = executor.submit(() -> {
+            if (!state.compareAndSet(NEW, RUNNING)) {
+                return List.of(); // cancelled before it started
+            }
+            return task.call();
+        });
         return new Handle() {
+            @Override
+            public boolean started() {
+                return state.get() == RUNNING;
+            }
+
+            @Override
+            public boolean cancelIfNotStarted() {
+                if (!state.compareAndSet(NEW, CANCELLED)) {
+                    return false;
+                }
+                future.cancel(false);
+                return true;
+            }
+
             @Override
             public boolean isDone() {
                 return future.isDone();

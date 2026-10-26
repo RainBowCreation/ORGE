@@ -1,6 +1,9 @@
 package net.rainbowcreation.orge.phase;
 
 import java.util.List;
+import java.util.function.IntFunction;
+
+import net.minecraft.world.level.block.state.BlockState;
 
 import net.rainbowcreation.orge.material.Material;
 import net.rainbowcreation.orge.scheduler.ThermalWorld;
@@ -30,5 +33,25 @@ public interface PhaseChanger {
     }
 
     /** A no-op used in tests and any configuration without phase change. */
+    /** The server-thread half of a phase pass planned off-thread (issue #51). */
+    @FunctionalInterface
+    interface Plan {
+        /**
+         * Apply the planned changes. {@code changedSinceCapture}: a block of the section changed after the
+         * capture the plan was made from, so the section is re-planned live instead. Server thread only.
+         */
+        void apply(boolean changedSinceCapture);
+    }
+
+    /**
+     * Off-thread half of {@link #applyPhaseChanges(ThermalWorld.BatchEntry, char[], List)} (issue #51):
+     * plan from {@code captured}, the section's block states as this cycle's snapshot captured them. Must
+     * not touch live world or store state. The default plans nothing and runs the live pass at apply time.
+     */
+    default Plan plan(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut,
+                      IntFunction<BlockState> captured) {
+        return changedSinceCapture -> applyPhaseChanges(entry, outMaterial, outLut);
+    }
+
     PhaseChanger NOOP = entry -> {};
 }
