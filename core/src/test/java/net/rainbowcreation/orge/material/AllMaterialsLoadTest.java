@@ -441,4 +441,14 @@ class AllMaterialsLoadTest {
         assertEquals(orge("air"), BlockMaterialRule.firstTouch(Identifier.parse("minecraft:cave_air"), reg));
         assertEquals(orge("water"), BlockMaterialRule.firstTouch(Identifier.parse("minecraft:kelp"), reg));
     }
+
+    /** Issue #63: the piston head is part of the piston, so it first-touches to the piston's own material
+     *  rather than the generic_solid fallback a push would otherwise inject. */
+    @Test
+    void pistonHeadIsThePistonsMaterial() throws Exception {
+        MaterialRegistry reg = loadAll();
+        Identifier piston = BlockMaterialRule.firstTouch(Identifier.parse("minecraft:piston"), reg);
+        assertEquals(orge("cobblestone"), piston);
+        assertEquals(piston, BlockMaterialRule.firstTouch(Identifier.parse("minecraft:piston_head"), reg));
+    }
 }

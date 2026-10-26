@@ -100,7 +100,9 @@ cave's air mixes with the sky's). `air`: cave_air, void_air, light. `water`: bub
 kelp_plant, seagrass, tall_seagrass. `stone`/`cobblestone`/stone bricks/`deepslate`: their infested_*
 twins. `oak_planks`: crafting/cartography/fletching/smithing tables, note block, jukebox, bookshelves,
 barrel, beehive, bee nest, composter. `cobblestone`: furnace, smoker, dispenser, dropper, observer,
-pistons. `smooth_stone`: blast furnace. Guarded by `blockAliasesAreVanillaAndUnique`.
+pistons and the piston head. `smooth_stone`: blast furnace. Guarded by `blockAliasesAreVanillaAndUnique`.
+`minecraft:moving_piston` has no material: it is a transient carrier, so a block change to it is not
+captured as a placement (the block it settles into is).
 
 ## More real substances
 

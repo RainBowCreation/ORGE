@@ -2,11 +2,14 @@ package net.rainbowcreation.orge.scheduler;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.BlockMaterialRule;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialRegistry;
 import net.rainbowcreation.orge.section.MaterialPalette;
 import net.rainbowcreation.orge.section.SectionData;
 import net.rainbowcreation.orge.section.SectionStore;
@@ -128,9 +131,10 @@ final class BlockChangeCapture {
         SubchunkKey key = new SubchunkKey(cx, sectionY, cz);
         ActiveMaterials.State mats = ActiveMaterials.current();
 
-        // Live material from the world block (null for a non-ORGE block — the policy null-guards it).
+        // Live material from the world block (null for a transient carrier — the policy null-guards it).
         BlockPos pos = new BlockPos(blockX, blockY, blockZ);
-        Material live = LiveMaterials.materialFor(level.getBlockState(pos).getBlock(), mats.registry());
+        Material live = placedMaterial(
+                BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock()), mats.registry());
 
         // Recorded incumbent (last cycle's engine-output species) for this cell, in section-local space.
         Identifier[] prior = cellMaterials.prior(dim, key);
@@ -145,6 +149,12 @@ final class BlockChangeCapture {
         if (InjectDebug.on()) {
             logCapture(dim, cx, cz, blockX, blockY, blockZ, engineCell, key, sectionCell, prior,
                     level, pos, live, incumbent);
+        }
+
+        // A piston's moving_piston carrier is no placement (issue #63): the cell keeps its incumbent and
+        // durable identity until the carried block lands, and that landing's own wake is the capture.
+        if (live == null) {
+            return;
         }
 
         // Override-close (spec Part 4): an EDIT whose first-touch material is orge:air at a SIMULATED cell is
@@ -174,6 +184,15 @@ final class BlockChangeCapture {
         // material at once, so the placement persists even before the engine writes it back (vanish-race fix,
         // generalised to every species). live == firstTouchMaterial(placedBlock) already (computed above).
         recordDurableIdentity(stores.store(dim), cx, cz, sectionY, sectionCell, live);
+    }
+
+    /**
+     * The material a block change at a cell captures: the placed block's first-touch material, or
+     * {@code null} for a transient carrier ({@link BlockMaterialRule#isTransient}) — a piston's
+     * {@code moving_piston} would otherwise first-touch to {@code orge:generic_solid} and inject it.
+     */
+    static Material placedMaterial(Identifier blockId, MaterialRegistry registry) {
+        return BlockMaterialRule.isTransient(blockId) ? null : BlockMaterialRule.firstTouchMaterial(blockId, registry);
     }
 
     /**

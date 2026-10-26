@@ -21,6 +21,7 @@
     "minecraft:dropper",
     "minecraft:observer",
     "minecraft:piston",
-    "minecraft:sticky_piston"
+    "minecraft:sticky_piston",
+    "minecraft:piston_head"
   ]
 }
