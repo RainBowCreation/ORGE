@@ -113,4 +113,49 @@ class PlacementCaptureTest {
         BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 101, water(), air(), 295f);
         assertEquals(1, q.peekColumn(DIM, 0, 0).size(), "a real displacement still enqueues");
     }
+
+    // ---- issue #65: the cancel's revival (used only if a written-back step applied the removal) ----
+
+    private static PendingInjections.Intent revivedAfterWriteBack(float storedMass) {
+        PendingInjections q = new PendingInjections();
+        q.enqueueRemoval(DIM, 0, 0, 100);
+        List<PendingInjections.Intent> drained = q.peekColumn(DIM, 0, 0);
+        BlockChangeCapture.captureOrCancelStaleRemoval(q, DIM, 0, 0, 100, water(), water(), 295f, storedMass);
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "the cancel still queues nothing for now");
+        q.remove(drained);
+        List<PendingInjections.Intent> got = q.peekColumn(DIM, 0, 0);
+        assertEquals(1, got.size());
+        assertFalse(got.get(0).removal());
+        assertEquals(water().id(), got.get(0).species());
+        return got.get(0);
+    }
+
+    /** The revival brings the cell back with the mass it had before the stomp — no fabrication. */
+    @Test
+    void revivalCarriesTheStoredMassOfTheCancelledCell() {
+        assertEquals(320f, revivedAfterWriteBack(320f).mass());
+    }
+
+    /** Unknown or empty stored mass: the revival seeds the placed material's defaultMass. */
+    @Test
+    void revivalFallsBackToDefaultMass() {
+        assertEquals(water().defaultMass(), revivedAfterWriteBack(Float.NaN).mass());
+        assertEquals(water().defaultMass(), revivedAfterWriteBack(0f).mass());
+    }
+
+    @Test
+    void storedMassReadsTheLoadedSectionElseNaN(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) {
+        net.rainbowcreation.orge.section.SubchunkKey key = new net.rainbowcreation.orge.section.SubchunkKey(0, 4, 0);
+        assertTrue(Float.isNaN(BlockChangeCapture.storedMass(null, key, 7)), "no store");
+        net.rainbowcreation.orge.section.SectionStoreManager mgr = new net.rainbowcreation.orge.section.SectionStoreManager();
+        mgr.onLevelLoad(DIM, dir, net.rainbowcreation.orge.section.AmbientProvider.FALLBACK);
+        net.rainbowcreation.orge.section.SectionStore store = mgr.store(DIM);
+        assertTrue(Float.isNaN(BlockChangeCapture.storedMass(store, key, 7)), "column not loaded");
+        mgr.onChunkLoad(DIM, 0, 0);
+        assertTrue(Float.isNaN(BlockChangeCapture.storedMass(store, key, 7)), "section never simulated");
+        net.rainbowcreation.orge.section.SectionData data = store.get(key);
+        data.setMass(7, 320f);
+        store.put(key, data);
+        assertEquals(320f, BlockChangeCapture.storedMass(store, key, 7));
+    }
 }
