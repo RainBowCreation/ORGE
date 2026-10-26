@@ -6,6 +6,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.material.FluidState;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.BlockMaterialRule;
 import net.rainbowcreation.orge.material.Material;
@@ -173,17 +174,48 @@ final class BlockChangeCapture {
             return; // never enqueue an air PLACEMENT or record an air identity at a simulated cell
         }
 
+        captureEdit(pendingInjections, stores.store(dim), dim, cx, cz, sectionY, sectionCell, engineCell,
+                live, incumbent, isVanillaSpread(level.getFluidState(pos)), ambientK);
+    }
+
+    /** A non-source fluid state is vanilla spread (issue #64): vanilla flow ticks in an unmanaged section
+     *  and only ever writes flowing/falling states (infinite water is disabled globally), while a bucket
+     *  or a player places a source. */
+    static boolean isVanillaSpread(FluidState fluid) {
+        return !fluid.isEmpty() && !fluid.isSource();
+    }
+
+    /**
+     * The pure tail of {@link #captureBlockChange} for a non-air live block: enqueue the displacement and
+     * record the cell's durable identity — unless the edit is vanilla spread.
+     *
+     * <p>VANILLA SPREAD IS NOT A PLACEMENT (issue #64). Vanilla flow is suppressed only in a managed section,
+     * so in an unmanaged one (and from it into a managed neighbour) it still writes flowing water, and each
+     * write reaches this capture through the {@code Level#setBlock} wake. The cell is untracked there, so
+     * {@link #isDisplacement} would enqueue the placed species' whole {@code defaultMass} — 1000 kg of water
+     * credited per spread cell, while the source keeps its own — and the durable-identity write would
+     * materialize the section, which the fluid policy then reads as managed and freezes un-simulated. A
+     * spread edit therefore enqueues nothing and stores nothing: the substance stays in the source, and a
+     * never-simulated section is taken in from its live blocks when it is first assembled.</p>
+     *
+     * @param vanillaSpread the live block's fluid is a non-source state ({@link #isVanillaSpread})
+     */
+    static void captureEdit(PendingInjections queue, SectionStore store, Identifier dim, int cx, int cz,
+                            int sectionY, int sectionCell, int engineCell, Material live, Material incumbent,
+                            boolean vanillaSpread, float ambientK) {
+        if (vanillaSpread) {
+            return;
+        }
         // Same-window break/flicker + same-species re-place: cancel a stale pending removal instead of
         // letting it stomp the cell to vacuum (solid flow-through) or force-injecting a fresh defaultMass
         // (movable-fluid mass fabrication). Any other case delegates to the ordinary displacement capture.
-        captureOrCancelStaleRemoval(
-                pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK,
-                storedMass(stores.store(dim), key, sectionCell));
+        captureOrCancelStaleRemoval(queue, dim, cx, cz, engineCell, live, incumbent, ambientK,
+                storedMass(store, new SubchunkKey(cx, sectionY, cz), sectionCell));
 
         // Durable identity (spec Part 3): the placed block's first-touch material becomes the cell's stored
         // material at once, so the placement persists even before the engine writes it back (vanish-race fix,
         // generalised to every species). live == firstTouchMaterial(placedBlock) already (computed above).
-        recordDurableIdentity(stores.store(dim), cx, cz, sectionY, sectionCell, live);
+        recordDurableIdentity(store, cx, cz, sectionY, sectionCell, live);
     }
 
     /**
