@@ -177,9 +177,9 @@ The biome enters through the water's own derived `T` (seeded at the biome ambien
 sun): a 309 K desert puddle (`BiomeTemperature` base 2.0) under dry air starts at 3.0e-8 · 5.9 kPa =
 1.8e-4 kg·m⁻²·s⁻¹ (0.64 mm/h — the order of daytime desert pan evaporation, ~10 mm/day), a 274 K taiga
 puddle (base 0.25) at 3.0e-8 · 0.66 kPa = 2.0e-5 kg·m⁻²·s⁻¹. Over one simulated day (`EvaporationTest`)
-the desert puddle gives 0.040 kg to the air above it and the taiga puddle 0.0049 kg (×8): the air cell
-above saturates in place (0.04 kg of vapor per m³ at 309 K) because humid air does not yet mix with dry
-air (#41). Vapor with no simulated cell above (the world top) leaves the domain and is booked in the
+the desert puddle gives 0.040 kg to the air above it and the taiga puddle 0.0049 kg (×8). Since #41 the
+humid air cell moves with the dry air around it (bulk flux between different species sets, §4.6 routing)
+and passes its vapor to drier air across the face, so it no longer saturates in place. Vapor with no simulated cell above (the world top) leaves the domain and is booked in the
 evaporation ledger with its enthalpy `m·h_steam(T_water)` (latent heat included).
 
 ## Phase changes
@@ -229,8 +229,10 @@ is declared per material: the saturation curve of a phase pair comes from the pa
 - **Exchange conductance** (engine knob `g_vap`, proposal §12 Q6, not material data): Penman's still-air
   wind function f(u = 0) = 2.6 mm·day⁻¹·kPa⁻¹ (Penman 1948, *Proc. R. Soc. A* 193:120; Shuttleworth 1993,
   *Handbook of Hydrology* ch. 4) = 3.0e-8 kg·m⁻²·s⁻¹·Pa⁻¹. A 300 K lake under dry air loses 1.1e-4
-  kg·m⁻²·s⁻¹ (≈ 270 W/m² of latent heat), a real warm-water evaporation rate. The engine ships the knob at
-  0 until humid air can flow with dry air (#41); the face exchange is then switched on at this value.
+  kg·m⁻²·s⁻¹ (≈ 270 W/m² of latent heat), a real warm-water evaporation rate. Since #41 the engine runs at
+  this value by default (it shipped at 0 until humid air could flow with dry air). The same conductance
+  drives the vapor exchange between two gases and the in-cell evaporation of fog (proposal §4.7 P2, with
+  `τ_ph = 1 s`, §12 Q6).
 - The other vapor pairs (iron, copper, gold, silica, carbon) use the same curve; their p_sat at ordinary
   temperatures is negligible, so they only exchange when hot.
 
