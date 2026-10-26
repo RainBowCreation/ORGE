@@ -133,4 +133,83 @@ class PendingInjectionsTest {
         assertEquals(1, left.size(), "newer same-cell intent B survives removal of A");
         assertEquals(LAVA, left.get(0).species(), "the un-applied newer placement is kept");
     }
+
+    // ---- revivals (issue #65): a removal cancelled after a step drained it ----
+
+    private static PendingInjections.Intent revival(int cell) {
+        return new PendingInjections.Intent(DIM, 0, 0, cell, WATER, 640f, 290f);
+    }
+
+    @Test
+    void writtenBackRemovalCancelledMidStepQueuesItsRevival() {
+        PendingInjections q = new PendingInjections();
+        int cell = 11 + 16 * 70;
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        List<PendingInjections.Intent> drained = q.peekColumn(DIM, 0, 0);   // the step's stomp
+        q.cancelRemoval(DIM, 0, 0, cell, revival(cell));                    // re-placed mid-step
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "the cancel empties the queue");
+
+        q.remove(drained);                                                  // the step is written back
+
+        assertEquals(List.of(revival(cell)), q.peekColumn(DIM, 0, 0), "the re-placed block is queued again");
+    }
+
+    @Test
+    void revivalIsUnusedWhenTheWrittenBackStepNeverDrainedTheRemoval() {
+        PendingInjections q = new PendingInjections();
+        int cell = 12 + 16 * 70;
+        List<PendingInjections.Intent> drained = q.peekColumn(DIM, 0, 0);   // step snapshotted before the break
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        q.cancelRemoval(DIM, 0, 0, cell, revival(cell));
+
+        q.remove(drained);
+
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "the removal never reached the store: nothing to revive");
+    }
+
+    @Test
+    void revivalNeverOverwritesANewerIntent() {
+        PendingInjections q = new PendingInjections();
+        int cell = 13 + 16 * 70;
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        List<PendingInjections.Intent> drained = q.peekColumn(DIM, 0, 0);
+        q.cancelRemoval(DIM, 0, 0, cell, revival(cell));
+        q.enqueue(DIM, 0, 0, cell, LAVA, 3000f, 1500f);                     // then lava placed there
+
+        q.remove(drained);
+
+        List<PendingInjections.Intent> left = q.peekColumn(DIM, 0, 0);
+        assertEquals(1, left.size());
+        assertEquals(LAVA, left.get(0).species(), "the newer placement wins over the revival");
+    }
+
+    @Test
+    void forgetColumnAndClearDropRevivals() {
+        PendingInjections q = new PendingInjections();
+        int cell = 14 + 16 * 70;
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        List<PendingInjections.Intent> drained = q.peekColumn(DIM, 0, 0);
+        q.cancelRemoval(DIM, 0, 0, cell, revival(cell));
+        q.forgetColumn(DIM, 0, 0);
+        q.remove(drained);
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "an unloaded column forgets its revivals");
+
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        drained = q.peekColumn(DIM, 0, 0);
+        q.cancelRemoval(DIM, 0, 0, cell, revival(cell));
+        q.clear();
+        q.remove(drained);
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty(), "server stop forgets revivals");
+    }
+
+    @Test
+    void cancelWithoutRevivalRemembersNothing() {
+        PendingInjections q = new PendingInjections();
+        int cell = 15 + 16 * 70;
+        q.enqueueRemoval(DIM, 0, 0, cell);
+        List<PendingInjections.Intent> drained = q.peekColumn(DIM, 0, 0);
+        q.cancelRemoval(DIM, 0, 0, cell);
+        q.remove(drained);
+        assertTrue(q.peekColumn(DIM, 0, 0).isEmpty());
+    }
 }

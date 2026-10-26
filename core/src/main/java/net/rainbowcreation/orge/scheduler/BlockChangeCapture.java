@@ -167,7 +167,8 @@ final class BlockChangeCapture {
         // letting it stomp the cell to vacuum (solid flow-through) or force-injecting a fresh defaultMass
         // (movable-fluid mass fabrication). Any other case delegates to the ordinary displacement capture.
         captureOrCancelStaleRemoval(
-                pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK);
+                pendingInjections, dim, cx, cz, engineCell, live, incumbent, ambientK,
+                storedMass(stores.store(dim), key, sectionCell));
 
         // Durable identity (spec Part 3): the placed block's first-touch material becomes the cell's stored
         // material at once, so the placement persists even before the engine writes it back (vanish-race fix,
@@ -211,8 +212,7 @@ final class BlockChangeCapture {
         if (!isDisplacement(live, incumbent)) {
             return;
         }
-        float temp = live.hasDefaultTemperature() ? live.defaultTemperature() : biomeAmbientK;
-        queue.enqueue(dim, cx, cz, cell, live.id(), live.defaultMass(), temp);
+        queue.enqueue(dim, cx, cz, cell, live.id(), live.defaultMass(), seedTemperature(live, biomeAmbientK));
     }
 
     /**
@@ -231,16 +231,44 @@ final class BlockChangeCapture {
      * The cancelled cell keeps its durable identity + stored mass; no injection is emitted. Any OTHER case
      * (different species = a genuine displacement, or no pending removal) delegates unchanged to
      * {@link #capturePlacement}.
+     *
+     * <p>The cancel records a revival placement (issue #65): when the removal was already drained into
+     * the in-flight step and that step is written back, the step's vacuum lands under the re-placed block,
+     * so the revival places it again next cycle. It carries {@code storedMass} — the cell's mass before
+     * the stomp, so the block comes back as it was — or the placed material's {@code defaultMass} when
+     * that is unknown ({@code NaN}) or empty. A cancelled, held or failed step writes nothing and the
+     * revival is never used.</p>
      */
     static void captureOrCancelStaleRemoval(PendingInjections queue, Identifier dim, int cx, int cz,
                                             int cell, Material live, Material incumbent,
                                             float biomeAmbientK) {
+        captureOrCancelStaleRemoval(queue, dim, cx, cz, cell, live, incumbent, biomeAmbientK, Float.NaN);
+    }
+
+    static void captureOrCancelStaleRemoval(PendingInjections queue, Identifier dim, int cx, int cz,
+                                            int cell, Material live, Material incumbent,
+                                            float biomeAmbientK, float storedMass) {
         if (live != null && incumbent != null && live.id().equals(incumbent.id())
                 && queue.hasPendingRemoval(dim, cx, cz, cell)) {
-            queue.cancelRemoval(dim, cx, cz, cell);
+            float mass = storedMass > 0f ? storedMass : live.defaultMass();
+            queue.cancelRemoval(dim, cx, cz, cell, new PendingInjections.Intent(
+                    dim, cx, cz, cell, live.id(), mass, seedTemperature(live, biomeAmbientK)));
             return;
         }
         capturePlacement(queue, dim, cx, cz, cell, live, incumbent, biomeAmbientK);
+    }
+
+    /** The placed material's seed temperature: its default, else the biome ambient. */
+    private static float seedTemperature(Material live, float biomeAmbientK) {
+        return live.hasDefaultTemperature() ? live.defaultTemperature() : biomeAmbientK;
+    }
+
+    /** The cell's stored slot-0 mass, or {@code NaN} when its section is not in a loaded store. */
+    static float storedMass(SectionStore store, SubchunkKey key, int sectionCell) {
+        if (store == null || !store.isLoaded(key.cx(), key.cz()) || !store.hasSection(key)) {
+            return Float.NaN;
+        }
+        return store.get(key).massAt(sectionCell);
     }
 
     /** Persist the placed block's first-touch material as the cell's durable {@link SectionStore} identity
