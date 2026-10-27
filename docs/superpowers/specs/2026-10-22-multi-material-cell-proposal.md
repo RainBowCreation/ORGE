@@ -1053,3 +1053,64 @@ The vanilla client handles tick-rate changes. Filed as #51 (19.4).
   work 7.5–12.8 s per cycle, 40-tick grace).
 - #52: ORGE-ENGINE cheap tier at `fbbb7fe`: 74 PASS, 7 FAIL, all before #31 (#31's engine change is in
   `jni/orge_jni.cpp`, which no cheap test compiles).
+
+---
+
+## 20. Engine debt from Slice B3 record (issue #41)
+
+Humid air moving with dry air, label-order locality, in-cell evaporation and the gas↔gas vapor exchange.
+Engine commit on ORGE-ENGINE `issue/41` (merged into its `rebuild`), gitlink bumped and `liborge.so` rebuilt
+in the ORGE PR that closes #41. `DESIGN-LAW.md` is not edited: everything here is inside law v5.
+
+### 20.1 What landed
+
+| Item | Where | Notes |
+|---|---|---|
+| 1. §4.6 slot routing of the bulk flux (term (1)) between different species sets | `engine_b.hpp` `resolve_world` (grant pre-pass, `routed`, R1 / R1.5 / R2) | A face between two occupied cells of different labels, at least one a composition, carries the bulk flux when the two species sets share a species and every mobile species the donor brings that the receiver lacks (its *novelty*) has a slot there. Each receiver grants ONE novelty per tick — the largest Σ inbound intent `ρ_d·max(0,−W)·A·dt`, tie → the lexicographically lower set — when its free slots hold it, never its last free slot while a resident component's phase partner is neither resident nor in the novelty (§4.6 reservation). A donor whose novelty is not the grant is clamped to 0 on that face, never dropped. Two one-material cells of different species share none: their face stays no-flux, exactly as before. |
+| 1. per-component yield gate ψ_k on the bulk share | R2 commit | `g_k = mobile_k·max(0, F − τ_y,k)/F`, `F = |ṁ|·|W|/dt`; only the mobile content moves (`ṁ ← ṁ·Σy g/Σy`), so a skeleton (stairs, rails, grass, soil) is never carried while its pore fluid moves. An all-fluid donor has `g ≡ 1` exactly: bit-identical to B1. A partly immobile donor carries its mobile components' enthalpy (blended by the immobile share). |
+| 1. per-species deltas keyed by species | `CellAccum::dmIx/dmk/nk`, `acc_add_dmk`, `acc_species_dm`, `mix_end` | A routed face lands species the receiver did not hold. `mix_end` composes a composition cell from its pre-step slots + the per-species deltas, and a one-material cell that received foreign species from DECODE's committed mass less those arrivals + each arrival. Seepage and the vapor exchange read the per-species deltas and count the arrivals' slots. |
+| 1. §6.3 displacement of a species set | displacement pre-pass | The displaced incumbent may be a composition (humid air): it is evicted whole with every component into the cell above, which may be vacuum, the same set, or a set that shares a species and grants the rest a slot (the eviction takes the cell's grant when it has none). Material reads use the cell's own mixture; an immovable composition (μ = +INF) is never displaced. The liquid quantum stays one-species. |
+| 1. the switch | `Globals::g_vap` | Default `G_VAP_PENMAN` (was 0). |
+| 2. locality (law #4) | R0 swap selection | The greedy swap selection sorted candidates by priority alone with an unstable `std::sort`, so tied candidates were ordered by the whole candidate list: a pair appearing in a far chunk changed which swap fired in a region (`engine_b_mmc_state_test` (B) with vapor on: first difference at tick 5, air cells x=7 z=6 y=24..27). The order is now total (priority, then the pair's world position). The issue's first reading — the composition-label numbering — was ruled out: offsetting every label by one row changes nothing. |
+| 3. P2 in-cell sub-saturation evaporation (proposal §4.7 P2) | `mix_end` after P1 | Law v5 #9 path 3 (an in-cell phase transfer, the identity on E) in DECODE (law #4): `Δm = θ_ph·min(m_c, m_sat − m_h, χ_pair·g_vap·A·w_liq·w_gas·max(0, p_sat(T) − p_v)·dt)`, `θ_ph = 1 − e^{−dt/τ_ph}`, `τ_ph = 1 s` (§12 Q6), with the vapor exchange's interface weights. Floored to the slots' mass lattice and ε_mass. |
+| 3. gas↔gas vapor exchange (§4.5 term (3) between two gases) | `vap_pieces` (third piece), `vap_world` marking | `F = χ_pair·g_vap·A·dt·w_gas,d·w_gas,r·(p_v,d − p_v,r)`, carrying `h_vapor(T_donor)`; faces are visited only where the piece can reach ε_mass, so a uniformly humid atmosphere at rest costs nothing. |
+
+### 20.2 Choices made here (documented, not law changes)
+
+- **Routing rule = shared species + granted novelty.** The proposal lets any species flux into another cell's
+  open volume; this slice opens only faces whose sets share a species, so water and air (or water and humid
+  air) keep exchanging by the swap and the §6.3 displacement as before. Opening those faces is a much larger
+  behavioral change (every water surface would aerate) and is not what #41 asked for.
+- **ψ_k's face force** is the face's momentum flux `|ṁ|·|W|/dt`; the receiver room stays the cell-level
+  `max − m` of B1 (no per-component room on the bulk term).
+- **Rounding.** Like B1's same-label bulk flux, a routed face writes `ṁ·y_k` into f32 slots without the mass
+  lattice: per-species books hold to f32 storage rounding (≤ 1e-6 of the total), not to the bit.
+- **Item 4 (one-material boiling-point elevation, §12 Q3)** is out of Phase 3 scope (owner decision on #41):
+  recorded, not built.
+- **Dry-subject tests run at `g_vap = 0`.** Scenes whose subject is a dry atmosphere or a one-material body at
+  rest set the knob explicitly, as #41 anticipated: `engine_b_stage1_rest_test`, `engine_b_a9_probe_test`,
+  `engine_b_gas_test` INV-AL, `engine_b_inv_al_smoke_test` rest-cold (plus a new humid twin that runs at the
+  Penman value and rests), `engine_b_way2_rest_balance_test` REST and ANTISYM gas|liquid,
+  `engine_b_pressure_relax_test` INV-P1 (a humid top cell sits its vapor partial pressure higher, so the
+  dry closed form ρg(k−½)dx shifts by p_v), `engine_b_advect_enthalpy_test` (2), `engine_b_bug3_accept_test`
+  (1). `engine_b_stage2_leveling_test` FLAT keeps the exchange on and counts H₂O (water + steam + ice + ε
+  ledger) instead of liquid water.
+- **Phase chain in the species delta.** `apply_species_delta` (seepage / vapor exchange, DECODE side) finds a
+  debited species along its phase chain two hops each way: a falling vapor wisp can condense and freeze in one
+  tick, and the vapor exchange's debit then lands on the ice (`engine_b_stage2_lava_sink_test` aborted on the
+  budget assertion once the exchange ran by default).
+  `engine_b_horizontal_flow_test` LEVEL2-AIR and `engine_b_gas_test` INV-GAS run with the exchange on and pass.
+- **Open-top atmosphere over a pool (A-9 with vapor on)** still grows one ~0.2 kg/cell layer into the open
+  top as the evaporating pool raises its Dalton pressure; routing does not change that. Filed as #72.
+
+### 20.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_mmc_route_test.cpp` (cheap tier), real LUT, books every tick: (A) a compressed
+humid cell vents vapor and air into a dry row (4.4e-3 kg of 0.012 kg of steam in 30 ticks, reaching the
+second dry cell); (B) a routed face carries the donor's composition (receiver steam:air 0.00999999 vs 0.01);
+(C) a one-high water body displaces a humid cell and its vapor is evicted upward with it; (D) a receiver
+between two novelties admits exactly one on the first routed tick; (E) fog in dry air re-evaporates in place,
+water lost == steam gained every tick, the cell cools against its g_vap = 0 twin; (F) humid and dry air at
+the same Dalton pressure exchange 6.0e-4 kg in 20 ticks (Penman order 6.2e-4; the bulk flux alone 1.4e-6).
+RED on the base engine: (A)–(F) all fail (10 checks). `engine_b_mmc_state_test` (B2): with the vapor exchange
+on, a far species set leaves a region bit-identical — RED on the base engine (first difference tick 5).
