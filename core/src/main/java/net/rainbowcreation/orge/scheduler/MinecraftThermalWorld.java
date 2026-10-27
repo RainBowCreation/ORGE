@@ -73,7 +73,8 @@ public final class MinecraftThermalWorld implements ThermalWorld {
     /** The rain the same sky pass seeds, and its mass + energy ledgers (issue #33). Server-thread-confined. */
     private final RainSeeding rainSeeding = new RainSeeding();
 
-    /** The daytime evaporation the same sky pass runs, and its boundary ledgers (issue #34). Server-thread-confined. */
+    /** The daytime evaporation the same sky pass runs off world-top surfaces, and its boundary ledgers (issues
+     *  #34, #80). Server-thread-confined. */
     private final Evaporation evaporation = new Evaporation();
 
     /** The waterlogged-block water seed's boundary ledgers (issue #60), booked at write-back. Server-thread-confined. */
@@ -217,8 +218,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         SkyLedgers ledgers = new SkyLedgers(new SurfaceForcing(), new RainSeeding(), new Evaporation());
         SkyColumnPass.Visitor sky = ledgers.forcing().visitor(c.dimension, pass.climate(), dtSeconds, lookup)
                 .andThen(ledgers.rain().visitor(c.dimension, pass.climate(), dtSeconds, lookup))
-                .andThen(ledgers.evaporation().visitor(c.dimension, pass.climate(), dtSeconds, scratch, lookup,
-                        pass.dither()));
+                .andThen(ledgers.evaporation().visitor(c.dimension, pass.climate(), dtSeconds, lookup, pass.dither()));
         SkyColumnPass.walkAndPut(scratch, c.cx, c.cz, lookup, sky);
         return ledgers;
     }
@@ -255,7 +255,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
 
     /** The sky pass (spec 2026-10-25 §4): each level's climate from its dimension, day time and rain, over
      *  that dimension's columns of the last batch — forcing the surface, seeding the rain (issue #33) and
-     *  evaporating surface water by day (issue #34). */
+     *  evaporating world-top surface water by day (issues #34, #80; every other face is the engine's). */
     @Override
     public void applySurfaceForcing(double dtSeconds) {
         MinecraftServer srv = this.server;
@@ -283,7 +283,7 @@ public final class MinecraftThermalWorld implements ThermalWorld {
         }
         SkyColumnPass.Visitor sky = surfaceForcing.visitor(dim, climate, dtSeconds, lookup)
                 .andThen(rainSeeding.visitor(dim, climate, dtSeconds, lookup))
-                .andThen(evaporation.visitor(dim, climate, dtSeconds, store, lookup));
+                .andThen(evaporation.visitor(dim, climate, dtSeconds, lookup));
         for (BatchColumn e : lastBatchColumns) {
             if (dim.equals(e.dimension()) && store.isLoaded(e.cx(), e.cz())) {
                 SkyColumnPass.walkAndPut(store, e.cx(), e.cz(), lookup, sky);
