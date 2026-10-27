@@ -960,7 +960,8 @@ Measured on ORGE-ENGINE `1914a9d` with `sizeof` on the engine structs (g++ 15.2,
 | transient, every cell: seepage weight planes (`s`, `mob`, 2 × f64; present whenever the LUT has a skeleton row — always with the real LUT) | — | **16** |
 | transient, per composition cell: `MixComp` + `Material` row | 52 + ~88 | 52 + ~88 |
 | transient, per seepage-involved cell: `SeepCell` + `SeepOut` | — | **384 + 280** |
-| transient, per vapor-involved cell (only when `g_vap > 0`; 0 by default until #41): `VapCell` + `SeepOut` | — | **1016 + 280** |
+| transient, per vapor-involved cell (only when `g_vap > 0`; on by default since #41, `g_vap = G_VAP_PENMAN`): `VapCell` + `SeepOut` | — | **1016 + 280** |
+| transient, every cell, rest freeze on (the live JNI step, #73/#79): `RestCell` + frozen mask | — | **52 + 1** |
 | on-disk v6 section, raw before deflate (`E` f32, mass f32, `matIx` u16, momentum 3 × f32, `P` f32, slots 3 × (u16 + f32)) | — | 44 B/cell; a one-component section writes no composition block (26 B/cell raw) |
 
 No per-cell variable-length storage anywhere: the involved-cell lists are per-step scratch.
@@ -975,6 +976,19 @@ at `g_vap = 0`; seepage always runs with the real LUT). §16.1's "the three micr
 and §17.1's "RESOLVE micro-passes" are these six. `freeze_evict_world` (v4 §8.4, pre-v5) is a further
 transactional pass between RESOLVE and DECODE that the `6 + 2·N_relax` formula never counted; it is
 unchanged here.
+
+**Kernel count as shipped (updated by #79).** #41 turned the vapor exchange on by default (`engine_b.hpp`
+`Globals::g_vap = G_VAP_PENMAN`), so V1 → V1.5 → V2 run in every shipped step: the count is
+**`12 + 2·N_relax`** with the rest freeze off. #73's rest freeze (`Globals::rest_freeze`, on in the live JNI
+step, `jni/orge_step_world.hpp`) adds two grid-wide passes before ENCODE that a GPU needs a barrier between:
+`rest_cells` (each cell's own rest descriptor: |u|, every component's mass window and phase band, its bulk
+mobility, its in-cell exchange weight, its composition) and the face sweep of `mark_rest_world` (each cell
+reads its six neighbours' descriptors and clears its frozen bit when a face is not at rest; on the CPU the
+in-chunk faces and the cross-chunk faces are two loops of this one pass, and a face only clears, so they
+need no barrier between them). Parking the fully frozen chunks and relabelling the frozen cells to the rest
+row ride the snapshot (ENCODE). So the **live JNI step runs `14 + 2·N_relax`** kernels: ENCODE, the
+`2·N_relax` relaxation half-sweeps, R0, R1, R1.5, R2, S1, S1.5, S2, V1, V1.5, V2, DECODE, plus the two
+rest-freeze passes; `freeze_evict_world` stays outside the formula as above.
 
 ### 19.3 Acceptance procedure and evidence (C1, C4)
 
@@ -1171,3 +1185,35 @@ stack and walled the lava in. Without them, the lava (τ_y = 0) spreads along th
 lava|water two-layer leveling it starts still moves 2–9 kg per 10 ticks after tick 200. That leveling is not
 the test's subject. Within the walls the stack ends lava < water < air, every cell in its window, with mass
 moving 1e-3 kg per 10 ticks. Assertions and thresholds are unchanged.
+
+## 22. Drift test (d) on the rest freeze and the refill guard (issue #79)
+
+### 22.1 What changed
+
+The rest freeze (#73) and the §6.4 refill guard (#72) each forked on a computed classification. Both now use
+continuous weights. Thresholds remain only on a cell's state or on a flux bound.
+
+| Was | Now |
+|---|---|
+| `movOf[k] = mobility_frac(…) > 0 ? 1 : 0`, then `if (!(a.mov & b.mov)) return true` | each cell carries its bulk mobility `mob = Π_k mob_k` (`mobility_frac`, exactly 0 at μ → ∞; a rigid component holds the whole cell, as +INF dominates the mixture μ). Every mechanical residual of a face is multiplied by `w = mob_a·mob_b`, the bound on what the bulk flux can carry, so a rigid side contributes nothing and the face is judged on its heat (`|ΔT|`) alone. |
+| `if (a.sp != b.sp) return false` | `w · (1 − Σ_species min(y_a, y_b)) ≤ rest_dy`. The composition distance is 0 for one composition and 1 for disjoint species sets, so an interface between two mobile species sets stays awake. |
+| `rest_cells` skipped `cell_mixed(C, i)` | every component must sit inside its own mass window and phase band, and the in-cell exchange weight `(1 − Σ y_k²) · max_k mob_k` must be `≤ rest_dy`. That weight is the impurity carried by the most mobile component, the drive of P2, the phase partition and pore slip. It is exactly 0 for one species and for an all-rigid composition. A frozen composition loses its per-cell mixture in the snapshot, so every pass reads the rest row; `mix_end`, seepage and the vapor exchange skip it. |
+| R2: `mobDG = mobility_frac(…)`, then `mobDG > 0.0f && …` | R1 weights the donor's §6.4 slack by its mobility: `mobility_frac · max(0, m − min − Σ f)`. A donor DECODE holds spares exactly 0, so the top-up clamps against its spendable slack. A fluid spares all but ~5e-7 of it. |
+
+`Globals::rest_dy = 1e-6` (a mass fraction) is the one new knob. With pure species, the freeze does what it
+did before: the idle range-1 scene still freezes every cell. The CARRY (192349..196320 cells/step) and WAKE
+(98272) frozen counts are identical to the base engine. Humid air still stays awake, because its vapor component sits below its condensation threshold,
+outside its phase band. The idle step costs ~57 ms against ~45 ms on the base engine (5 columns, loaded host,
+`engine_b_perf_bench 5 4 1 0`), which is within #73's 2× bound.
+
+### 22.2 Evidence
+
+`ORGE-ENGINE/tests/engine_b_rest_freeze_mmc_test.cpp` (cheap tier):
+- A static scan of `engine_b.hpp`, with comments stripped, finds no `movOf`, `.mov`, `cell_mixed(` or `.sp` in
+  the rest-freeze block, and no `mobility_frac` / `mu_eff` in the §6.4 refill block.
+- A resting rigid composition (rail + grass) set into a superflat floor freezes and is carried bit-exact
+  through the snapshot / `mix_end` path, with grand and per-species mass exact.
+- Against the base engine it fails 6 checks: the 5 static ones, plus "0 of 128 composite cells frozen".
+- With the `mix_end` frozen-cell skip removed, it fails 3 checks: the grass component is destroyed.
+
+`engine_b_rest_freeze_test` and `engine_b_refill_mobile_donor_test` pass unchanged.
