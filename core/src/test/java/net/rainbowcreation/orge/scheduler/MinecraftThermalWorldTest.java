@@ -499,8 +499,8 @@ class MinecraftThermalWorldTest {
         assertEquals(0.0, world.rainSeeding().mass(nether));
     }
 
-    /** Issue #34: the same pass that forces also evaporates surface water by day, on the last batch's columns
-     *  of the sunlit dimension only. */
+    /** Issues #34, #80: the same pass that forces also evaporates world-top surface water by day (every other
+     *  face is the engine's), on the last batch's columns of the sunlit dimension only. */
     @Test
     void oneSkyPassForcesAndEvaporatesOnTheLastBatchColumnsOfItsDimension(@TempDir Path dir) {
         Identifier nether = SkyTestWorld.THE_NETHER;
@@ -508,31 +508,36 @@ class MinecraftThermalWorldTest {
         mgr.onLevelLoad(nether, dir.resolve("nether"), AmbientProvider.FALLBACK);
         mgr.onChunkLoad(nether, 0, 0);
         mgr.onChunkLoad(DIM, 1, 0);
+        int top = ColumnAssembler.MAX_SECTION_Y;
+        Function<Integer, Identifier> pond = y -> y < 15 ? SkyTestWorld.STONE : SkyTestWorld.WATER;
         SkyTestWorld.flatWorld(mgr.store(DIM), SkyTestWorld.WATER, 300f);
-        SkyTestWorld.flatWorld(mgr.store(nether), SkyTestWorld.WATER, 300f);
-        int surface = SkyTestWorld.cell(3, 8, 5);
-        SubchunkKey key = new SubchunkKey(0, 4, 0);
+        SkyTestWorld.putSection(mgr.store(DIM), top, pond, 300f);
+        SkyTestWorld.putSection(mgr.store(nether), top, pond, 300f);
+        int surface = SkyTestWorld.cell(3, 15, 5);
+        int inside = SkyTestWorld.cell(3, 8, 5);
+        SubchunkKey key = new SubchunkKey(0, top, 0);
         SectionData outside = SectionData.uniform(0f, 0f);
         SkyTestWorld.setCell(outside, surface, SkyTestWorld.mat(SkyTestWorld.WATER), 1000f, 300f);
-        SkyTestWorld.setCell(outside, SkyTestWorld.cell(3, 9, 5), SkyTestWorld.mat(SkyTestWorld.AIR), 1.2f, 300f);
-        mgr.store(DIM).put(new SubchunkKey(1, 4, 0), outside);
+        mgr.store(DIM).put(new SubchunkKey(1, top, 0), outside);
 
         MinecraftThermalWorld world = new MinecraftThermalWorld(mgr);
         world.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0), skyEntry(nether, 0)));
         double ow0 = mgr.store(DIM).get(key).enthalpyAt(surface);
+        float water = SkyTestWorld.mat(SkyTestWorld.WATER).defaultMass();
 
         world.applySurfaceForcing(DIM, 6000L, 0f, 1.0, SkyTestWorld.lookup());   // clear noon
         world.applySurfaceForcing(nether, 6000L, 0f, 1.0, SkyTestWorld.lookup());
 
         SectionData ow = mgr.store(DIM).get(key);
-        assertTrue(ow.massAt(surface) < 1000f, "the stepped Overworld column evaporates");
-        assertEquals(SkyTestWorld.orge("steam"), ow.slotMaterialAt(1, SkyTestWorld.cell(3, 9, 5)),
-                "into the air above as vapor");
+        assertTrue(ow.massAt(surface) < water, "the stepped Overworld column evaporates off the world top");
+        assertEquals(256.0 * (water - ow.massAt(surface)), -world.evaporation().mass(DIM), 0.0,
+                "every one of the 256 world-top cells into the boundary ledger");
         assertNotEquals(ow0, ow.enthalpyAt(surface), "and is forced in the same pass");
-        assertTrue(world.evaporation().evaporated(DIM) > 0);
+        assertEquals(water, mgr.store(DIM).get(new SubchunkKey(0, 4, 0)).massAt(inside), 0f,
+                "a surface under the top section is the engine's");
         assertTrue(world.surfaceForcing().ledger(DIM) > 0);
         assertEquals(1000f, outside.massAt(surface), 0f, "a column outside the batch does not evaporate");
-        assertEquals(1000f, mgr.store(nether).get(key).massAt(surface), 0f, "the Nether has no sky");
+        assertEquals(water, mgr.store(nether).get(key).massAt(surface), 0f, "the Nether has no sky");
         assertEquals(0.0, world.evaporation().evaporated(nether));
     }
 
@@ -608,6 +613,11 @@ class MinecraftThermalWorldTest {
         SectionStoreManager live = SkyTestWorld.loaded(dir.resolve("live"), DIM);
         SkyTestWorld.flatWorld(ref.store(DIM), surfaceMaterial, 300f);
         SkyTestWorld.flatWorld(live.store(DIM), surfaceMaterial, 300f);
+        // A world-top pond in another column of cells: the face the sky pass evaporates (issue #80).
+        int top = ColumnAssembler.MAX_SECTION_Y;
+        Function<Integer, Identifier> pond = y -> y < 15 ? SkyTestWorld.AIR : SkyTestWorld.WATER;
+        SkyTestWorld.putSection(ref.store(DIM), top, pond, 300f);
+        SkyTestWorld.putSection(live.store(DIM), top, pond, 300f);
 
         MinecraftThermalWorld refWorld = new MinecraftThermalWorld(ref);
         refWorld.setLastBatchColumnsForTest(List.of(skyEntry(DIM, 0)));
@@ -623,7 +633,8 @@ class MinecraftThermalWorldTest {
 
         SectionStoreManager untouched = SkyTestWorld.loaded(dir.resolve("untouched"), DIM);
         SkyTestWorld.flatWorld(untouched.store(DIM), surfaceMaterial, 300f);
-        for (int sy = 2; sy <= 5; sy++) {
+        SkyTestWorld.putSection(untouched.store(DIM), top, pond, 300f);
+        for (int sy : new int[] {2, 3, 4, 5, top}) {
             SubchunkKey key = new SubchunkKey(0, sy, 0);
             SectionData want = ref.store(DIM).get(key);
             SectionData got = c.section(sy).data();
@@ -647,6 +658,7 @@ class MinecraftThermalWorldTest {
         assertEquals(refWorld.evaporation().mass(DIM), ledgers.evaporation().mass(DIM), 0.0);
         assertEquals(refWorld.evaporation().energy(DIM), ledgers.evaporation().energy(DIM), 0.0);
         assertEquals(refWorld.evaporation().evaporated(DIM), ledgers.evaporation().evaporated(DIM), 0.0);
+        assertTrue(rain > 0f || ledgers.evaporation().evaporated(DIM) > 0, "NON-VACUOUS: the clear noon evaporates");
     }
 
     @Test

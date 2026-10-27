@@ -161,11 +161,13 @@ its enthalpy are booked in the rain's boundary ledgers.
 
 ## Daytime evaporation (issue #34)
 
-Not material data: by day and while it is not raining, the same once-per-second sky pass evaporates
-each `(x, z)` column's surface water (the cell rain lands on: free water, a water component on stone, pore
-water of sand / dirt) into the air cell directly above as `steam` (`Evaporation`, spec
-`superpowers/specs/2026-10-25-daytime-evaporation.md`). The rate is the engine's #28 vapor exchange across
-that one face, `F = χ_pair·g_vap·A·dt·w_liq·w_gas·(p_sat(T_water) − p_v,air)`, so it needs no new number:
+Not material data: surface water (free water, a water component on stone, pore water of sand / dirt)
+evaporates into the air above it as `steam` through the engine's #28 vapor exchange across that face,
+`F = χ_pair·g_vap·A·dt·w_liq·w_gas·(p_sat(T_water) − p_v,air)`, on by default since #41. Issue #80 made that
+exchange the face's one owner: the once-per-second sky pass (`Evaporation`, spec
+`superpowers/specs/2026-10-25-daytime-evaporation.md` §0) evaporates, by day and while it is not raining,
+only a surface at the world top, whose face the engine has no cell for, at the same rate into the free
+atmosphere (`w_gas = 1`, `p_v = 0`). It needs no new number:
 
 | Quantity | Value | Source |
 |---|---|---|
@@ -176,10 +178,10 @@ that one face, `F = χ_pair·g_vap·A·dt·w_liq·w_gas·(p_sat(T_water) − p_v
 The biome enters through the water's own derived `T` (seeded at the biome ambient, then forced by the
 sun): a 309 K desert puddle (`BiomeTemperature` base 2.0) under dry air starts at 3.0e-8 · 5.9 kPa =
 1.8e-4 kg·m⁻²·s⁻¹ (0.64 mm/h — the order of daytime desert pan evaporation, ~10 mm/day), a 274 K taiga
-puddle (base 0.25) at 3.0e-8 · 0.66 kPa = 2.0e-5 kg·m⁻²·s⁻¹. Over one simulated day (`EvaporationTest`)
-the desert puddle gives 0.040 kg to the air above it and the taiga puddle 0.0049 kg (×8). Since #41 the
+puddle (base 0.25) at 3.0e-8 · 0.66 kPa = 2.0e-5 kg·m⁻²·s⁻¹ — once per face per cycle (`EvaporationIT`:
+a sky pass and an engine step together move a single Penman flux). Since #41 the
 humid air cell moves with the dry air around it (bulk flux between different species sets, §4.6 routing)
-and passes its vapor to drier air across the face, so it no longer saturates in place. Vapor with no simulated cell above (the world top) leaves the domain and is booked in the
+and passes its vapor to drier air across the face, so it no longer saturates in place. Vapor off a world-top surface leaves the domain and is booked in the
 evaporation ledger with its enthalpy `m·h_steam(T_water)` (latent heat included).
 
 ## Phase changes
