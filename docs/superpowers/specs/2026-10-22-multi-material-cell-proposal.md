@@ -1114,3 +1114,60 @@ water lost == steam gained every tick, the cell cools against its g_vap = 0 twin
 the same Dalton pressure exchange 6.0e-4 kg in 20 ticks (Penman order 6.2e-4; the bulk flux alone 1.4e-6).
 RED on the base engine: (A)–(F) all fail (10 checks). `engine_b_mmc_state_test` (B2): with the vapor exchange
 on, a far species set leaves a region bit-identical — RED on the base engine (first difference tick 5).
+
+## 21. Open-top humid atmosphere (issue #72)
+
+The A-9 scene with the vapor exchange on (a water pool, 6 air layers, the top left as vacuum) grew a
+~0.2 kg/cell air layer into the open top. Engine commits on ORGE-ENGINE `issue/72` (merged into its `rebuild`),
+gitlink bumped and `liborge.so` rebuilt in the ORGE PR that closes #72. `DESIGN-LAW.md` is not edited: the
+fix applies law #9 as written.
+
+### 21.1 Cause
+
+Not the mixture EOS. A humid cell's Dalton gauge is right: 0.6 g of steam over 1.2 kg of air reads its vapor
+partial pressure (tens of Pa) above the dry ladder, and the `mix_material` rest anchor P₀,cell gives that
+value. The trouble is what the rise does at the open top:
+
+1. The bottom humid layer sits ~15 Pa above the dry ladder. The relaxed column above it is pushed up by
+   ~1e-5 m/s, so the top row's drive points into the vacuum above it.
+2. A gas could seed vacuum with any drip ≥ ε_mass. The R2 empty-refill gate's floor was the
+   cohesion-weighted `(1−χ)·minMass` (≈ 2e-4 kg for air), and its test `|ṁ| < floor − 1e-3` never fires at
+   that floor. At tick 14, 30 cells above the column took ~1e-6 kg of air each.
+3. A sub-min gas cell's anchor sits at the 1%-of-rest floor (`gas_anchor_v42`, ≈ −991 Pa for air), about 80
+   times the 12 Pa per-cell ladder. Each seed drew the cells below it to their donor floor (1.2 → 1.0 kg).
+   That gave 51.09 kg over 256 cells by tick 17, which then held.
+
+The dry A-9 run passes only because its rest is exactly balanced: the top row's drive is never positive.
+
+### 21.2 What changed
+
+| Item | Where | Notes |
+|---|---|---|
+| Empty-refill floor = the full `minMass` for every species | `engine_b.hpp` `resolve_world` R2 (the §6.4 / A-10 gate) | Law #9 (INV-SOFTWIN): flow never pushes a component out of its window, and `min ≤ m ≤ max ∨ m = 0` holds per component, a gas included. A refill below min is gated, or rounded up to one min chunk by the §6.4 min-quantum refill when the donor can spare it. `(1−χ)` stays where the law puts it: the cohesive pull of the soft window. |
+| The full-drain split | R1 (`minTgtI`) | The face shares a full drain may split into empty cells use the same floor, so R1's drain decision and R2's gate agree. |
+| The wall's empty-neighbour room | `wall_pressure` (`quantum`) | The same refill chunk, so the soft wall pushes into vacuum only when the donor can seed it. For χ = 0 rows this is bit-identical (it was already the full min). |
+| The §6.4 round-up needs a donor DECODE moves | R2 refill gate | DECODE holds a cell at the exact μ→∞ mobility limit (`mobility_frac(μ_eff, defaultMass/V) ≤ 0`) at its snapshot mass, so a round-up from that cell would credit the receiver a chunk the donor never pays. On the real LUT every fluid has finite μ, and terrain never reaches the gate (its drive is 0), so nothing changes there. A LUT row with rest density 0 does reach it: DECODE reads mobility 0 for the row while its face to vacuum is open by ~5e-8. Found by `ResidentLutParityIT` (the JNI determinism golden), whose synthetic LUT leaves `defaultMass` at 0. With the first fix alone, its 30 kg air cell's 5.6e-7 kg drip was rounded up to 1 kg, and the first step made 1 kg of air (3030 → 3031 kg). |
+
+A gas still expands into vacuum: by a donor that can spare one min chunk (compressed air ≥ 2 kg) or by a full
+drain. A rest-density atmosphere (1.2 kg, 0.2 kg of slack) cannot seed its open top, so it takes up the
+Dalton rise as pressure. This is the A-9 claim, "the universal min-floor bounds the expansion". The §6.3
+eviction into vacuum already required a quantum of at least min (`evict_surplus`).
+
+### 21.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_a9_probe_test.cpp` `test_open_top_humid` (cheap tier), real LUT, g_vap at its
+default: the pool evaporates (0.86 kg of steam in 120 ticks), nothing ever lands above the column (0 kg), no
+air component goes below minMass (lowest 1.198 kg), the top row rests (‖u‖ 6e-5 m/s). RED on the base engine:
+51.09 kg above the column, lowest air component 1e-6 kg (2 checks). The dry A-9 run keeps g_vap = 0 (its
+subject is a dry atmosphere).
+
+`ORGE-ENGINE/tests/engine_b_refill_mobile_donor_test.cpp` (cheap tier) runs the `ResidentLutParityIT` scene
+through the JNI body (`orge_step_world`, 8 calls). Grand and air mass hold exactly. RED with the first fix alone:
+1 kg of air created.
+
+`engine_b_accept_test` TEST3 (the inverted air/water/lava stack) now stands between two stone side walls. Its
+open-floor "settles quietly" check had passed only because two sub-min air cells (0.202 kg) formed beside the
+stack and walled the lava in. Without them, the lava (τ_y = 0) spreads along the open row, and the slow
+lava|water two-layer leveling it starts still moves 2–9 kg per 10 ticks after tick 200. That leveling is not
+the test's subject. Within the walls the stack ends lava < water < air, every cell in its window, with mass
+moving 1e-3 kg per 10 ticks. Assertions and thresholds are unchanged.
