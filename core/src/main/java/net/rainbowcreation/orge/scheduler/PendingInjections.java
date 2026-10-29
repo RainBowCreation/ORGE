@@ -106,16 +106,24 @@ public final class PendingInjections {
      * removal can't stomp the engine cell to vacuum under a still-solid durable identity.
      */
     public boolean hasPendingRemoval(Identifier dim, int cx, int cz, int cell) {
+        Intent in = pending(dim, cx, cz, cell);
+        return in != null && in.removal();
+    }
+
+    /** True iff the cell holds a queued <b>placement</b> intent — a block placed but not yet written back,
+     *  so the recorded incumbent (last engine output) still shows what was there before it. */
+    public boolean hasPendingPlacement(Identifier dim, int cx, int cz, int cell) {
+        Intent in = pending(dim, cx, cz, cell);
+        return in != null && !in.removal();
+    }
+
+    private Intent pending(Identifier dim, int cx, int cz, int cell) {
         Map<Long, Map<Integer, Intent>> dimMap = byDim.get(dim);
         if (dimMap == null) {
-            return false;
+            return null;
         }
         Map<Integer, Intent> colMap = dimMap.get(packCol(cx, cz));
-        if (colMap == null) {
-            return false;
-        }
-        Intent in = colMap.get(cell);
-        return in != null && in.removal();
+        return colMap == null ? null : colMap.get(cell);
     }
 
     /**

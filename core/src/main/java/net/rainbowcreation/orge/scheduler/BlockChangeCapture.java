@@ -204,9 +204,7 @@ final class BlockChangeCapture {
         // is already air or vacuum, there is nothing to remove (don't enqueue a removal every reconcile cycle).
         if (live != null && AIR_ID.equals(live.id())) {
             Identifier incId = incumbent != null ? incumbent.id() : null;
-            boolean alreadyEmpty = incId == null
-                    || AIR_ID.equals(incId) || MaterialPalette.VACUUM_ID.equals(incId);
-            if (!alreadyEmpty) {
+            if (airEditRemoves(pendingInjections, dim, cx, cz, engineCell, incId)) {
                 recordRemoval(stores.store(dim), dim, cx, cz, sectionY, sectionCell, engineCell);
             }
             return; // never enqueue an air PLACEMENT or record an air identity at a simulated cell
@@ -214,6 +212,16 @@ final class BlockChangeCapture {
 
         captureEdit(pendingInjections, stores.store(dim), dim, cx, cz, sectionY, sectionCell, engineCell,
                 live, incumbent, isVanillaSpread(level.getFluidState(pos)), ambientK);
+    }
+
+    /** Whether an edit to air at a simulated cell removes something: the recorded incumbent is not already
+     *  empty, or a placement is still queued there. The recorded incumbent is the last engine output and lags
+     *  a queued placement, so `fill stone` then `fill air` must still remove the stone. */
+    static boolean airEditRemoves(PendingInjections q, Identifier dim, int cx, int cz, int engineCell,
+                                  Identifier incumbentId) {
+        boolean recordedEmpty = incumbentId == null
+                || AIR_ID.equals(incumbentId) || MaterialPalette.VACUUM_ID.equals(incumbentId);
+        return !recordedEmpty || q.hasPendingPlacement(dim, cx, cz, engineCell);
     }
 
     /** A non-source fluid state is vanilla spread (issue #64): vanilla flow ticks in an unmanaged section

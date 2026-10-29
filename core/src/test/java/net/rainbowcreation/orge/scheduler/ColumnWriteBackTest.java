@@ -142,6 +142,23 @@ class ColumnWriteBackTest {
     }
 
     @Test
+    void aCellTheEngineEmptiedRecordsVacuumNotItsOldSpecies(@TempDir Path dir) {
+        // The engine reports an emptied cell as species 0 with mass 0. Reading 0 as "no output" and falling
+        // back to the input species left a drained lava cell labelled orge:lava at 0 kg (/orge get showed
+        // "0.0 kg, block=minecraft:air, material=orge:lava").
+        SectionStoreManager mgr = loaded(dir);
+        ColumnTask task = sandTask();
+        int drained = ColumnSectionCodec.colIdx(6, SECTION_Y, 2, 3);
+        ColumnResult r = result(task, new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
+        r.matIx()[drained] = 0;
+        r.mass()[drained] = 0f;
+        world(mgr).writeBackColumn(new ThermalWorld.ColumnEntry(DIM, 0, 0, task), r);
+        SectionData d = mgr.store(DIM).get(new SubchunkKey(0, SECTION_Y, 0));
+        assertEquals(MaterialPalette.VACUUM_ID, d.materialAt(6 + 16 * 2 + 256 * 3), "the emptied cell is vacuum");
+        assertEquals(SAND, d.materialAt(7 + 16 * 2 + 256 * 3), "an occupied neighbour keeps its species");
+    }
+
+    @Test
     void slotsThatEmptyReleaseTheLayerAndBadMassIsSanitized(@TempDir Path dir) {
         SectionStoreManager mgr = loaded(dir);
         MinecraftThermalWorld w = world(mgr);
@@ -169,6 +186,47 @@ class ColumnWriteBackTest {
         assertEquals(0f, after.slotMassAt(1, 1 + 16 + 256), "the stored slot was overwritten empty");
         assertFalse(after.hasSlots(), "an all-empty layer is released");
     }
+    @Test
+    void restCountRoundTripsThroughWriteBackStoreAndAssembly(@TempDir Path dir) {
+        SectionStoreManager mgr = loaded(dir);
+        ColumnTask task = sandTask();
+        int calm = ColumnSectionCodec.colIdx(3, SECTION_Y, 5, 7);
+        int nan = ColumnSectionCodec.colIdx(4, SECTION_Y, 5, 7);
+        int neg = ColumnSectionCodec.colIdx(5, SECTION_Y, 5, 7);
+        float[] rest = new float[RegionMarshaller.CHUNK_N];
+        rest[calm] = 7f; rest[nan] = Float.NaN; rest[neg] = -3f;
+        ColumnResult r0 = result(task, new char[RegionMarshaller.SLOT_N], new float[RegionMarshaller.SLOT_N]);
+        ColumnResult r = new ColumnResult(r0.matIx(), r0.mass(), r0.temperature(), r0.momX(), r0.momY(),
+                r0.momZ(), r0.p(), r0.swapReady(), r0.enthalpy(), r0.slotIx(), r0.slotMass(), rest);
+
+        world(mgr).writeBackColumn(new ThermalWorld.ColumnEntry(DIM, 0, 0, task), r);
+
+        SectionStore store = mgr.store(DIM);
+        SectionData d = store.get(new SubchunkKey(0, SECTION_Y, 0));
+        int sCalm = 3 + 16 * 5 + 256 * 7;
+        assertEquals(7f, d.restCountAt(sCalm), "the engine's rest counter reached the store");
+        assertEquals(0f, d.restCountAt(sCalm + 1), "non-finite → 0");
+        assertEquals(0f, d.restCountAt(sCalm + 2), "negative → 0");
+
+        // ... and comes back into the next step's ColumnTask through the reader + assembler.
+        Material sand = lut().get(SAND_IX);
+        MaterialLut mlut = net.rainbowcreation.orge.engine.TestMaterials.lutOf(lut());
+        net.rainbowcreation.orge.material.MaterialRegistry reg =
+                net.rainbowcreation.orge.engine.TestMaterials.registryOf(lut());
+        GeometryAssembler.CellMaterials live = i -> sand;
+        GeometryAssembler.Geometry geo = GeometryAssembler.assemble(live, mlut);
+        ColumnTask next = ColumnAssembler.assemble(0, 0, mlut, reg, (cx, cz, sy) ->
+                SectionCellsReader.read(store, new SubchunkKey(cx, sy, cz), geo, live,
+                        id -> reg.get(id).orElse(null),
+                        new char[SectionData.CELLS], new float[SectionData.CELLS], 290f));
+        assertEquals(7f, next.restCount()[calm]);
+        assertEquals(0f, next.restCount()[nan]);
+        assertEquals(0f, next.restCount()[neg]);
+        mgr.onLevelUnload(DIM);
+        SectionData reloaded = loaded(dir).store(DIM).get(new SubchunkKey(0, SECTION_Y, 0));
+        assertEquals(0f, reloaded.restCountAt(sCalm), "in-memory only: a reloaded section starts at 0");
+    }
+
     // -------------------------------------------------------------------------
     // Issue #51: the write-back prepared off-thread from the snapshot's capture
     // -------------------------------------------------------------------------

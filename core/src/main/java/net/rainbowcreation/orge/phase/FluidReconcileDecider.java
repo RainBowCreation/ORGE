@@ -132,7 +132,10 @@ public final class FluidReconcileDecider {
         // air cell reads water's 1000 kg full reference, not air's).
         Material levelMaterial = becameFluid ? outMat : worldMaterial;
         float f = FluidReconcileLogic.fraction(massKg, levelMaterial.defaultMass());
-        int renderLevel = FluidReconcileLogic.levelForFraction(f);
+        // Less than half of the thinnest vanilla level is too little to draw as a block: the cell shows air
+        // and the material's "suspended" effect (drips, mist) shows it instead (CellEffects).
+        int renderLevel = FluidReconcileLogic.isTrace(massKg, levelMaterial.defaultMass())
+                ? FluidReconcileLogic.REMOVE : FluidReconcileLogic.levelForFraction(f);
 
         // Decision 13b throttle: skip only when the SPECIES is unchanged AND mass stayed in the same
         // render bucket. A species change (incl. a fluid cell that Pass A vacated → air) must always

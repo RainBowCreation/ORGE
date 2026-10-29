@@ -49,6 +49,8 @@ public final class Scheduler {
     /** Advection cadence (DESIGN §10 Decision 2): every 5 ticks = 4 Hz, dt = 0.25 s. Decoupled
      *  from the 20-tick conduction cadence; tunable in the in-game audit. */
     public static final int ADVECTION_TICKS = 5;
+    /** Default {@code restSteps}: consecutive unchanged steps before the engine freezes a cell. */
+    public static final int DEFAULT_REST_STEPS = 20;
     public static final double ADVECTION_DT_SECONDS = 0.25;
 
     /** Max simulated seconds a single combined step may catch up (spec 2026-06-02 B4). Bounds
@@ -106,6 +108,9 @@ public final class Scheduler {
      *  replaces {@link #ADVECTION_TICKS} as the cadence; {@code fixedDt} {@code <= 0} = AUTO (real time). */
     private int ticksPerStep = ADVECTION_TICKS;
     private double fixedDt = 0;
+    /** Rest freeze: a cell whose material/mass/energy is unchanged for {@code restSteps} consecutive steps
+     *  is frozen by the engine; {@code 0} = off. */
+    private int restSteps = DEFAULT_REST_STEPS;
     /** {@code /orge perf} timing metrics; {@code pendingDt} is the in-flight step's simulated dt. */
     private final StepMetrics metrics = new StepMetrics();
     private double pendingDt;
@@ -267,6 +272,7 @@ public final class Scheduler {
         final Cycle c = new Cycle();
         cycle = c;
         final double dt = nextDt();
+        final int rest = restSteps;
         pendingDt = dt;
         pending = runner.submit(() -> {
             long jobStart = System.nanoTime();
@@ -292,7 +298,7 @@ public final class Scheduler {
             } else {
                 net.rainbowcreation.orge.engine.RegionStepResult rr =
                         engine.stepWorld(input, batch.lutEpoch(), dt,
-                                OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, injections);
+                                OrgeEngine.PASS_CONDUCTION | OrgeEngine.PASS_ADVECTION, injections, rest);
                 c.regionResult = rr;
                 c.columnResults = rr.columns();
             }
@@ -343,6 +349,14 @@ public final class Scheduler {
     public void setFixedDt(double seconds) {
         if (seconds > 0 && (seconds < 0.01 || seconds > 2.0)) throw new IllegalArgumentException("stepDt must be 0.01..2.0: " + seconds);
         fixedDt = seconds;
+    }
+
+    public int restSteps() { return restSteps; }
+
+    /** Steps a cell must stay unchanged before the engine freezes it (0..10000; 0 = off). */
+    public void setRestSteps(int steps) {
+        if (steps < 0 || steps > 10000) throw new IllegalArgumentException("restSteps must be 0..10000: " + steps);
+        restSteps = steps;
     }
 
     /** The on-pace dt the current knobs produce (for display). */
@@ -468,6 +482,17 @@ public final class Scheduler {
             // Success ⇒ the placements are now durably in the store; clear them from the queue.
             world.pendingInjections().remove(c.drained);
         }
+    }
+
+    /**
+     * Server stop: drop the in-flight cycle. Its result belongs to the stopping world; in singleplayer the
+     * scheduler outlives the server, and the next world's first tick would otherwise install it there.
+     */
+    public void reset() {
+        if (pending != null) {
+            pending.cancel();
+        }
+        toIdle();
     }
 
     /** The in-flight cycle lands nothing: a sky pass its capture carried is handed back to the next pass. */

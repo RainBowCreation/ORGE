@@ -181,4 +181,23 @@ class InjectionDrainTest {
         assertEquals(99f, mass[cell], "mass untouched when species unresolvable");
         assertEquals(0, emitted.size(), "intent NOT marked emitted → stays queued for retry (durability)");
     }
+
+    @Test
+    void aBreakStompRestartsTheCellsRestCount() {
+        // A removal is stamped into the assembled arrays: the engine never sees it as a change of its own, so the
+        // drain must restart the cell's rest-freeze count or a settled cell stays frozen with the break unsimulated.
+        int cell = 5 + 16 * 70;
+        char[] matIx = new char[RegionMarshaller.CHUNK_N];
+        float[] mass = new float[matIx.length];
+        float[] rest = new float[matIx.length];
+        matIx[cell] = 3; mass[cell] = 2500f;
+        java.util.Arrays.fill(rest, 50f);
+        PendingInjections pi = new PendingInjections();
+        pi.enqueueRemoval(DIM, 0, 0, cell);
+        InjectionDrain.applyToColumn(0, matIx, mass, rest, id -> (char) 0, pi.peekColumn(DIM, 0, 0),
+                c -> null, c -> 0f, new ArrayList<>(), new ArrayList<>());
+        assertEquals(0, matIx[cell], "stomped to vacuum");
+        assertEquals(0f, rest[cell], "the broken cell's rest count restarts");
+        assertEquals(50f, rest[cell + 1], "a cell the drain did not touch keeps its count");
+    }
 }

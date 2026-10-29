@@ -36,6 +36,14 @@ public interface OrgeEngine {
         return new RegionStepResult(cols, new float[0], new float[0], new float[0], new float[0]);
     }
 
+    /** Rest-freeze-aware step: {@code restSteps} = consecutive unchanged steps before the engine freezes a
+     *  cell (0 = off). Default ignores it and delegates to the injection-aware form. */
+    default RegionStepResult stepWorld(java.util.List<ColumnTask> columns,
+                                       int lutEpoch, double dtSeconds, int passes,
+                                       java.util.List<EngineInjection> injections, int restSteps) {
+        return stepWorld(columns, lutEpoch, dtSeconds, passes, injections);
+    }
+
     /** Per-section compute time of the last {@link #step}, ms — drives health throttling. */
     double lastStepMillis();
 }

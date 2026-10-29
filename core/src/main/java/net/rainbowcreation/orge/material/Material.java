@@ -74,7 +74,8 @@ public record Material(
         float flowResistance,
         float airEntryPressure,
         float poreSizeIndex,
-        float residualSaturation
+        float residualSaturation,
+        MaterialEffects effects
 ) {
     /** True when a natural/seed/pin temperature is defined (i.e. {@code default_temperature} present). */
     public boolean hasDefaultTemperature() {
@@ -134,6 +135,7 @@ public record Material(
         private float airEntryPressure = 0f;   // law v5 #8 p_b [Pa]; absent => 0
         private float poreSizeIndex = 1f;      // law v5 #8 λ_BC; absent => 1
         private float residualSaturation = 0f; // law v5 #8 S_r; absent => 0
+        private MaterialEffects effects = MaterialEffects.NONE; // render only; absent => none
 
         private Builder(Identifier id) {
             this.id = id;
@@ -164,6 +166,7 @@ public record Material(
         public Builder airEntryPressure(float v) { this.airEntryPressure = v; return this; }
         public Builder poreSizeIndex(float v) { this.poreSizeIndex = v; return this; }
         public Builder residualSaturation(float v) { this.residualSaturation = v; return this; }
+        public Builder effects(MaterialEffects v) { this.effects = v; return this; }
 
         public Material build() {
             if (thermalConductivity == null || heatCapacity == null || molarMass == null
@@ -182,7 +185,8 @@ public record Material(
                     defaultTemperature, visc, minM, maxM, yieldStress,
                     emissivity, thermalExpansion, latentHeatMin, latentHeatMax, tRefGas,
                     minTemp, maxTemp, minTarget, maxTarget, repr, pinned,
-                    particleDensity, flowResistance, airEntryPressure, poreSizeIndex, residualSaturation);
+                    particleDensity, flowResistance, airEntryPressure, poreSizeIndex, residualSaturation,
+                    effects);
         }
     }
 }

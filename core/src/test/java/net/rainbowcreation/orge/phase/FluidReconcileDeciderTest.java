@@ -218,4 +218,19 @@ class FluidReconcileDeciderTest {
         assertEquals(FluidReconcileDecider.Kind.SKIP, FluidReconcileDecider.decide(
                 yieldingStone(), yieldingStone(), 900f, FluidReconcileLogic.REMOVE, false, false, true, true).kind());
     }
+
+    @Test
+    void aTraceBelowHalfTheThinnestLevelIsDrawnAsAir() {
+        // 60 kg < 1000/16 = 62.5 kg (half of one vanilla level): too little for a block. A shown water block
+        // clears; an air cell stays air (the material's "suspended" effect shows the trace instead).
+        assertEquals(FluidReconcileDecider.Kind.CLEAR, FluidReconcileDecider.decide(
+                water(), water(), 60f, 7, true, false).kind());
+        assertEquals(FluidReconcileDecider.Kind.SKIP, FluidReconcileDecider.decide(
+                air(), water(), 60f, FluidReconcileLogic.REMOVE, false, true).kind());
+        // at half a level it is the thinnest block again
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                air(), water(), 62.5f, FluidReconcileLogic.REMOVE, false, true);
+        assertEquals(FluidReconcileDecider.Kind.PLACE, a.kind());
+        assertEquals(7, a.renderLevel());
+    }
 }

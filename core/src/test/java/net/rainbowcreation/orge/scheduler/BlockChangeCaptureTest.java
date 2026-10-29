@@ -140,4 +140,17 @@ class BlockChangeCaptureTest {
         assertEquals(ENGINE_CELL, got.get(0).cell());
         assertEquals(TestMaterials.water().id(), store.materialAt(CX, CZ, SECTION_Y, SECTION_CELL));
     }
+
+    @Test
+    void airEditRemovesAPlacementStillQueuedOverRecordedAir() {
+        Identifier air = Identifier.fromNamespaceAndPath("orge", "air");
+        PendingInjections q = new PendingInjections();
+        assertFalse(BlockChangeCapture.airEditRemoves(q, DIM, CX, CZ, ENGINE_CELL, air),
+                "air over recorded air with nothing queued is a steady repaint, not a removal");
+
+        // `fill stone` queued the stone; the recorded incumbent still reads the air the engine last wrote
+        q.enqueue(DIM, CX, CZ, ENGINE_CELL, Identifier.fromNamespaceAndPath("orge", "stone"), 2000f, 290f);
+        assertTrue(BlockChangeCapture.airEditRemoves(q, DIM, CX, CZ, ENGINE_CELL, air),
+                "`fill air` right after `fill stone` must remove the still-queued stone");
+    }
 }

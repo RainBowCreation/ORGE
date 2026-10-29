@@ -87,7 +87,10 @@ public final class NativeEngine implements OrgeEngine {
             char[] slotIxOut, float[] slotMassOut,
             // Issue #44: this call's books, length RegionStepResult.BOOKS_HEAD + matCount — boundaryE,
             // dampHeat, swapPeHeat, then boundaryMassEps[species] (orge_step_world.hpp ORGE_BOOKS_*).
-            double[] booksOut);
+            double[] booksOut,
+            // Rest freeze ABI growth, APPENDED: restIn/restOut = per-cell consecutive-unchanged-step counter
+            // (length nCols·CHUNK_N, round-tripped like swapReady); restSteps = freeze threshold, 0 = off.
+            float[] restIn, float[] restOut, int restSteps);
 
     private final java.util.Map<Integer, Integer> epochMatCount = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -118,11 +121,18 @@ public final class NativeEngine implements OrgeEngine {
     public RegionStepResult stepWorld(List<ColumnTask> columns, int lutEpoch,
                                       double dtSeconds, int passes,
                                       List<EngineInjection> injections) {
+        return stepWorld(columns, lutEpoch, dtSeconds, passes, injections, 0);
+    }
+
+    @Override
+    public RegionStepResult stepWorld(List<ColumnTask> columns, int lutEpoch,
+                                      double dtSeconds, int passes,
+                                      List<EngineInjection> injections, int restSteps) {
         int matCount = epochMatCount.getOrDefault(lutEpoch, 0);
         // The entire flatten/scratch/ledger/slice assembly is inside EngineMarshaller; NativeEngine
         // contributes only the raw JNI call (orgeStepWorld) as the Kernel method reference.
         return marshaller.step(columns, lutEpoch, matCount, dtSeconds, passes,
-                injections, NativeEngine::orgeStepWorld);
+                injections, restSteps, NativeEngine::orgeStepWorld);
     }
 
     @Override

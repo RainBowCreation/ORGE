@@ -73,10 +73,22 @@ public final class InjectionDrain {
                                      List<PendingInjections.Intent> intents,
                                      IntFunction<Identifier> incumbentId, IncumbentMass incumbentMass,
                                      List<EngineInjection> out, List<PendingInjections.Intent> emittedOut) {
+        applyToColumn(columnId, matIx, mass, null, resolver, intents, incumbentId, incumbentMass, out, emittedOut);
+    }
+
+    /** As above, also restarting each edited cell's rest-freeze count in {@code restCount} (null = none): the
+     *  engine never sees a stomp or a placement as a change of its own, so a settled cell would stay frozen. */
+    public static void applyToColumn(int columnId, char[] matIx, float[] mass, float[] restCount,
+                                     SpeciesResolver resolver, List<PendingInjections.Intent> intents,
+                                     IntFunction<Identifier> incumbentId, IncumbentMass incumbentMass,
+                                     List<EngineInjection> out, List<PendingInjections.Intent> emittedOut) {
         for (PendingInjections.Intent in : intents) {
             int cell = in.cell();
             if (cell < 0 || cell >= matIx.length) {
                 continue;
+            }
+            if (restCount != null) {
+                restCount[cell] = 0f;
             }
             // Removal (BREAK): stomp the cell to the index-0 vacuum sentinel and mark emitted —
             // no EngineInjection is emitted. Must branch BEFORE the species==0 placement guard

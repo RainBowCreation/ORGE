@@ -18,25 +18,14 @@ public final class ExecutorStepRunner implements StepRunner {
 
     private static final int NEW = 0, RUNNING = 1, CANCELLED = 2;
 
-    private ExecutorService executor = newExecutor();
-
-    private static ExecutorService newExecutor() {
-        return Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "orge-conduction");
-            t.setDaemon(true);
-            return t;
-        });
-    }
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "orge-conduction");
+        t.setDaemon(true);
+        return t;
+    });
 
     @Override
     public Handle submit(Callable<List<StepResult>> task) {
-        // The runner outlives a single integrated-server lifecycle: shutdown() runs on
-        // SERVER_STOPPING, but in singleplayer the player can start another world in the
-        // same JVM. Re-create the terminated executor so the next server's steps run
-        // instead of hitting RejectedExecutionException. Server-thread-confined, so no lock.
-        if (executor.isShutdown()) {
-            executor = newExecutor();
-        }
         // NEW → RUNNING when the step thread picks the step up, NEW → CANCELLED when cancelIfNotStarted
         // wins: the two are exclusive, so a step is either never run or never cancelled.
         AtomicInteger state = new AtomicInteger(NEW);
@@ -88,7 +77,7 @@ public final class ExecutorStepRunner implements StepRunner {
         };
     }
 
-    /** Stop the background thread (call on server stop). */
+    /** Stop the background thread. Not called on server stop: singleplayer reuses the one step thread. */
     public void shutdown() {
         executor.shutdownNow();
     }

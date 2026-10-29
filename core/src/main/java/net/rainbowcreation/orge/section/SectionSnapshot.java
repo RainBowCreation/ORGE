@@ -30,7 +30,7 @@ import java.util.List;
  *       (DESIGN-LAW v5 #7 slots 1..{@link SectionData#SLOTS}−1, length {@link SectionData#SLOT_CELLS},
  *       indices into {@code materialPalette} — so a composition layer implies a material layer).</li>
  * </ul>
- * The {@code swapReady} bookkeeping channel is deliberately absent — it is in-memory-only and never
+ * The {@code swapReady} and {@code restCount} bookkeeping channels are deliberately absent — they are in-memory-only and never
  * serialized (law §7), so it has no place in the on-disk snapshot.</p>
  *
  * <p>Arrays are referenced, not copied: on write the snapshot aliases {@code SectionData}'s live

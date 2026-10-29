@@ -517,4 +517,19 @@ class SectionDataTest {
         assertSame(adopted, live.enthalpyArray(), "the adopted arrays are not shared: mutated in place");
         assertEquals(5e5f, view.enthalpyAt(0), "and the old view is untouched");
     }
+
+    @Test
+    void anEditOutsideTheEngineRestartsTheCellsRestCount() {
+        SectionData s = SectionData.uniform(290_000f, 1.2f);
+        java.util.Arrays.fill(s.restCountArray(), 30f);
+        s.setMass(1, 2f);
+        s.setEnthalpy(2, 1.0);
+        s.setMaterialAt(3, net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "stone"));
+        s.setSlot(1, 4, net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "water"), 5f);
+        for (int i = 1; i <= 4; i++) {
+            assertEquals(0f, s.restCountAt(i), "an edited cell restarts its rest count (cell " + i + ")");
+        }
+        assertEquals(30f, s.restCountAt(0), "an untouched cell keeps its count");
+        assertEquals(30f, s.restCountAt(5), "an untouched cell keeps its count");
+    }
 }

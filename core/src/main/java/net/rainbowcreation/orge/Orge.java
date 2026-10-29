@@ -263,7 +263,28 @@ public final class Orge {
             cellMaterials.clear();
             activeSet.clear();
             thermalWorld.hydrationDrain().clear();
-            stepRunner.shutdown();
+            thermalWorld.pendingInjections().clear();
+            // The step thread is NOT shut down: in singleplayer the next world reuses it, so a step still
+            // running here finishes before the next world's first step starts (they share engine scratch).
+            scheduler.reset();
+        });
+        // Dev runServer only: the Architectury transformer runtime leaves two non-daemon thread pools alive,
+        // so the JVM never exits after `stop`. Exit once the server thread has finished — not from it, since
+        // vanilla's shutdown hook joins the server thread and would deadlock.
+        LifecycleEvent.SERVER_STOPPED.register(server -> {
+            if (!dev.architectury.platform.Platform.isDevelopmentEnvironment() || !server.isDedicatedServer()) {
+                return;
+            }
+            Thread serverThread = Thread.currentThread();
+            Thread exit = new Thread(() -> {
+                try {
+                    serverThread.join();
+                } catch (InterruptedException ignored) {
+                }
+                System.exit(0);
+            }, "orge-dev-exit");
+            exit.setDaemon(true);
+            exit.start();
         });
         // Bind the conduction clock to Minecraft's game-tick clock: skip stepping while the world
         // is frozen (/tick freeze), and let the 20-tick cadence ride /tick rate (slow/sprint).

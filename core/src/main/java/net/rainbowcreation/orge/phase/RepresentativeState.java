@@ -90,6 +90,18 @@ public final class RepresentativeState {
         return best;
     }
 
+    /**
+     * The material a cell reads as (the {@code material=} readout): the kept host, else the
+     * {@link #dominant} component — what the cell is drawn as, never slot 0 (LUT order), or null when empty.
+     */
+    public static Material label(Material host, List<Component> components) {
+        if (hostPresent(host, components)) {
+            return host;
+        }
+        Component dom = dominant(components);
+        return dom == null ? null : dom.material();
+    }
+
     private static float hostMass(Material host, List<Component> components) {
         float m = 0f;
         for (Component c : components) {

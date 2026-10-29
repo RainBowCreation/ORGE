@@ -43,30 +43,6 @@ class ExecutorStepRunnerTest {
     }
 
     @Test
-    void submitAfterShutdownRecreatesExecutor() throws Exception {
-        // The runner outlives a single integrated-server lifecycle: shutdown() runs on
-        // SERVER_STOPPING, but in singleplayer the player can start another world in the
-        // same JVM. A submit after shutdown must run the step (re-create the executor),
-        // not throw RejectedExecutionException.
-        ExecutorStepRunner runner = new ExecutorStepRunner();
-        try {
-            float[] first = {1f};
-            StepRunner.Handle h1 = runner.submit(() -> List.of(new StepResult(first, new float[]{0f})));
-            awaitDone(h1);
-            assertSame(first, h1.result().get(0).temperature());
-
-            runner.shutdown(); // simulate SERVER_STOPPING
-
-            float[] second = {2f};
-            StepRunner.Handle h2 = runner.submit(() -> List.of(new StepResult(second, new float[]{0f}))); // simulate next world's tick
-            awaitDone(h2);
-            assertSame(second, h2.result().get(0).temperature());
-        } finally {
-            runner.shutdown();
-        }
-    }
-
-    @Test
     void resultBeforeDoneThrows() {
         ExecutorStepRunner runner = new ExecutorStepRunner();
         try {

@@ -104,6 +104,12 @@ public final class OrgeCommands {
                                             // via decimal string: widening 0.01f to double gives 0.0099999… (< the 0.01 floor)
                                             scheduler.setFixedDt(Double.parseDouble(Float.toString(FloatArgumentType.getFloat(ctx, "seconds"))));
                                             return step(ctx);
+                                        })))
+                        .then(Commands.literal("rest")
+                                .then(Commands.argument("n", IntegerArgumentType.integer(0, 10000))
+                                        .executes(ctx -> {
+                                            scheduler.setRestSteps(IntegerArgumentType.getInteger(ctx, "n"));
+                                            return step(ctx);
                                         })))));
     }
 
@@ -136,14 +142,17 @@ public final class OrgeCommands {
     }
 
     /**
-     * {@code /orge step [ticks <n> | dt <seconds|auto>]} (op): reports (after any change) the runtime
-     * step cadence, dt mode and resulting time-scale = dt / (ticksPerStep/20). Runtime-only; resets on restart.
+     * {@code /orge step [ticks <n> | dt <seconds|auto> | rest <n>]} (op): reports (after any change) the runtime
+     * step cadence, dt mode, resulting time-scale = dt / (ticksPerStep/20) and the rest-freeze step count
+     * (0 = off). Runtime-only; resets on restart.
      */
     private int step(CommandContext<CommandSourceStack> ctx) {
         int ticks = scheduler.ticksPerStep();
         double dt = scheduler.onPaceDt();
-        String line = String.format("ORGE step: every %d ticks, dt %s %.3f s, time-scale %.3fx",
-                ticks, scheduler.fixedDt() > 0 ? "fixed" : "auto →", dt, dt / (ticks / 20.0));
+        int rest = scheduler.restSteps();
+        String line = String.format("ORGE step: every %d ticks, dt %s %.3f s, time-scale %.3fx, rest %s",
+                ticks, scheduler.fixedDt() > 0 ? "fixed" : "auto →", dt, dt / (ticks / 20.0),
+                rest > 0 ? rest + " steps" : "off");
         ctx.getSource().sendSuccess(() -> Component.literal(line), false);
         return Command.SINGLE_SUCCESS;
     }

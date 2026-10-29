@@ -31,6 +31,8 @@ class EngineMarshallerTest {
         double[] eIn, eOut, booksOut;
         char[] slotIxIn, slotIxOut;
         float[] slotMassIn, slotMassOut;
+        float[] restIn, restOut;
+        int restSteps;
 
         @Override
         public double step(int lutEpoch, int nCols, int[] cx, int[] cz,
@@ -44,8 +46,11 @@ class EngineMarshallerTest {
                            float[] ledgerOut,
                            double[] eIn, float[] swapReadyIn, double[] eOut, float[] swapReadyOut,
                            char[] slotIxIn, float[] slotMassIn, char[] slotIxOut, float[] slotMassOut,
-                           double[] booksOut) {
+                           double[] booksOut,
+                           float[] restIn, float[] restOut, int restSteps) {
             this.calls++;
+            this.restIn = restIn; this.restOut = restOut; this.restSteps = restSteps;
+            for (int i = 0; i < restOut.length; i++) restOut[i] = 0.75f + i;
             this.booksOut = booksOut;
             for (int i = 0; i < booksOut.length; i++) booksOut[i] = 0.125 + i;
             this.slotIxIn = slotIxIn; this.slotMassIn = slotMassIn;
@@ -89,7 +94,7 @@ class EngineMarshallerTest {
         ColumnTask b = column(7, 4, 5000f);
 
         RegionStepResult r = m.step(List.of(a, b), 42, 0, 0.05, OrgeEngine.PASS_CONDUCTION,
-                List.of(), k);
+                List.of(), 20, k);
 
         // flatten correctness: scalars + per-column coords + the absolute-E channel reached the Kernel.
         assertEquals(1, k.calls);
@@ -116,6 +121,11 @@ class EngineMarshallerTest {
         assertEquals(300f + N + probe, c1.temperature()[probe]);
         assertEquals(5000f + N + probe, c1.enthalpy()[probe]);
         assertEquals(40f + N + probe, c1.p()[probe]);
+        // rest freeze: the threshold reaches the Kernel and the counter round-trips in and out.
+        assertEquals(20, k.restSteps);
+        assertEquals(2 * N, k.restIn.length);
+        assertEquals(0.75f + probe, c0.restCount()[probe]);
+        assertEquals(0.75f + N + probe, c1.restCount()[probe]);
     }
 
     /** Issue #44: E crosses the marshaller at double both ways — a 0.5 J quantum on a 6e8 J cell (64 J
@@ -128,7 +138,7 @@ class EngineMarshallerTest {
         final double bigE = 6.0e8 + 0.25;   // not float32-representable
         final int matCount = 4;
 
-        RegionStepResult r = m.step(List.of(column(0, 0, bigE)), 3, matCount, 0.05, 0, List.of(), k);
+        RegionStepResult r = m.step(List.of(column(0, 0, bigE)), 3, matCount, 0.05, 0, List.of(), 0, k);
 
         int probe = idx(5, 77, 11);
         assertEquals(bigE + probe, k.eIn[probe], 0.0, "stored E reaches the Kernel bit-exact (double eIn)");
@@ -156,7 +166,7 @@ class EngineMarshallerTest {
                 new float[N], new float[N], new float[N], new float[N], new float[N], new double[N], six, sm);
         EngineMarshaller m = new EngineMarshaller();
         RecordingKernel k = new RecordingKernel();
-        RegionStepResult r = m.step(List.of(a, b), 1, 0, 0.05, OrgeEngine.PASS_ADVECTION, List.of(), k);
+        RegionStepResult r = m.step(List.of(a, b), 1, 0, 0.05, OrgeEngine.PASS_ADVECTION, List.of(), 0, k);
 
         assertEquals(2 * S, k.slotIxIn.length);
         assertEquals(2 * S, k.slotMassIn.length);
@@ -177,7 +187,7 @@ class EngineMarshallerTest {
         EngineMarshaller m = new EngineMarshaller();
         RecordingKernel k = new RecordingKernel();
 
-        RegionStepResult r = m.step(List.of(column(0, 0, 0f)), 1, 3, 0.05, 0, List.of(), k);
+        RegionStepResult r = m.step(List.of(column(0, 0, 0f)), 1, 3, 0.05, 0, List.of(), 0, k);
 
         assertEquals(0, k.injCount);
         assertEquals(0, k.injColumn.length);
@@ -199,7 +209,7 @@ class EngineMarshallerTest {
         EngineInjection inj = new EngineInjection(0, idx(1, 64, 1), (char) 1, 1000f, 350f);
 
         RegionStepResult r = m.step(List.of(column(0, 0, 0f)), 9, matCount, 0.05, 0,
-                List.of(inj), k);
+                List.of(inj), 0, k);
 
         // injection marshalling reached the Kernel.
         assertEquals(1, k.injCount);
@@ -224,13 +234,13 @@ class EngineMarshallerTest {
         RecordingKernel k = new RecordingKernel();
         List<ColumnTask> cols = List.of(column(0, 0, 0f), column(1, 0, 0f));
 
-        m.step(cols, 0, 0, 0.05, 0, List.of(), k);
+        m.step(cols, 0, 0, 0.05, 0, List.of(), 0, k);
         float[] tOut1 = k.tOut, massOut1 = k.massOut, swap1 = k.swapReadyOut;
         double[] eOut1 = k.eOut;
         char[] matOut1 = k.matOut;
         float[] vx1 = k.vxOut, p1 = k.pOut;
 
-        m.step(cols, 0, 0, 0.05, 0, List.of(), k);
+        m.step(cols, 0, 0, 0.05, 0, List.of(), 0, k);
         // grow-and-keep: identical batch size returns the SAME scratch arrays (no realloc).
         assertSame(tOut1, k.tOut, "temp OUT reused");
         assertSame(massOut1, k.massOut, "mass OUT reused");
@@ -246,7 +256,7 @@ class EngineMarshallerTest {
         EngineMarshaller m = new EngineMarshaller();
         RecordingKernel k = new RecordingKernel();
 
-        RegionStepResult r = m.step(List.of(), 0, 3, 0.05, 0, List.of(), k);
+        RegionStepResult r = m.step(List.of(), 0, 3, 0.05, 0, List.of(), 0, k);
 
         assertEquals(0, k.calls, "no columns => Kernel never invoked");
         assertEquals(0.0, m.lastStepMillis());
