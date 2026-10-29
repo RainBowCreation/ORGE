@@ -526,10 +526,13 @@ class SectionDataTest {
         s.setEnthalpy(2, 1.0);
         s.setMaterialAt(3, net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "stone"));
         s.setSlot(1, 4, net.minecraft.resources.Identifier.fromNamespaceAndPath("orge", "water"), 5f);
-        for (int i = 1; i <= 4; i++) {
+        s.setMomentum(5, 0f, 1f, 0f);
+        s.setPressure(6, 100f);
+        s.setSwapReady(7, 0.5f);
+        for (int i = 1; i <= 7; i++) {
             assertEquals(0f, s.restCountAt(i), "an edited cell restarts its rest count (cell " + i + ")");
         }
         assertEquals(30f, s.restCountAt(0), "an untouched cell keeps its count");
-        assertEquals(30f, s.restCountAt(5), "an untouched cell keeps its count");
+        assertEquals(30f, s.restCountAt(8), "an untouched cell keeps its count");
     }
 }

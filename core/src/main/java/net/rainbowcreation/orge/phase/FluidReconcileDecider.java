@@ -165,6 +165,21 @@ public final class FluidReconcileDecider {
     }
 
     /**
+     * True when an air block is how the world shows the step's INPUT: a fluid trace (less than half of the
+     * thinnest vanilla level, {@link FluidReconcileLogic#isTrace}) is drawn as air, so air over a trace is the
+     * engine's own render, not an outside edit. Without it a trace that froze (water to ice, lava to basalt)
+     * would never be painted: the species paint is gated on the world still showing the input species.
+     * A full fluid block that reads air was broken outside the engine and stays guarded.
+     *
+     * @param inSpecies the step's input species of the cell (null = vacuum/unknown)
+     * @param inMassKg  the cell's input mass
+     */
+    public static boolean tracedAsAir(boolean currentIsAir, Material inSpecies, float inMassKg) {
+        return currentIsAir && inSpecies != null && inSpecies.movable()
+                && FluidReconcileLogic.isTrace(inMassKg, inSpecies.defaultMass());
+    }
+
+    /**
      * True when the cell's NEW species ({@code levelMaterial}) is the SAME material as the world block
      * currently shows ({@code worldMaterial}), compared by material id. Only then is the level-bucket
      * throttle allowed to skip the write. A null id on either side (defensive) counts as "changed" so

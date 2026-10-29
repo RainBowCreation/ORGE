@@ -233,4 +233,32 @@ class FluidReconcileDeciderTest {
         assertEquals(FluidReconcileDecider.Kind.PLACE, a.kind());
         assertEquals(7, a.renderLevel());
     }
+
+    /** Not movable, repr minecraft:ice. */
+    private static Material ice() {
+        return Material.builder(orge("ice"))
+                .thermalConductivity(2.2f).heatCapacity(2108f).molarMass(0.018f)
+                .defaultMass(917f).defaultTemperature(260f)
+                .representativeBlock(mc("ice"))
+                .build();
+    }
+
+    @Test
+    void aTraceThatFreezesIsPaintedAsItsSolid() {
+        // 40 kg of water is a trace, so the world shows air. It freezes to ice this step: air over a trace is
+        // the engine's own render, so the species paint fires and the ice becomes visible.
+        boolean shows = FluidReconcileDecider.tracedAsAir(true, water(), 40f);
+        assertTrue(shows, "air over a water trace shows the trace");
+        FluidReconcileDecider.Action a = FluidReconcileDecider.decide(
+                air(), ice(), 40f, FluidReconcileLogic.REMOVE, false, true, shows, false);
+        assertEquals(FluidReconcileDecider.Kind.PLACE, a.kind());
+        assertEquals(mc("ice"), a.block());
+        // A full water block that reads air was broken outside the engine: the stale-write guard holds.
+        assertFalse(FluidReconcileDecider.tracedAsAir(true, water(), 1000f), "air over full water is an outside edit");
+        assertFalse(FluidReconcileDecider.tracedAsAir(false, water(), 40f), "only an air block draws a trace");
+        assertFalse(FluidReconcileDecider.tracedAsAir(true, null, 0f), "vacuum input is not a trace");
+        FluidReconcileDecider.Action guarded = FluidReconcileDecider.decide(
+                air(), ice(), 1000f, FluidReconcileLogic.REMOVE, false, true, false, false);
+        assertNotEquals(mc("ice"), guarded.block(), "a guarded cell never paints the engine's ice");
+    }
 }

@@ -79,10 +79,10 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
     @Override
     public void reconcile(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut) {
-        reconcile(entry.dimension(), entry.key(), entry.task().matIx(), outMaterial, outLut);
+        reconcile(entry.dimension(), entry.key(), entry.task().matIx(), entry.task().mass(), outMaterial, outLut);
     }
 
-    private void reconcile(Identifier dim, SubchunkKey key, char[] inMaterial,
+    private void reconcile(Identifier dim, SubchunkKey key, char[] inMaterial, float[] inMass,
                            char[] outMaterial, List<Material> outLut) {
         Live live = live(dim, key);
         if (live == null) {
@@ -95,7 +95,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         int oz = key.cz() << 4;
         for (int i = 0; i < SectionData.CELLS; i++) {
             BlockState current = LiveMaterials.blockStateAt(live.section(), i);
-            BlockState desired = desiredState(current, i, data, inMaterial, outMaterial, outLut, lookups);
+            BlockState desired = desiredState(current, i, data, inMaterial, inMass, outMaterial, outLut, lookups);
             if (desired != null) {
                 setIfChanged(live.level(), posOf(ox, oy, oz, i), current, desired);
             }
@@ -116,6 +116,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
                      SectionData after, IntFunction<BlockState> captured) {
         Lookups lookups = new Lookups(ActiveMaterials.current());
         char[] inMaterial = entry.task().matIx();
+        float[] inMass = entry.task().mass();
         List<Write> writes = new ArrayList<>();
         List<Fx> fx = new ArrayList<>();
         for (int i = 0; i < SectionData.CELLS; i++) {
@@ -123,7 +124,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
             Material worldMaterial = lookups.firstTouch(current.getBlock());
             Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
             List<RepresentativeState.Component> comps = components(after, i, outMat, lookups);
-            BlockState desired = desiredState(current, i, after, inMaterial, outMaterial, outLut, lookups,
+            BlockState desired = desiredState(current, i, after, inMaterial, inMass, outMaterial, outLut, lookups,
                     worldMaterial, outMat, comps);
             if (desired != null && !current.equals(desired)) {
                 writes.add(new Write(i, current, desired));
@@ -236,19 +237,20 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
      * says after this step, or null to leave it alone. Pure over its arguments (no world access).
      */
     private static BlockState desiredState(BlockState current, int i, SectionData data, char[] inMaterial,
-                                           char[] outMaterial, List<Material> outLut, Lookups lookups) {
+                                           float[] inMass, char[] outMaterial, List<Material> outLut,
+                                           Lookups lookups) {
         Material worldMaterial = lookups.firstTouch(current.getBlock());
 
         // The species the cell BECAME this step (engine matOut), shared with the §7 changer; falls
         // back to the world block's material when the engine didn't report one.
         Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
-        return desiredState(current, i, data, inMaterial, outMaterial, outLut, lookups, worldMaterial, outMat,
-                components(data, i, outMat, lookups));
+        return desiredState(current, i, data, inMaterial, inMass, outMaterial, outLut, lookups, worldMaterial,
+                outMat, components(data, i, outMat, lookups));
     }
 
     private static BlockState desiredState(BlockState current, int i, SectionData data, char[] inMaterial,
-                                           char[] outMaterial, List<Material> outLut, Lookups lookups,
-                                           Material worldMaterial, Material outMat,
+                                           float[] inMass, char[] outMaterial, List<Material> outLut,
+                                           Lookups lookups, Material worldMaterial, Material outMat,
                                            List<RepresentativeState.Component> comps) {
 
         // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
@@ -285,7 +287,9 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
                 worldMaterial, outMat, massKg,
                 bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
-                worldShowsSpecies(current, worldMaterial, inMat),
+                worldShowsSpecies(current, worldMaterial, inMat)
+                        || FluidReconcileDecider.tracedAsAir(current.isAir(), inMat,
+                                inMass != null ? inMass[i] : Float.POSITIVE_INFINITY),
                 inMat != null && outMaterial != null && outMaterial[i] == 0);
         if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
             return null;

@@ -270,7 +270,8 @@ public final class SectionData {
         editedCell(i);
     }
 
-    /** A cell's data changed outside the engine step (block edit, sky pass, {@code /orge set}): the engine
+    /** A cell's data (composition, E, momentum, pressure or swap charge — everything the engine's rest count
+     *  compares) changed outside the engine step (block edit, sky pass, {@code /orge set}): the engine
      *  never saw the change, so its rest-freeze count restarts — else a settled cell would stay frozen with
      *  the edit unsimulated. The write-back sets the engine's counts after its own per-cell writes. */
     private void editedCell(int i) {
@@ -480,6 +481,7 @@ public final class SectionData {
         momX[i] = px;
         momY[i] = py;
         momZ[i] = pz;
+        editedCell(i);
     }
 
     /**
@@ -540,6 +542,7 @@ public final class SectionData {
         promote();
         ensurePressure();
         p[i] = pv;
+        editedCell(i);
     }
 
     /**
@@ -581,6 +584,7 @@ public final class SectionData {
         promote();
         ensureSwapReady();
         swapReady[i] = v;
+        editedCell(i);
     }
 
     /**

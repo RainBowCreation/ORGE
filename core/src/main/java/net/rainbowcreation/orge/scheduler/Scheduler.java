@@ -108,8 +108,9 @@ public final class Scheduler {
      *  replaces {@link #ADVECTION_TICKS} as the cadence; {@code fixedDt} {@code <= 0} = AUTO (real time). */
     private int ticksPerStep = ADVECTION_TICKS;
     private double fixedDt = 0;
-    /** Rest freeze: a cell whose material/mass/energy is unchanged for {@code restSteps} consecutive steps
-     *  is frozen by the engine; {@code 0} = off. */
+    /** Rest freeze: a cell whose data (composition, energy, momentum, pressure, swap charge) is unchanged for
+     *  {@code restSteps} consecutive steps, with every cell within one step's reach, is frozen by the engine;
+     *  {@code 0} = off. */
     private int restSteps = DEFAULT_REST_STEPS;
     /** {@code /orge perf} timing metrics; {@code pendingDt} is the in-flight step's simulated dt. */
     private final StepMetrics metrics = new StepMetrics();
