@@ -238,6 +238,34 @@ is declared per material: the saturation curve of a phase pair comes from the pa
 - The other vapor pairs (iron, copper, gold, silica, carbon) use the same curve; their p_sat at ordinary
   temperatures is negligible, so they only exchange when hot.
 
+## Contact boiling (issue #87, no new column)
+
+Water touching lava flash-boils at the contact. A cell has one temperature, so a 1000 kg water cell under a
+lava film would warm by a fraction of a kelvin and never reach 373 K. The engine's vapor exchange therefore
+boils at the face: when the contact temperature is above the liquid's boiling threshold, the heat crossing
+that face leaves as vapor into the hot side's free volume instead of warming the liquid's bulk. Everything
+comes from existing columns.
+
+- **Contact temperature:** two bodies brought into contact meet at
+  `T_s = (e_a·T_a + e_b·T_b)/(e_a + e_b)`, where `e = √(k·ρ·cp)` is the thermal effusivity (two semi-infinite
+  solids in contact: Incropera, DeWitt, Bergman & Lavine, *Fundamentals of Heat and Mass Transfer*, 6th ed.,
+  §5.7). The inputs are `thermal_conductivity`, `particle_density` (or `default_mass`) and `heat_capacity`.
+  Lava (1.5 W/(m·K), 2650 kg/m³, 1150 J/(kg·K)) gives e ≈ 2140 and water gives e ≈ 1585, so 1473 K lava on
+  288 K water has T_s ≈ 970 K, far above 373 K.
+- **Rate:** the heat that crossed the face this step (conduction plus the §8.3(c) radiation surrogate) makes
+  `dm = Q / (h_vapor(T_b) − h_liquid(T))` of vapor. The vapor is born saturated, and its superheat comes from
+  the hot side after it lands. A 1473 K lava film over water passes ≈ 2.4e5 W/m², which gives ≈ 0.09
+  kg·m⁻²·s⁻¹ of steam at first. That is the film-boiling order: past the Leidenfrost point, water on a
+  surface hundreds of kelvin hotter carries 1e4–1e5+ W/m² (Bromley 1950, *Chem. Eng. Prog.* 46:221;
+  Incropera et al. §10.4, the boiling curve's film regime), and radiation adds to it at lava temperatures.
+- **No room, no boiling:** a hot side with no free volume, such as lava fully submerged, boils nothing. Its
+  heat warms the water's bulk (subcooled boiling).
+- **Trapped vapor:** a cell's composition flux moves its components together, so steam boiled into a lava
+  film stays there until the film's gas exchanges it upward. A gas takes only as much of a cell's free
+  volume as its rest volume `m/ρ_rest`. So a few grams of steam leave the film's emissivity near lava's,
+  instead of turning the whole free volume into transparent gas. The film's share still falls as the steam
+  builds up, so the contact rate falls with it: ≈ 0.064 kg·m⁻²·s⁻¹ over the first second, ≈ 0.046 over two.
+
 ## Thirsty farmland (issue #35, a boundary sink)
 
 Not material data: how much water a hydrated farmland drinks (`HydrationDrain`, spec
