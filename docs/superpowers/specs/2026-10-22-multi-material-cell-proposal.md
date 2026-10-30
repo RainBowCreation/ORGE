@@ -1217,3 +1217,52 @@ outside its phase band. The idle step costs ~57 ms against ~45 ms on the base en
 - With the `mix_end` frozen-cell skip removed, it fails 3 checks: the grass component is destroyed.
 
 `engine_b_rest_freeze_test` and `engine_b_refill_mobile_donor_test` pass unchanged.
+
+## 23. Steam under sunk lava (issue #90)
+
+### 23.1 Cause
+
+On the #88 scene (1473 K lava sinking through a 7×7×3 water pool, real LUT), contact boiling (#87) puts steam
+into the free volume of the lava film's cell. That steam had no exit, and the cell that held it was then moved
+whole:
+
+- **No exit.** The §4.6 route opens only between species sets that share a species. `{lava, steam}` and
+  `{water}` share none. The gas slip of §4.5 term (2) was wired only through a porous skeleton (`s > 0`).
+  Single cells reached 5 kg of steam by 10 s (gauge P ≈ 1.4 MPa, which kept the whole pool sloshing at
+  ~3 m/s) and 18–260 kg later.
+- **The lift was the §6.3 displacement, not the swap.** The composite has a mixture χ > 0, and its bulk density
+  (663 kg/m³) is below water's. So a lateral water neighbour "displaced" it as if it were a gas pocket, which
+  evicted the whole incumbent, lava included, up into the water cell above. The water cell had been granted the
+  slot because it held a trace of steam. The water left behind in the receiver flashed to steam (102–290 kg in
+  one tick, and once T went negative). This is how the rock layer moved up to y = FY+2.
+- **Entrainment rode the §4.6 route.** Once a water cell held steam, `{lava, steam} | {water, steam}` shared
+  steam. The bulk flux (`f_k = y_k·ṁ`) then carried lava up into the water, and carried water down into the
+  lava's free volume, where it flashed.
+
+### 23.2 What changed (one universal mechanic each; no species or state branch)
+
+| Path | Change |
+|---|---|
+| §6.3 displacement candidacy | A cell whose parcel outweighs its bulk mass (`parcel_mass` > M: a condensed body with free volume, #88) is not a gas pocket and is never evicted whole. A gas cell's parcel is its mass, so gas cells are unchanged. |
+| §4.6 novelty | A mobile condensed novelty is never routed into a cell holding a mobile condensed component of another species: weight `(1−χ_k)(1−χ_j) ≥ ½`. Two immiscible bodies exchange by the whole-cell swap, as two one-material cells do. A gas novelty or a gas resident weighs ≈ 0, so humid air is unchanged. |
+| Seepage: gas slip out of a body | Gas-slip weight `g = (1 − M/parcel)·clamp(Σ χ_k n_k / n_film, 0, 1)`. A gas (χ-weighted) slips through a face where `max(g_d, g_r) > 0` **into its own liquid**: the receiver holds k's cold phase partner (`minTarget`), not k (`seep_land`). It lands there as that liquid (condenses) and carries `h_k(T_d)`, so the latent heat goes into the receiver. Its drive is its own partial pressure `n_k·R·T/V_free − P_atm` against the liquid's pressure, so a trace of vapor in humid air never enters a liquid. The cap is half of the donor-side equalizing mass (the vapor raises no pressure in the receiver). It never opens a slot. Gas↔gas movement stays with the bulk flux and the vapor exchange. A World with a composition but no skeleton row now runs the seepage pass. |
+
+A non-condensable gas held by a submerged body (air under lava under water) still has no exit. That needs the
+counter-current, volume-zero-sum liquid half of term (2), which is not part of this change.
+
+### 23.3 Evidence
+
+`ORGE-ENGINE/tests/engine_b_steam_lift_test.cpp` (cheap tier, real LUT):
+- **(A) the #88 hot pool, 60 s.** The lava sinks into the two lowest rows by step 5 and stays there: 2650 kg on
+  the floor row at 60 s, 0 kg above the two lowest rows. After 10 s no rock-bearing cell holds more than 1.6 kg
+  of gas, or more than 4.4× its gas share at the local pressure ((P_atm + P_neighbour)·V_free·M/(R·T)); the
+  ratio is ~3.8× at 60 s. Per-family mass is exact and grand E closes.
+- **(B) a 600 K phase-inert lava body holding 5 kg of steam, contact boiling off.** The steam condenses into
+  the part-filled water above it. Within 4 s the body holds no more than its gas share (0.282 kg). The lava stays
+  in place, H2O family mass is exact, and the books close.
+- On the base engine, case A fails 4 checks: rock lifted (91 kg above the lowest rows, 133 kg left on the floor
+  row), 298 kg of gas, 794× the share. Case B fails 2 checks.
+
+The steady state is not 1× the share. The steam leaves by condensing into the water around the body. A near-full
+pool opens room (max − m) for it only as fast as the water flows. The quenched rock is closed to the bulk flux, so
+its gas cannot push the water away.
