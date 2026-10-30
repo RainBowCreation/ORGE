@@ -174,12 +174,10 @@ public final class OrgeCommands {
 
     private int read(CommandContext<CommandSourceStack> ctx, OrgeCommandLogic.Op op, BlockPos p) {
         OrgeCommandLogic.Response resp = logic.run(request(ctx, op, p, p, null, null));
-        // GET reports one cell: append the LIVE block + the cell's material. For a SIMULATED cell the
-        // material is the STORED per-cell species (sim truth — e.g. orge:vacuum after a break, even
-        // though the live block is minecraft:air); for a never-simulated/ambient cell the store has no
-        // real species so we fall back to the live block's first-touch mapping.
+        // GET reports one cell: "(x,y,z)" + the same CellReadout line get-live paints (block, T, every
+        // composition slot, status).
         if (op == OrgeCommandLogic.Op.GET && resp.ok()) {
-            resp = appendToFirstLine(resp, live.cellDescriptor(ctx.getSource().getLevel(), p));
+            resp = appendToFirstLine(resp, " " + live.cellLine(ctx.getSource().getLevel(), p));
         }
         return print(ctx, resp);
     }
@@ -197,7 +195,9 @@ public final class OrgeCommands {
         }
         final boolean nowOn = live.toggle(player);
         src.sendSuccess(() -> Component.literal(
-                "ORGE live readout " + (nowOn ? "ON (crosshair → action bar)" : "OFF")), false);
+                "ORGE live readout " + (nowOn
+                        ? "ON (crosshair → action bar; status A active, D dormant, U unloaded, B ambient)"
+                        : "OFF")), false);
         return Command.SINGLE_SUCCESS;
     }
 

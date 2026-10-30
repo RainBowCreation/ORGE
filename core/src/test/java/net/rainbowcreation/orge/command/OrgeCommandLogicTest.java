@@ -84,7 +84,7 @@ class OrgeCommandLogicTest {
     }
 
     @Test
-    void getReadsAmbientBaselineWithAnnotation() {
+    void getNamesTheCellItReads() {
         Map<SubchunkKey, SectionView> data = new HashMap<>();
         data.put(new SubchunkKey(0, 0, 0), view(285f, 0f, true));
         OrgeCommandLogic logic = logic(reads(data), 4);
@@ -92,9 +92,8 @@ class OrgeCommandLogicTest {
         OrgeCommandLogic.Response r = logic.run(get(1, 2, 3, true, null));
 
         assertTrue(r.ok());
-        assertEquals(1, r.lines().size());
-        assertTrue(r.lines().get(0).contains("285.00 K"), r.lines().get(0));
-        assertTrue(r.lines().get(0).contains("ambient"), "ambient baseline is annotated");
+        // The rest of the line (block, T, composition, status) is CellReadout's, appended by the adapter.
+        assertEquals(List.of("(1,2,3)"), r.lines());
     }
 
     @Test
@@ -108,9 +107,7 @@ class OrgeCommandLogicTest {
         CellStore store = new ReadChainCellStore(List.of(reads(client), reads(server)));
         OrgeCommandLogic logic = logic(store, 4);
 
-        OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, true, null));
-
-        assertTrue(r.lines().get(0).contains("500.00 K"), "first source wins: " + r.lines().get(0));
+        assertEquals(500f, logic.view(DIM, key).orElseThrow().tempAt(0), "first source wins");
     }
 
     @Test
@@ -121,9 +118,7 @@ class OrgeCommandLogicTest {
         CellStore store = new ReadChainCellStore(List.of(reads(new HashMap<>()), reads(server)));
         OrgeCommandLogic logic = logic(store, 4);
 
-        OrgeCommandLogic.Response r = logic.run(get(0, 0, 0, true, null));
-
-        assertTrue(r.lines().get(0).contains("285.00 K"));
+        assertEquals(285f, logic.view(DIM, key).orElseThrow().tempAt(0));
     }
 
     @Test
@@ -385,28 +380,5 @@ class OrgeCommandLogicTest {
         OrgeCommandLogic.Response r = logic.run(fill(0, -100, 0, 0, 999, 0, 400f, null, true));
         assertFalse(r.ok());
         assertTrue(r.lines().get(0).contains("build height"));
-    }
-
-    @Test
-    void getShowsTheCompositionOfAMultiComponentCell() {
-        Identifier air = Identifier.fromNamespaceAndPath("orge", "air");
-        Identifier stairs = Identifier.fromNamespaceAndPath("orge", "oak_stairs");
-        SectionView base = view(273f, 562.5007f, false);
-        SectionView mixed = new SectionView() {
-            public float tempAt(int c) { return base.tempAt(c); }
-            public float massAt(int c) { return base.massAt(c); }
-            public Identifier material(int c) { return air; }
-            public SectionData.Form form() { return SectionData.Form.FULL; }
-            public boolean ambient() { return false; }
-            public List<Component> composition(int c) {
-                return List.of(new Component(air, 0.0007f), new Component(stairs, 562.5f));
-            }
-        };
-        Map<SubchunkKey, SectionView> data = new HashMap<>();
-        data.put(new SubchunkKey(0, 0, 0), mixed);
-        OrgeCommandLogic.Response r = logic(reads(data), 4).run(get(1, 2, 3, false, new SubchunkKey(0, 0, 0)));
-        assertTrue(r.ok());
-        assertEquals("cell (1,2,3) [minecraft:overworld]: 273.00 K (-0.15 C), 562.5 kg, form=FULL"
-                + ", composition=[orge:air 0.0007 kg, orge:oak_stairs 562.5 kg]", r.lines().get(0));
     }
 }

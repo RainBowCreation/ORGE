@@ -3,9 +3,11 @@ package net.rainbowcreation.orge.command;
 import net.minecraft.resources.Identifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class OrgeCommandLocaleTest {
 
@@ -14,39 +16,12 @@ class OrgeCommandLocaleTest {
     @AfterEach
     void restore() { Locale.setDefault(original); }
 
-    /** A {@link CellStore} returning a fixed-temperature ambient view, so GET formats a float. */
-    private static OrgeCommandLogic logic() {
-        SectionView fixed = new SectionView() {
-            public float tempAt(int cell) { return 285.0f; }
-            public float massAt(int cell) { return 1000.0f; }
-            public Identifier material(int cell) { return Identifier.fromNamespaceAndPath("orge", "air"); }
-            public net.rainbowcreation.orge.section.SectionData.Form form() {
-                return net.rainbowcreation.orge.section.SectionData.Form.UNIFORM;
-            }
-            public boolean ambient() { return true; }
-        };
-        CellStore store = new CellStore() {
-            public Optional<SectionView> read(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key) {
-                return Optional.of(fixed);
-            }
-            public boolean isLoaded(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key) { return false; }
-            public void write(Identifier dim, net.rainbowcreation.orge.section.SubchunkKey key,
-                              int cell, float tempK, Float massKg) {}
-        };
-        return new OrgeCommandLogic(store, () -> 8);
-    }
-
     @Test
-    void getUsesDotDecimalUnderCommaLocale() {
+    void cellReadoutUsesDotDecimalUnderCommaLocale() {
         Locale.setDefault(Locale.GERMANY); // comma decimal separator
-        OrgeCommandLogic.Request r = new OrgeCommandLogic.Request(
-                OrgeCommandLogic.Op.GET,
-                Identifier.fromNamespaceAndPath("minecraft", "overworld"),
-                0, 64, 0, 0, 64, 0, null, null, true, null, -64, 320);
-        OrgeCommandLogic.Response resp = logic().run(r);
-        assertTrue(resp.ok());
-        String line = resp.lines().get(0);
-        assertTrue(line.contains("285.00 K"), "expected dot-decimal, got: " + line);
-        assertFalse(line.contains("285,00"), "comma decimal leaked: " + line);
+        String line = CellReadout.line(Identifier.fromNamespaceAndPath("minecraft", "air"), 285.0f,
+                List.of(new SectionView.Component(Identifier.fromNamespaceAndPath("orge", "air"), 1.225f)),
+                LiveStatus.AMBIENT);
+        assertEquals("M:air 285.0K O:air:1.225 B", line);
     }
 }

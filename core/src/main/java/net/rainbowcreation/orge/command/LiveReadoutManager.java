@@ -13,15 +13,10 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.material.ActiveMaterials;
-import net.rainbowcreation.orge.material.Material;
-import net.rainbowcreation.orge.material.MaterialRegistry;
-import net.rainbowcreation.orge.phase.RepresentativeState;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -29,7 +24,7 @@ import java.util.UUID;
 /**
  * The per-player live-readout machine for {@code /orge get-live}. OWNS the toggle state (which players
  * have the readout on), the per-tick crosshair raycast, and the action-bar render — and the single
- * cell→display-material resolution shared by the live render and the {@code /orge get} suffix. The
+ * cell readout line shared by the live render and {@code /orge get}. The
  * {@link OrgeCommands} dispatcher delegates here so it stays a thin Brigadier adapter.
  *
  * <p>Server-thread confined: the toggle command, the tick hook ({@link #tick}) and the stop hook
@@ -84,7 +79,7 @@ public final class LiveReadoutManager {
             }
             ServerLevel level = (ServerLevel) player.level();
             BlockHitResult hit = crosshairHit(player, level);
-            String text = hit.getType() == HitResult.Type.MISS ? "—" : liveLine(level, hit.getBlockPos());
+            String text = hit.getType() == HitResult.Type.MISS ? "—" : cellLine(level, hit.getBlockPos());
             player.displayClientMessage(Component.literal(text), true); // true = action bar
         }
     }
@@ -95,15 +90,27 @@ public final class LiveReadoutManager {
     }
 
     /**
-     * {@code ", block=<id>, material=<id>"} suffix for the cell at {@code pos} — appended to the
-     * {@code /orge get} line (server-thread read). Shares {@link #cellMaterial} with the live readout,
-     * so both readouts report the same per-cell species.
+     * The {@link CellReadout} line for the cell at {@code pos} — the action-bar readout and the body of
+     * {@code /orge get} (server-thread read). A simulated cell lists its STORED composition (sim truth, e.g.
+     * {@code O:vacuum} after a break); a never-simulated/ambient cell, where the store holds only the
+     * synthesized baseline, shows the live block's first-touch material.
      */
-    public String cellDescriptor(ServerLevel level, BlockPos pos) {
+    public String cellLine(ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        Identifier matId = cellMaterial(level, pos, state);
-        return String.format(Locale.ROOT, ", block=%s, material=%s", blockId, matId);
+        CellAddress addr = CellAddress.of(pos.getX(), pos.getY(), pos.getZ());
+        Identifier dim = level.dimension().identifier();
+        LiveStatus st = status.statusOf(dim, addr.key());
+        Optional<SectionView> v = logic.view(dim, addr.key());
+        Identifier live = LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry()).id();
+        if (v.isEmpty()) {
+            return CellReadout.line(blockId, Float.NaN, List.of(new SectionView.Component(live, Float.NaN)), st);
+        }
+        SectionView view = v.get();
+        List<SectionView.Component> components = view.ambient()
+                ? List.of(new SectionView.Component(live, view.massAt(addr.cell())))
+                : view.composition(addr.cell());
+        return CellReadout.line(blockId, view.tempAt(addr.cell()), components, st);
     }
 
     /** Raycast from {@code player}'s eyes along their look vector, fluids included (water/lava hittable). */
@@ -112,54 +119,5 @@ public final class LiveReadoutManager {
         Vec3 end = eye.add(player.getViewVector(1.0f).scale(LIVE_REACH));
         return level.clip(new ClipContext(
                 eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.ANY, player));
-    }
-
-    /**
-     * The short live-readout line for one cell:
-     * {@code "<block>, <material>, <temp_k>:<mass>, <status>, <form>"}
-     * (e.g. {@code "minecraft:water, orge:water, 288.00:1000.0, DORMANT, FULL"}). {@code status} is the
-     * load/sim lifecycle ({@link LiveStatus}); {@code form} is the internal array packing. No
-     * coords/dimension/labels — it rides the action bar, so it stays terse.
-     */
-    private String liveLine(ServerLevel level, BlockPos p) {
-        BlockState state = level.getBlockState(p);
-        Identifier blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        Identifier matId = cellMaterial(level, p, state);
-        CellAddress addr = CellAddress.of(p.getX(), p.getY(), p.getZ());
-        Identifier dim = level.dimension().identifier();
-        LiveStatus st = status.statusOf(dim, addr.key());
-        Optional<SectionView> v = logic.view(dim, addr.key());
-        if (v.isEmpty()) {
-            return String.format(Locale.ROOT, "%s, %s, (no data), %s", blockId, matId, st);
-        }
-        SectionView view = v.get();
-        return String.format(Locale.ROOT, "%s, %s, %.2f:%.1f, %s, %s",
-                blockId, matId, view.tempAt(addr.cell()), view.massAt(addr.cell()), st, view.form());
-    }
-
-    /**
-     * The material to display for a cell: the STORED per-cell species when the section is simulated
-     * (authoritative sim truth), else the live block's first-touch mapping (never-simulated/ambient,
-     * where the store holds only the synthesized baseline). One source of truth for both readouts.
-     */
-    private Identifier cellMaterial(ServerLevel level, BlockPos pos, BlockState state) {
-        CellAddress addr = CellAddress.of(pos.getX(), pos.getY(), pos.getZ());
-        Optional<SectionView> v = logic.view(level.dimension().identifier(), addr.key());
-        MaterialRegistry registry = ActiveMaterials.current().registry();
-        Material live = LiveMaterials.materialFor(state.getBlock(), registry);
-        if (v.isEmpty() || v.get().ambient()) {
-            return live.id();
-        }
-        List<SectionView.Component> composition = v.get().composition(addr.cell());
-        if (composition.size() <= 1) {
-            return v.get().material(addr.cell());
-        }
-        // A composition cell's slots are in LUT order (air sorts first): name what it is drawn as instead.
-        List<RepresentativeState.Component> comps = new ArrayList<>(composition.size());
-        for (SectionView.Component c : composition) {
-            registry.get(c.material()).ifPresent(m -> comps.add(new RepresentativeState.Component(m, c.massKg())));
-        }
-        Material label = RepresentativeState.label(live, comps);
-        return label == null ? v.get().material(addr.cell()) : label.id();
     }
 }

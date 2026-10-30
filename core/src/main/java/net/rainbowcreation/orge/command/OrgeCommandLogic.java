@@ -4,8 +4,6 @@ import net.minecraft.resources.Identifier;
 import net.rainbowcreation.orge.scheduler.SphereUnion;
 import net.rainbowcreation.orge.section.SubchunkKey;
 
-import java.math.BigDecimal;
-import java.math.MathContext;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -78,34 +76,9 @@ public final class OrgeCommandLogic {
         if (v.isEmpty()) {
             return Response.fail(noStore(r.dimension()));
         }
-        SectionView view = v.get();
-        float t = view.tempAt(addr.cell());
-        float m = view.massAt(addr.cell());
-        String formStr = view.form() + (view.ambient() ? " (ambient)" : "");
-        return Response.ok(String.format(Locale.ROOT,
-                "cell (%d,%d,%d) [%s]: %.2f K (%.2f C), %.1f kg, form=%s",
-                r.x1(), r.y1(), r.z1(), r.dimension(), t, t - 273.15f, m, formStr)
-                + compositionSuffix(view.composition(addr.cell())));
-    }
-
-    /**
-     * {@code ", composition=[<id> <kg> kg, ...]"} for a multi-component cell (law v5 #7), empty for a
-     * one-component cell. Masses print at 4 significant figures so a trace component stays visible.
-     */
-    private static String compositionSuffix(List<SectionView.Component> components) {
-        if (components.size() <= 1) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder(", composition=[");
-        for (int i = 0; i < components.size(); i++) {
-            SectionView.Component c = components.get(i);
-            if (i > 0) {
-                sb.append(", ");
-            }
-            sb.append(c.material()).append(' ').append(new BigDecimal(c.massKg())
-                    .round(new MathContext(4)).stripTrailingZeros().toPlainString()).append(" kg");
-        }
-        return sb.append(']').toString();
+        // The cell line itself (block, T, composition, status) needs the live level: the command adapter
+        // appends it (LiveReadoutManager#cellLine). The logic gates the read and names the cell.
+        return Response.ok(String.format(Locale.ROOT, "(%d,%d,%d)", r.x1(), r.y1(), r.z1()));
     }
 
     // ----- ops implemented in later tasks -----
