@@ -42,7 +42,15 @@ flux already integrated over dt).
 Same-species pairs break no interface, so cohesion does not apply — this is what lets a 126 N thermal
 buoyancy clear the gate (worked: §7.3) *(review blocker #2; fixes audit C-11)*.
 `ρ_eff = (m/V)·(1 − β·(T − T_ref,global))` `[LAW-AMEND-6]` is read **only by the swap machinery** (gate,
-cadence, PASS-R0 choice); mass itself never changes.
+cadence, PASS-R0 choice); mass itself never changes. Across an interface (a cross-species pair) the gate feeds it
+each cell's **parcel mass**, the mass of its condensed body (amended 2026-10-30, ORGE#88): over the components,
+`M_c = Σ(1−χ_k)·m_k`, `V_c = Σ(1−χ_k)·m_k/ρ_p,k`, parcel `= max(M, (M_c/M)·(M_c/V_c)·V)` — for one component
+`max(m, (1−χ)·ρ_p·V)`. An incompressible body below its rest mass fills only part of the cell at its own density, so
+a 330 kg lava film is 2650 kg/m³ lava and sinks through water (with the bulk `m/V` the §6.3 min-quantum spread
+thinned a lava cell below the water it sat on and it floated). A compressible body fills the cell at any mass — the
+`(1−χ)` weight makes the floor ≈ 0 for a gas — and a gas inside a composite cell is free to leave it, so the steam a
+lava film contact-boils into its free volume does not float the film. A same-species pair is one body: it keeps the
+bulk `m`, because its part-filled cell's vacancy is its free surface and a whole-cell reorder would only sink it.
 
 ---
 
@@ -387,7 +395,7 @@ a legal `≥ min` quantum). The empty-refill donor-side gate + thermal guard lan
 
 **§7.1 Payload:** permute `(mass, matIx, E, momentum)` — per-species mass AND momentum AND energy exact
 by construction *(fixes B-16)*. `swapReady` resets on both cells.
-**§7.2 Energy:** released PE `|ΔPE| = (m_h − m_l)·g·dx` deposits as heat, shared by heat capacity `m·c` between the two cells so both warm by the same ΔT (amended 2026-10-29: the 50/50 split heated a 1.2 kg air parcel by half of 1000 kg of water's PE, +4 K per swap) — books closed.
+**§7.2 Energy:** released PE `ΔPE = (m_h − m_l)·g·dx` (m_h the parcel that sank, m_l the one that rose — signed, amended 2026-10-30, ORGE#88: a part-filled heavy liquid sinking under a full lighter cell lifts the heavier cell, ΔPE < 0, paid from heat) deposits as heat, shared by heat capacity `m·c` between the two cells so both warm by the same ΔT (amended 2026-10-29: the 50/50 split heated a 1.2 kg air parcel by half of 1000 kg of water's PE, +4 K per swap) — books closed.
 **§7.3 Gate (worked):** cross-species: `Δρ_eff·g·V > k_c·min(minMass)·g + τ_y` — lava-over-water:
 16,500 N > 3,750 N ✓. Same-species: `Δρ_eff·g·V > τ_y` — 80 °C-under-20 °C water: Δρ_eff = 12.6 kg/m³ ⇒
 126 N > 0 ✓ **convection fires** (cadence t_swap ≈ max(0.5, 2e-3/126) = 0.5 s) *(review blocker closed;
