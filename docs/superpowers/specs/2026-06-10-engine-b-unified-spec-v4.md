@@ -326,7 +326,7 @@ threshold; threshold = §0's cohesion (cross-species) + yield only. The dead `dP
 
 ### §6.1 Pass structure (each a full-grid kernel; 1-hop reads of snapshot or prior-pass buffers; no atomics)
 **Normative order within step_world:** ENCODE → `2·N_relax` pressure half-sweeps (§3) → **R0 → R1 → R1.5 →
-R2** → DECODE. "Snapshot" = the **post-ENCODE** state (gravity + external already in momentum; T, p_eos
+R1.6 → R2** → DECODE. "Snapshot" = the **post-ENCODE** state (gravity + external already in momentum; T, p_eos
 cached). Kernel count: `6 + 2·N_relax` (= 10 at N_relax=2, 14 at N_relax=4).
 - **R0 (swap intent):** each cell picks ≤1 partner. Deterministic priority: (1) vertical down, else up
   (buoyant/§7 swaps and §6.3 displacement-swaps), else the lateral §6.3 face; (2) strongest
@@ -341,6 +341,13 @@ cached). Kernel count: `6 + 2·N_relax` (= 10 at N_relax=2, 14 at N_relax=4).
 - **R1.5 (receiver scale)** *(review blocker: multi-DONOR room composition was the open dual of B-1)*:
   each cell reads its 6 neighbors' `(f_toward_me, σ)` (1-hop) ⇒
   `ρ'_i = min(1, room_i / Σ inbound f·σ)`. Writes `ρ'_i`.
+- **R1.6 (full-drain confirmation)** *(2026-10-29: a free lava pour stranded sub-min residues — law v5 #9
+  "flow never pushes a component out of its window")*: a donor R1 granted budget `m` keeps it only if every
+  receiver takes its share whole (`ρ'_receiver = 1`) and no neighbour flows into it (`Σ inbound f·σ ≤ ε`);
+  otherwise it is demoted to `budget = m − minMass` and `σ_i` re-scaled. Reads R1/R1.5 outputs (1-hop),
+  writes after the sweep; demotion only lowers σ, so every ρ′ stays a valid bound. R1's `Σ_k f_k` skips
+  faces to a swapMutual neighbour (R2 never fluxes them), and R2's donor budget backstop keeps `minMass`
+  for a non-full-drain donor (the §6.3 displacement spends from the same budget after R1).
 - **R2 (commit):** a face fluxes **iff neither endpoint is swapMutual**; flux = `f_k(donor)·σ_donor·
   ρ'_receiver` — both sides read identical buffer values ⇒ bit-exact antisymmetry. Mutual swaps permute
   **snapshot payloads** (§7.1). Conduction `q` + radiation `q_rad` accumulate here (flux-limited, §8.2).
@@ -380,7 +387,7 @@ a legal `≥ min` quantum). The empty-refill donor-side gate + thermal guard lan
 
 **§7.1 Payload:** permute `(mass, matIx, E, momentum)` — per-species mass AND momentum AND energy exact
 by construction *(fixes B-16)*. `swapReady` resets on both cells.
-**§7.2 Energy:** released PE `|ΔPE| = (m_h − m_l)·g·dx` deposits as heat, half each cell — books closed.
+**§7.2 Energy:** released PE `|ΔPE| = (m_h − m_l)·g·dx` deposits as heat, shared by heat capacity `m·c` between the two cells so both warm by the same ΔT (amended 2026-10-29: the 50/50 split heated a 1.2 kg air parcel by half of 1000 kg of water's PE, +4 K per swap) — books closed.
 **§7.3 Gate (worked):** cross-species: `Δρ_eff·g·V > k_c·min(minMass)·g + τ_y` — lava-over-water:
 16,500 N > 3,750 N ✓. Same-species: `Δρ_eff·g·V > τ_y` — 80 °C-under-20 °C water: Δρ_eff = 12.6 kg/m³ ⇒
 126 N > 0 ✓ **convection fires** (cadence t_swap ≈ max(0.5, 2e-3/126) = 0.5 s) *(review blocker closed;
@@ -408,6 +415,11 @@ enforced by scaling the offending FACE fluxes themselves** (symmetrically on bot
 **grand-E exact**; review: v4.0's post-hoc T-clip silently created/destroyed energy) until
 `T_next ∈ [stencil min, stencil max]`. Mirrored in `[LAW-AMEND-5]`. The 2026-06-04 §E "conservation ⇒ no
 blow-ups" claim is retracted.
+*Amendment 2026-10-29 (sub-cell natural convection):* each side's `k` is `k·Nu`, `Nu = 1 + 0.1·Ra^(1/3)`,
+`Ra = g·β_eff·ΔT_u·dx³·ρ₀²·cp/(μ_eff·k)`, `β_eff = β + χ/T` (a gas's expansion is its EOS: ideal gas β = 1/T).
+`ΔT_u` is the face's unstable drop — `|ΔT|` on a side face, `max(0, T_lower − T_upper)` on a vertical face —
+so stable layering conducts plainly. No Nu cap (the limiter above bounds every face). Air ≈ 100, water ≈ 500
+at ΔT = 10 K; μ = ∞ (stone, sand) ⇒ 1.
 
 ### §8.3 Radiation — the third channel `[LAW-AMEND-5]` *(fixes C-3/PC-6 and C-4's lava–water path)*
 ```

@@ -12,5 +12,8 @@
   "latent_heat_min": 400000,
   "latent_heat_max": 0,
   "min_temp": 1398,
-  "min_target": "orge:basalt"
+  "min_target": "orge:basalt",
+  "effects": {
+    "suspended": { "particle": "minecraft:falling_lava", "under_solid": "minecraft:dripping_lava" }
+  }
 }

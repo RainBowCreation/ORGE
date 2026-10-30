@@ -226,7 +226,7 @@ final class ColumnSnapshot {
                 Material m = materialById(id, mats);
                 return m != null ? lut.indexOf(m) : 0;
             };
-            InjectionDrain.applyToColumn(columnId, colMat, colMass, resolver, colIntents,
+            InjectionDrain.applyToColumn(columnId, colMat, colMass, e.task().restCount(), resolver, colIntents,
                     engineCell -> recordedIncumbentId(c, engineCell),
                     engineCell -> storedMassAt(c, engineCell),
                     injections, drained);
@@ -328,9 +328,15 @@ final class ColumnSnapshot {
             return out; // all void → no recorded signature → every fresh fluid is a genuine placement
         }
         int n = Math.min(prior.length, out.length);
+        Identifier last = null;   // runs of the same id instance: skip the lookup
+        char lastIx = 0;
         for (int i = 0; i < n; i++) {
             if (prior[i] != null) {
-                out[i] = lut.indexOf(prior[i]);
+                if (prior[i] != last) {
+                    lastIx = lut.indexOf(prior[i]);
+                    last = prior[i];
+                }
+                out[i] = lastIx;
             }
         }
         return out;

@@ -65,9 +65,15 @@ public final class GeometryAssembler {
     public static Geometry assemble(CellMaterials cells, MaterialLut lut) {
         char[] matIx = new char[SectionData.CELLS];
         float[] mass = new float[SectionData.CELLS];
+        Material last = null;   // a section repeats the same material cell after cell: skip the id lookup
+        char lastIx = 0;
         for (int i = 0; i < SectionData.CELLS; i++) {
             Material m = cells.at(i);
-            matIx[i] = lut.indexOf(m);
+            if (m != last) {
+                lastIx = lut.indexOf(m);
+                last = m;
+            }
+            matIx[i] = lastIx;
             mass[i] = m.defaultMass();
         }
         return new Geometry(matIx, mass);

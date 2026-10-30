@@ -30,6 +30,8 @@ public final class ScratchPool {
     // DESIGN-LAW v5 #7: composition slots 1..K−1 out channels.
     private char[]  slotIxOut   = new char[0];
     private float[] slotMassOut = new float[0];
+    // Rest-freeze counter out channel (consecutive unchanged steps per cell).
+    private float[] restOut = new float[0];
 
     /** The single grow rule (DESIGN §10 Decision 13c): return {@code buf} when it already holds at least
      *  {@code n} slots, else a fresh {@code float[n]}. Every per-channel accessor below is a one-line
@@ -98,4 +100,7 @@ public final class ScratchPool {
 
     /** Composition slot-mass output channel (slots 1..K−1, law v5 #7). Captured from the native. */
     public float[] slotMassOut(int n) { return slotMassOut = grow(slotMassOut, n); }
+
+    /** Rest-freeze counter output channel ({@code restOut}). Captured from the native. */
+    public float[] restOut(int n) { return restOut = grow(restOut, n); }
 }

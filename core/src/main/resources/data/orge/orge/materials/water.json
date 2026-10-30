@@ -15,5 +15,10 @@
   "min_target": "orge:ice",
   "max_temp": 373,
   "max_target": "orge:steam",
-  "blocks": ["minecraft:bubble_column", "minecraft:kelp", "minecraft:kelp_plant", "minecraft:seagrass", "minecraft:tall_seagrass"]
+  "blocks": ["minecraft:bubble_column", "minecraft:kelp", "minecraft:kelp_plant", "minecraft:seagrass", "minecraft:tall_seagrass"],
+  "effects": {
+    "suspended": { "particle": "minecraft:falling_water", "under_solid": "minecraft:dripping_water" },
+    "boiling": { "particle": "minecraft:bubble_column_up",
+                 "sound": "minecraft:block.bubble_column.upwards_ambient", "sound_chance": 0.05 }
+  }
 }

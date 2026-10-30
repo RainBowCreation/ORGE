@@ -132,7 +132,10 @@ public final class FluidReconcileDecider {
         // air cell reads water's 1000 kg full reference, not air's).
         Material levelMaterial = becameFluid ? outMat : worldMaterial;
         float f = FluidReconcileLogic.fraction(massKg, levelMaterial.defaultMass());
-        int renderLevel = FluidReconcileLogic.levelForFraction(f);
+        // Less than half of the thinnest vanilla level is too little to draw as a block: the cell shows air
+        // and the material's "suspended" effect (drips, mist) shows it instead (CellEffects).
+        int renderLevel = FluidReconcileLogic.isTrace(massKg, levelMaterial.defaultMass())
+                ? FluidReconcileLogic.REMOVE : FluidReconcileLogic.levelForFraction(f);
 
         // Decision 13b throttle: skip only when the SPECIES is unchanged AND mass stayed in the same
         // render bucket. A species change (incl. a fluid cell that Pass A vacated → air) must always
@@ -159,6 +162,21 @@ public final class FluidReconcileDecider {
             return Action.SKIP; // material has no representative block to place
         }
         return new Action(Kind.PLACE, repr, renderLevel);
+    }
+
+    /**
+     * True when an air block is how the world shows the step's INPUT: a fluid trace (less than half of the
+     * thinnest vanilla level, {@link FluidReconcileLogic#isTrace}) is drawn as air, so air over a trace is the
+     * engine's own render, not an outside edit. Without it a trace that froze (water to ice, lava to basalt)
+     * would never be painted: the species paint is gated on the world still showing the input species.
+     * A full fluid block that reads air was broken outside the engine and stays guarded.
+     *
+     * @param inSpecies the step's input species of the cell (null = vacuum/unknown)
+     * @param inMassKg  the cell's input mass
+     */
+    public static boolean tracedAsAir(boolean currentIsAir, Material inSpecies, float inMassKg) {
+        return currentIsAir && inSpecies != null && inSpecies.movable()
+                && FluidReconcileLogic.isTrace(inMassKg, inSpecies.defaultMass());
     }
 
     /**

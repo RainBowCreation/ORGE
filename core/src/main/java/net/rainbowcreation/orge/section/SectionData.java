@@ -70,6 +70,7 @@ public final class SectionData {
     private char[] slotIx;     // v5 #7 slots 1..SLOTS-1: palette indices, (k-1)*CELLS + i; null until first slot write
     private float[] slotMass;  // v5 #7 slots 1..SLOTS-1: mass [kg], same layout; null together with slotIx
     private float[] swapReady; // §5.3 swap-cadence accumulator (law #7 bookkeeping, dimensionless >=0); null until first write/array request; IN-MEMORY ONLY, NOT serialized
+    private float[] restCount; // rest-freeze counter: consecutive engine steps each cell stayed unchanged (>=0); null until first array request; IN-MEMORY ONLY, NOT serialized; survives demotion
 
     // [edit-epoch guard] IN-MEMORY ONLY (not serialized, not in equals). The async scheduler reads a
     // section in the snapshot and writes the engine result back a cycle later. An EXTERNAL edit
@@ -254,6 +255,7 @@ public final class SectionData {
     public void setEnthalpy(int i, double v) {
         promote();
         enthalpy[i] = v;
+        editedCell(i);
     }
 
     /**
@@ -265,6 +267,17 @@ public final class SectionData {
     public void setMass(int i, float v) {
         promote();
         mass[i] = v;
+        editedCell(i);
+    }
+
+    /** A cell's data (composition, E, momentum, pressure or swap charge — everything the engine's rest count
+     *  compares) changed outside the engine step (block edit, sky pass, {@code /orge set}): the engine
+     *  never saw the change, so its rest-freeze count restarts — else a settled cell would stay frozen with
+     *  the edit unsimulated. The write-back sets the engine's counts after its own per-cell writes. */
+    private void editedCell(int i) {
+        if (restCount != null) {
+            restCount[i] = 0f;
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -328,6 +341,7 @@ public final class SectionData {
         v.slotIx = slotIx;
         v.slotMass = slotMass;
         v.swapReady = swapReady;
+        v.restCount = restCount;
         v.editEpoch = editEpoch;
         v.snapshotEpoch = snapshotEpoch;
         v.legacyOneComponent = legacyOneComponent;
@@ -350,6 +364,7 @@ public final class SectionData {
         slotIx = slotIx == null ? null : slotIx.clone();
         slotMass = slotMass == null ? null : slotMass.clone();
         swapReady = swapReady == null ? null : swapReady.clone();
+        restCount = restCount == null ? null : restCount.clone();
     }
 
     /** Start this (fresh) section's material layer as a copy of {@code from}'s, palette order included. */
@@ -379,6 +394,7 @@ public final class SectionData {
         slotIx = next.slotIx;
         slotMass = next.slotMass;
         swapReady = next.swapReady;
+        restCount = next.restCount;
         legacyOneComponent = next.legacyOneComponent;
     }
 
@@ -465,6 +481,7 @@ public final class SectionData {
         momX[i] = px;
         momY[i] = py;
         momZ[i] = pz;
+        editedCell(i);
     }
 
     /**
@@ -525,6 +542,7 @@ public final class SectionData {
         promote();
         ensurePressure();
         p[i] = pv;
+        editedCell(i);
     }
 
     /**
@@ -566,6 +584,7 @@ public final class SectionData {
         promote();
         ensureSwapReady();
         swapReady[i] = v;
+        editedCell(i);
     }
 
     /**
@@ -576,6 +595,25 @@ public final class SectionData {
         promote();
         ensureSwapReady();
         return swapReady;
+    }
+
+    // -------------------------------------------------------------------------
+    // Rest-freeze counter channel (consecutive unchanged engine steps per cell)
+    // IN-MEMORY ONLY — NEVER serialized; a loaded section starts at 0. Unlike swapReady it neither
+    // blocks nor is dropped by demotion: a resting uniform section is exactly the one that must keep
+    // counting toward its freeze, and it may do so while UNIFORM.
+    // -------------------------------------------------------------------------
+
+    /** Rest counter of cell {@code i} (steps, >=0). Returns {@code 0} until first write. */
+    public float restCountAt(int i) { return restCount == null ? 0f : restCount[i]; }
+
+    /** Returns the <em>live</em> rest-counter array (length {@value CELLS}), allocating it if needed. */
+    public float[] restCountArray() {
+        thaw();
+        if (restCount == null) {
+            restCount = new float[CELLS];
+        }
+        return restCount;
     }
 
     // -------------------------------------------------------------------------
@@ -707,6 +745,7 @@ public final class SectionData {
         }
         promote();
         materials.set(i, id);
+        editedCell(i);
     }
 
     /**
@@ -789,6 +828,7 @@ public final class SectionData {
         }
         slotIx[q] = (char) materials.indexOf(id);
         slotMass[q] = massKg;
+        editedCell(i);
     }
 
     /**

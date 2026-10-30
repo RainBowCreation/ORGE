@@ -73,12 +73,23 @@ public final class ColumnAssembler {
      *        pre-composition format, whose waterlogged blocks carried no water (seeded once) — and into a
      *        genuinely new cell (the seed gate below). Every seed is a boundary placement
      *        ({@link WaterlogSeeding}).</li>
+     *    <li>{@code restCount} — per-cell rest-freeze counter (consecutive unchanged engine steps, in-memory
+     *        only); all-zero for never-simulated / back-compat callers. Length 4096.</li>
      *  </ul> */
     public record SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                                Identifier[] storedMaterial,
                                float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
                                double[] enthalpy, Identifier[] slotMaterial, float[] slotMass,
-                               float[] waterlogSeed, boolean seedWaterlog) {
+                               float[] waterlogSeed, boolean seedWaterlog, float[] restCount) {
+        /** Back-compat: rest counter zero. */
+        public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
+                            Identifier[] storedMaterial,
+                            float[] momX, float[] momY, float[] momZ, float[] p, float[] swapReady,
+                            double[] enthalpy, Identifier[] slotMaterial, float[] slotMass,
+                            float[] waterlogSeed, boolean seedWaterlog) {
+            this(matIx, mass, temperature, priorSpecies, storedMaterial, momX, momY, momZ, p, swapReady,
+                 enthalpy, slotMaterial, slotMass, waterlogSeed, seedWaterlog, new float[matIx.length]);
+        }
         /** Back-compat: no waterlogged block in the section. */
         public SectionCells(char[] matIx, float[] mass, float[] temperature, char[] priorSpecies,
                             Identifier[] storedMaterial,
@@ -156,6 +167,7 @@ public final class ColumnAssembler {
         float[] momZ = new float[N];
         float[] p    = new float[N];
         float[] swapReady = new float[N];
+        float[] restCount = new float[N];
         double[] enthalpy = new double[N];
         char[] slotIx = new char[RegionMarshaller.SLOT_N];
         float[] slotMass = new float[RegionMarshaller.SLOT_N];
@@ -164,6 +176,13 @@ public final class ColumnAssembler {
         Function<Identifier, Material> lookup = id -> registry.get(id).orElse(null);
         // Batch-LUT index per stored id, resolved once per column (a registry + LUT lookup per cell otherwise).
         Map<Identifier, Character> storedIx = new HashMap<>();
+        // Last stored id -> index: a palette-expanded section repeats the same Identifier instance cell after
+        // cell, so the identity check skips the hash lookup.
+        Identifier lastSid = null;
+        char lastSidIx = 0;
+        Material lastEMat = null;
+        float lastEMass = Float.NaN, lastET = Float.NaN;
+        double lastE = 0.0;
         Material water = registry.get(WATER_ID).orElse(null);
         for (int sectionY = MIN_SECTION_Y; sectionY <= MAX_SECTION_Y; sectionY++) {
             SectionCells cells = src.read(cx, cz, sectionY);
@@ -179,7 +198,11 @@ public final class ColumnAssembler {
                         Identifier sid = cells.storedMaterial()[si];
                         char mat;
                         if (sid != null) {
-                            mat = storedIx.computeIfAbsent(sid, id -> storedIndex(id, lut, registry)); // appends if absent — stored is authoritative
+                            if (sid != lastSid) {
+                                lastSidIx = storedIx.computeIfAbsent(sid, id -> storedIndex(id, lut, registry)); // appends if absent — stored is authoritative
+                                lastSid = sid;
+                            }
+                            mat = lastSidIx;
                         } else {
                             mat = cells.matIx()[si];               // unstored → block's first-touch index
                         }
@@ -245,6 +268,7 @@ public final class ColumnAssembler {
                         momZ[ci] = cells.momZ()[si];
                         p[ci]    = cells.p()[si];
                         swapReady[ci] = cells.swapReady()[si];
+                        restCount[ci] = cells.restCount()[si];
                         // Thermal truth is EXTENSIVE E [J] (law §7: store extensive, derive intensive).
                         // An authoritative stored E is passed through UNCHANGED. But a seed/ambient cell
                         // (never simulated, or freshly placed) carries E == 0; left as 0 the engine would
@@ -252,10 +276,19 @@ public final class ColumnAssembler {
                         // seed temperature — the correct initial condition, NOT a forbidden re-encode (we
                         // only encode when stored E is unset; a massless/unresolvable cell stays 0).
                         double inE = cells.enthalpy()[si];
-                        enthalpy[ci] = (inE != 0.0)
-                                ? inE
-                                : (m == null || seeded <= 0f) ? 0.0
-                                  : EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
+                        if (inE != 0.0) {
+                            enthalpy[ci] = inE;
+                        } else if (m == null || seeded <= 0f) {
+                            enthalpy[ci] = 0.0;
+                        } else {
+                            // An ambient (uniform) section stores no per-cell E, so every cell re-encodes the
+                            // same (mass, material, T): reuse the last encode when the inputs repeat.
+                            if (m != lastEMat || seeded != lastEMass || temp[ci] != lastET) {
+                                lastE = EnthalpyCurve.cellE(seeded, m, lookup, temp[ci]);
+                                lastEMat = m; lastEMass = seeded; lastET = temp[ci];
+                            }
+                            enthalpy[ci] = lastE;
+                        }
                         // The seeded water enters at the cell's temperature (E is extensive: Σ m_k·h_k(T)),
                         // recorded as stored so its boundary ledger closes exactly (issue #60).
                         if (seedWater) {
@@ -268,7 +301,7 @@ public final class ColumnAssembler {
             }
         }
         return new ColumnTask(cx, cz, matIx, mass, temp, momX, momY, momZ, p, swapReady, enthalpy,
-                              slotIx, slotMass);
+                              slotIx, slotMass, restCount);
     }
 
     /** Water [kg] a waterlogged block of {@code host} holds: {@code ρ_water · V_pore}, with the open volume

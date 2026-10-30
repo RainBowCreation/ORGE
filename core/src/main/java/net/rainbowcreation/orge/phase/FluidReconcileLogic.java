@@ -17,6 +17,17 @@ public final class FluidReconcileLogic {
 
     private FluidReconcileLogic() {}
 
+    /**
+     * Below this fraction of a full block a fluid is a trace, drawn as air and shown by its material's
+     * "suspended" effect: half of the thinnest vanilla level (one level = 1/8 of a full block).
+     */
+    public static final float TRACE_FRACTION = 1f / 16f;
+
+    /** True when {@code massKg} is less than half of the thinnest vanilla level of a {@code fullMassKg} block. */
+    public static boolean isTrace(float massKg, float fullMassKg) {
+        return massKg < TRACE_FRACTION * fullMassKg;
+    }
+
     /** {@code m / fullMass}, guarded for a zero/negative full mass (→ 0). */
     public static float fraction(float massKg, float fullMassKg) {
         if (fullMassKg <= 0f) return 0f;

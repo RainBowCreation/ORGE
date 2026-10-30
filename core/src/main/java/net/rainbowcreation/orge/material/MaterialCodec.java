@@ -269,6 +269,7 @@ public final class MaterialCodec {
                 .airEntryPressure(bd.airEntryPressure())
                 .poreSizeIndex(bd.poreSizeIndex())
                 .residualSaturation(bd.residualSaturation())
+                .effects(MaterialEffects.parse(id, body.isJsonObject() ? body.getAsJsonObject().get("effects") : null))
                 .pinned(bd.pinned());
         bd.viscosity().ifPresent(b::viscosity);
         bd.minMass().ifPresent(b::minMass);

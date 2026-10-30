@@ -46,7 +46,8 @@ public final class EngineMarshaller {
                 double[] eOut, float[] swapReadyOut,
                 char[] slotIxIn, float[] slotMassIn,
                 char[] slotIxOut, float[] slotMassOut,
-                double[] booksOut);
+                double[] booksOut,
+                float[] restIn, float[] restOut, int restSteps);
     }
 
     // Empty injection channel until Plan 2 wires the placement queue. With injCount==0 the native skips
@@ -63,11 +64,12 @@ public final class EngineMarshaller {
      * Marshal {@code columns} (+ optional {@code injections}) through {@code kernel} and slice the result.
      * {@code matCount} sizes the per-species ledger. Behaviour-identical to the old inline assembly in
      * {@link NativeEngine#stepWorld}; the empty-column fast path (zero millis, empty ledgers) is handled
-     * here too so the Kernel is never called with no work.
+     * here too so the Kernel is never called with no work. {@code restSteps} is the engine's rest-freeze
+     * threshold (consecutive unchanged steps before a cell freezes; 0 = off).
      */
     public RegionStepResult step(List<ColumnTask> columns, int lutEpoch, int matCount,
                                  double dtSeconds, int passes,
-                                 List<EngineInjection> injections, Kernel kernel) {
+                                 List<EngineInjection> injections, int restSteps, Kernel kernel) {
         if (columns.isEmpty()) {
             lastStepMillis = 0.0;
             return new RegionStepResult(new ArrayList<>(),
@@ -136,6 +138,9 @@ public final class EngineMarshaller {
         int slotTotal = f.nCols() * RegionMarshaller.SLOT_N;
         char[] slotIxOut = scratch.slotIxOut(slotTotal);
         float[] slotMassOut = scratch.slotMassOut(slotTotal);
+        // Rest-freeze counter: in from the persisted Java channel (ColumnTask.restCount → Flat.restIn),
+        // out into reusable scratch — round-tripped exactly like swapReady.
+        float[] restOut = scratch.restOut(total);
 
         // Issue #44: the per-call World's closing ledgers (boundaryE, dissipation, ε-mass sink) — fresh
         // per step, it escapes into the result.
@@ -149,7 +154,8 @@ public final class EngineMarshaller {
                 vxOut, vyOut, vzOut, pOut,
                 injCount, injCol, injCell, injSp, injMs, injTp, ledgerOut,
                 eIn, swapReadyIn, eOut, swapReadyOut,
-                f.slotIxIn(), f.slotMassIn(), slotIxOut, slotMassOut, booksOut);
+                f.slotIxIn(), f.slotMassIn(), slotIxOut, slotMassOut, booksOut,
+                f.restIn(), restOut, restSteps);
 
         float[] injected = new float[matCount];
         float[] sealedLoss = new float[matCount];
@@ -165,7 +171,7 @@ public final class EngineMarshaller {
         }
         return new RegionStepResult(
                 RegionMarshaller.slice(matOut, massOut, tOut, vxOut, vyOut, vzOut, pOut, swapReadyOut, eOut,
-                        slotIxOut, slotMassOut, f.nCols()),
+                        slotIxOut, slotMassOut, restOut, f.nCols()),
                 injected, sealedLoss, injectedE, sealedE, booksOut);
     }
 

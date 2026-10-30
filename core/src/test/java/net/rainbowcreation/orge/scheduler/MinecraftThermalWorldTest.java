@@ -141,18 +141,20 @@ class MinecraftThermalWorldTest {
         int aCell = ColumnSectionCodec.colIdx(8, sectionY, 9, 2);  // untouched air cell
 
         char[] inMat = new char[RegionMarshaller.CHUNK_N];
+        float[] mass = new float[RegionMarshaller.CHUNK_N];
         // Default 0 (vacuum) for the bulk of the empty column; air only in our test section so the
         // air fallback is unambiguous (a column of vacuum elsewhere is the realistic empty-world case).
+        // The air holds its mass: an untouched cell is told apart from one the engine emptied by that.
         for (int z = 0; z < 16; z++) {
             for (int sy = 0; sy < 16; sy++) {
                 for (int x = 0; x < 16; x++) {
                     inMat[ColumnSectionCodec.colIdx(x, sectionY, sy, z)] = AIR_IX;
+                    mass[ColumnSectionCodec.colIdx(x, sectionY, sy, z)] = 1.2f;
                 }
             }
         }
         inMat[wCell] = WATER_IX;
 
-        float[] mass = new float[RegionMarshaller.CHUNK_N];
         float[] temp = new float[RegionMarshaller.CHUNK_N];
         Arrays.fill(temp, 300f);
         mass[wCell] = 1000f;

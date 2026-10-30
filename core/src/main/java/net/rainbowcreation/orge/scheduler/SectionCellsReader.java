@@ -74,6 +74,7 @@ final class SectionCellsReader {
         float[] momZ = new float[SectionData.CELLS];
         float[] p    = new float[SectionData.CELLS];
         float[] swapReady = new float[SectionData.CELLS];
+        float[] restCount = new float[SectionData.CELLS];
         double[] enthalpy = new double[SectionData.CELLS];
         // DESIGN-LAW v5 #7 composition slots 1..K−1 (stored id + mass); empty for one-component cells.
         Identifier[] slotMaterial = new Identifier[SectionData.SLOT_CELLS];
@@ -88,6 +89,10 @@ final class SectionCellsReader {
             temps = new float[SectionData.CELLS];
             // One lookup per distinct stored id in the section (a registry lookup per cell otherwise).
             Map<Identifier, Material> resolved = new HashMap<>();
+            // Resting cells repeat the same (E, m, species) cell after cell: reuse the last derive.
+            Material lastM = null;
+            double lastE = Double.NaN;
+            float lastMass = Float.NaN, lastT = 0f;
             for (int i = 0; i < SectionData.CELLS; i++) {
                 float mi = mass[i];
                 // F2 (law §7 / §1.1): EXTENSIVE momentum p [kg·m/s] crosses RAW (mirror of the stored E
@@ -99,6 +104,7 @@ final class SectionCellsReader {
                 momZ[i] = sd.momZAt(i);
                 p[i]    = sd.pAt(i);
                 swapReady[i] = sd.swapReadyAt(i);
+                restCount[i] = sd.restCountAt(i);
                 // Raw stored absolute E [J] handed to the engine loss-free (NEVER as Kelvin).
                 enthalpy[i] = sd.enthalpyAt(i);
                 // Derive the engine's diagnostic tIn = h⁻¹(E/m), clamped to the [0,6000] derive
@@ -111,17 +117,27 @@ final class SectionCellsReader {
                 // An unset E (issue #54: a materialized ambient cell) is not a temperature to derive:
                 // seed it exactly as a never-simulated cell (source default T, else biome ambient), so
                 // the assembler encodes E = m·h(T_seed) from the seeded mass.
-                float t = (sd.enthalpyAt(i) == SectionData.UNSET_ENTHALPY_J)
-                        ? AmbientSeeder.seedT(cellM, ambientK)
-                        : (cellM == null) ? ambientK
-                        : EnthalpyCurve.deriveT(sd.enthalpyAt(i), mi, cellM, lookup, ambientK);
+                double e = sd.enthalpyAt(i);
+                float t;
+                if (e == SectionData.UNSET_ENTHALPY_J) {
+                    t = AmbientSeeder.seedT(cellM, ambientK);
+                } else if (cellM == null) {
+                    t = ambientK;
+                } else {
+                    if (cellM != lastM || e != lastE || mi != lastMass) {
+                        lastT = EnthalpyCurve.deriveT(e, mi, cellM, lookup, ambientK);
+                        lastM = cellM; lastE = e; lastMass = mi;
+                    }
+                    t = lastT;
+                }
                 temps[i] = StepValidator.clampDerivedKelvin(t);
             }
         } else {
             temps = AmbientSeeder.seed(cellMat::at, ambientK);
         }
         return new ColumnAssembler.SectionCells(geo.matIx(), mass, temps, priorSpecies, storedMaterial,
-                momX, momY, momZ, p, swapReady, enthalpy, slotMaterial, slotMass, waterlogSeed, seedWaterlog);
+                momX, momY, momZ, p, swapReady, enthalpy, slotMaterial, slotMass, waterlogSeed, seedWaterlog,
+                restCount);
     }
 
     /**

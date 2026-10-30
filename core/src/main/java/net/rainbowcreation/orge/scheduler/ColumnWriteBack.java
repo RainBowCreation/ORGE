@@ -160,13 +160,20 @@ final class ColumnWriteBack {
             // authoritative (hasMaterials()==true). Effective-species rule mirrors recordCellMaterials:
             // engine output when present, else the input/world material — so an untouched air cell records
             // orge:air, never the index-0 orge:vacuum sentinel; a genuinely empty/broken cell whose
-            // effective species is index 0 records orge:vacuum. setMaterialAt promotes to FULL (already
-            // FULL from the array writes), allocates the palette and interns the id (mirrors mass/temp).
+            // effective species is index 0 records orge:vacuum — as does a cell the engine EMPTIED (index 0 AND
+            // no mass left), which the input fallback would leave labelled with its old species at 0 kg.
+            // setMaterialAt promotes to FULL (already FULL from the array writes), allocates the palette and
+            // interns the id (mirrors mass/temp).
             for (int i = 0; i < SectionData.CELLS; i++) {
-                char sp = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i] : inMatSec[i];
+                char sp = (outMat != null && i < outMat.length && outMat[i] != 0) ? outMat[i]
+                        : cleanM[i] > 0f ? inMatSec[i] : 0;
                 data.setMaterialAt(i, lut.get(sp).id());
             }
             writeBackSlots(data, base.hasSlots(), result, sectionY, lut);
+            // Rest-freeze counter: in-memory only, non-negative and finite (same sanitizer as swapReady). Set
+            // AFTER the per-cell material/slot writes above, which reset a cell's count as an outside edit would.
+            float[] secRc = ColumnSectionCodec.sliceSectionChannel(result.restCount(), sectionY);
+            System.arraycopy(StepValidator.cleanPressure(secRc, null), 0, data.restCountArray(), 0, SectionData.CELLS);
             data.demoteIfUniform();
             // A fresh section carries no legacy mark: once installed, the legacy section has had its one
             // waterlogged seed.

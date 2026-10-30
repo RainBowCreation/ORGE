@@ -13,9 +13,14 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.rainbowcreation.orge.material.ActiveMaterials;
+import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialRegistry;
+import net.rainbowcreation.orge.phase.RepresentativeState;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -140,9 +145,21 @@ public final class LiveReadoutManager {
     private Identifier cellMaterial(ServerLevel level, BlockPos pos, BlockState state) {
         CellAddress addr = CellAddress.of(pos.getX(), pos.getY(), pos.getZ());
         Optional<SectionView> v = logic.view(level.dimension().identifier(), addr.key());
-        if (v.isPresent() && !v.get().ambient()) {
+        MaterialRegistry registry = ActiveMaterials.current().registry();
+        Material live = LiveMaterials.materialFor(state.getBlock(), registry);
+        if (v.isEmpty() || v.get().ambient()) {
+            return live.id();
+        }
+        List<SectionView.Component> composition = v.get().composition(addr.cell());
+        if (composition.size() <= 1) {
             return v.get().material(addr.cell());
         }
-        return LiveMaterials.materialFor(state.getBlock(), ActiveMaterials.current().registry()).id();
+        // A composition cell's slots are in LUT order (air sorts first): name what it is drawn as instead.
+        List<RepresentativeState.Component> comps = new ArrayList<>(composition.size());
+        for (SectionView.Component c : composition) {
+            registry.get(c.material()).ifPresent(m -> comps.add(new RepresentativeState.Component(m, c.massKg())));
+        }
+        Material label = RepresentativeState.label(live, comps);
+        return label == null ? v.get().material(addr.cell()) : label.id();
     }
 }

@@ -153,7 +153,13 @@ class SchedulerTest {
     private static final class RecordingEngine implements OrgeEngine {
         static final class Call { final int passes; final double dt; Call(int p, double d) { passes = p; dt = d; } }
         final List<Call> calls = new ArrayList<>();
+        int restSteps = -1;
         @Override public void registerMaterials(int lutEpoch, List<Material> table) { }
+        @Override public net.rainbowcreation.orge.engine.RegionStepResult stepWorld(List<ColumnTask> in, int lutEpoch,
+                double dtSeconds, int passes, List<net.rainbowcreation.orge.engine.EngineInjection> injections, int restSteps) {
+            this.restSteps = restSteps;
+            return OrgeEngine.super.stepWorld(in, lutEpoch, dtSeconds, passes, injections, restSteps);
+        }
         @Override public List<ColumnResult> stepWorld(List<ColumnTask> in, int lutEpoch,
                                                       double dtSeconds, int passes) {
             calls.add(new Call(passes, dtSeconds));
@@ -216,6 +222,26 @@ class SchedulerTest {
         for (int i = 0; i < Scheduler.ADVECTION_TICKS * 3; i++) s.onServerTick(true); // ticks 6..20 (<40 grace)
         assertEquals(1, world.snapshots, "no second submit while in flight (exactly one snapshot)");
         assertFalse(runner.cancelled, "no hard-cancel before the grace window");
+    }
+
+    /** A step that finished but was not yet installed when the server stopped belongs to the stopped world:
+     *  in singleplayer the next world's first tick must not write it back (leftover fluid in a new world). */
+    @Test
+    void resetDropsTheInFlightStepSoTheNextWorldNeverInstallsIt() {
+        FakeRunner runner = new FakeRunner();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        Scheduler s = new Scheduler(deltaEngine(5f, 10.0), world, runner, worker());
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true); // submit at tick 5
+        runner.done = true;                                                       // finished, not yet serviced
+
+        s.reset();                                                                // SERVER_STOPPING
+        assertTrue(runner.cancelled, "the in-flight step is cancelled");
+        s.onServerTick(true);                                                     // next world's first tick
+        assertTrue(world.writtenEntries.isEmpty(), "the old world's step is never written back");
+
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        assertEquals(2, world.snapshots, "the scheduler is IDLE again and submits at the next boundary");
     }
 
     @Test
@@ -522,6 +548,32 @@ class SchedulerTest {
         s.setFixedDt(0.01);
         s.setFixedDt(0); // AUTO
         assertEquals(0.25, s.onPaceDt(), 0.0);
+    }
+
+    @Test
+    void restStepsKnobDefaultsTo20AndRejectsOutOfRange() {
+        Scheduler s = new Scheduler(new RecordingEngine(), new FakeWorld(), new FakeRunner(), worker());
+        assertEquals(20, s.restSteps());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> s.setRestSteps(-1));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> s.setRestSteps(10001));
+        s.setRestSteps(0); // off
+        assertEquals(0, s.restSteps());
+        s.setRestSteps(10000);
+        assertEquals(10000, s.restSteps());
+    }
+
+    @Test
+    void restStepsKnobReachesTheEngine() {
+        RecordingEngine engine = new RecordingEngine();
+        FakeWorld world = new FakeWorld();
+        world.batch = oneColumnBatch(300f);
+        FakeRunner runner = new FakeRunner();
+        Scheduler s = new Scheduler(engine, world, runner, worker());
+        s.setRestSteps(37);
+        for (int i = 0; i < Scheduler.ADVECTION_TICKS; i++) s.onServerTick(true);
+        runner.done = true;
+        s.onServerTick(true);
+        assertEquals(37, engine.restSteps);
     }
 
     @Test

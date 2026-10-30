@@ -137,6 +137,18 @@ class RepresentativeStateTest {
     }
 
     @Test
+    void theLabelIsTheDrawnComponentNotSlotZero() {
+        // air sorts first in LUT order, so it is slot 0 of a soil or stair cell holding pore air; the label
+        // names what the cell is drawn as — the kept host, else the largest condensed component.
+        List<RepresentativeState.Component> stair = List.of(c(air(), 0.63f), c(stairs(), 2025f));
+        assertEquals("orge:stone_stairs", RepresentativeState.label(stairs(), stair).id().toString());
+        List<RepresentativeState.Component> rain = List.of(c(air(), 1.2f), c(water(), 40f));
+        assertEquals("orge:water", RepresentativeState.label(air(), rain).id().toString());
+        assertEquals("orge:air", RepresentativeState.label(air(), List.of(c(air(), 1.2f))).id().toString());
+        assertNull(RepresentativeState.label(air(), List.of()), "an empty cell has no label");
+    }
+
+    @Test
     void aFluidLiveBlockIsNeverAKeptHost() {
         List<RepresentativeState.Component> comps = List.of(c(water(), 1000f));
         assertFalse(RepresentativeState.hostPresent(water(), comps), "water is drawn by the level path");

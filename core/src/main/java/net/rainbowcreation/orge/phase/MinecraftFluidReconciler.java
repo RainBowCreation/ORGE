@@ -7,6 +7,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.IntFunction;
 
+import com.google.gson.JsonElement;
+import com.mojang.logging.LogUtils;
+import com.mojang.serialization.JsonOps;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.RandomSource;
+import net.rainbowcreation.orge.material.EnthalpyCurve;
+import org.slf4j.Logger;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -21,6 +32,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.rainbowcreation.orge.material.ActiveMaterials;
 import net.rainbowcreation.orge.material.Material;
+import net.rainbowcreation.orge.material.MaterialEffects;
 import net.rainbowcreation.orge.scheduler.LiveMaterials;
 import net.rainbowcreation.orge.scheduler.ThermalWorld;
 import net.rainbowcreation.orge.section.SectionData;
@@ -43,8 +55,14 @@ import net.rainbowcreation.orge.section.SubchunkKey;
  */
 public final class MinecraftFluidReconciler implements FluidReconciler {
 
+    private static final Logger LOG = LogUtils.getLogger();
+    /** Most effects one section sends per step (a boiling lake stays a few packets per section). */
+    static final int MAX_FX_PER_SECTION = 16;
+
     private final SectionStoreManager stores;
     private volatile MinecraftServer server;
+    /** Decoded particle per effect JSON (server thread only); empty = undecodable, warned once. */
+    private final Map<JsonElement, Optional<ParticleOptions>> particles = new HashMap<>();
 
     public MinecraftFluidReconciler(SectionStoreManager stores) {
         this.stores = stores;
@@ -61,10 +79,10 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
 
     @Override
     public void reconcile(ThermalWorld.BatchEntry entry, char[] outMaterial, List<Material> outLut) {
-        reconcile(entry.dimension(), entry.key(), entry.task().matIx(), outMaterial, outLut);
+        reconcile(entry.dimension(), entry.key(), entry.task().matIx(), entry.task().mass(), outMaterial, outLut);
     }
 
-    private void reconcile(Identifier dim, SubchunkKey key, char[] inMaterial,
+    private void reconcile(Identifier dim, SubchunkKey key, char[] inMaterial, float[] inMass,
                            char[] outMaterial, List<Material> outLut) {
         Live live = live(dim, key);
         if (live == null) {
@@ -77,7 +95,7 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         int oz = key.cz() << 4;
         for (int i = 0; i < SectionData.CELLS; i++) {
             BlockState current = LiveMaterials.blockStateAt(live.section(), i);
-            BlockState desired = desiredState(current, i, data, inMaterial, outMaterial, outLut, lookups);
+            BlockState desired = desiredState(current, i, data, inMaterial, inMass, outMaterial, outLut, lookups);
             if (desired != null) {
                 setIfChanged(live.level(), posOf(ox, oy, oz, i), current, desired);
             }
@@ -98,15 +116,31 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
                      SectionData after, IntFunction<BlockState> captured) {
         Lookups lookups = new Lookups(ActiveMaterials.current());
         char[] inMaterial = entry.task().matIx();
+        float[] inMass = entry.task().mass();
         List<Write> writes = new ArrayList<>();
+        List<Fx> fx = new ArrayList<>();
         for (int i = 0; i < SectionData.CELLS; i++) {
             BlockState current = captured.apply(i);
-            BlockState desired = desiredState(current, i, after, inMaterial, outMaterial, outLut, lookups);
+            Material worldMaterial = lookups.firstTouch(current.getBlock());
+            Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
+            List<RepresentativeState.Component> comps = components(after, i, outMat, lookups);
+            BlockState desired = desiredState(current, i, after, inMaterial, inMass, outMaterial, outLut, lookups,
+                    worldMaterial, outMat, comps);
             if (desired != null && !current.equals(desired)) {
                 writes.add(new Write(i, current, desired));
             }
+            if (fx.size() < MAX_FX_PER_SECTION && hasEffects(comps)) {
+                BlockState shown = desired != null ? desired : current;
+                int above = i + 16;   // +y within the section; the top layer has no captured block above
+                boolean solidAbove = ((i >> 4) & 15) < 15 && isSolid(captured.apply(above));
+                for (CellEffects.Emit e : CellEffects.pick(comps, cellT(after, i, comps, lookups),
+                        shown.isAir(), solidAbove)) {
+                    fx.add(new Fx(i, e));
+                }
+            }
         }
         return changedSinceCapture -> {
+            emit(entry, fx);
             if (changedSinceCapture) {
                 reconcile(entry, outMaterial, outLut);
                 return;
@@ -140,18 +174,33 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         private final Map<Block, Material> firstTouch = new HashMap<>();
         private final Map<Identifier, Optional<Material>> byId = new HashMap<>();
 
+        // Last key -> value: a section repeats the same block / palette id cell after cell, so the identity
+        // check skips the hash (Identifier/String hashCode was the step thread's top self-time).
+        private Block lastBlock;
+        private Material lastFirstTouch;
+        private Identifier lastId;
+        private Material lastById;
+
         Lookups(ActiveMaterials.State mats) {
             this.mats = mats;
         }
 
         /** The block's first-touch material ({@link LiveMaterials#materialFor}). */
         Material firstTouch(Block block) {
-            return firstTouch.computeIfAbsent(block, b -> LiveMaterials.materialFor(b, mats.registry()));
+            if (block != lastBlock) {
+                lastFirstTouch = firstTouch.computeIfAbsent(block, b -> LiveMaterials.materialFor(b, mats.registry()));
+                lastBlock = block;
+            }
+            return lastFirstTouch;
         }
 
         /** The registered material {@code id}, or null. */
         Material byId(Identifier id) {
-            return byId.computeIfAbsent(id, k -> mats.registry().get(k)).orElse(null);
+            if (id != lastId || lastId == null) {
+                lastById = byId.computeIfAbsent(id, k -> mats.registry().get(k)).orElse(null);
+                lastId = id;
+            }
+            return lastById;
         }
     }
 
@@ -188,12 +237,21 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
      * says after this step, or null to leave it alone. Pure over its arguments (no world access).
      */
     private static BlockState desiredState(BlockState current, int i, SectionData data, char[] inMaterial,
-                                           char[] outMaterial, List<Material> outLut, Lookups lookups) {
+                                           float[] inMass, char[] outMaterial, List<Material> outLut,
+                                           Lookups lookups) {
         Material worldMaterial = lookups.firstTouch(current.getBlock());
 
         // The species the cell BECAME this step (engine matOut), shared with the §7 changer; falls
         // back to the world block's material when the engine didn't report one.
         Material outMat = EngineOutSpecies.resolve(outMaterial, outLut, i, worldMaterial);
+        return desiredState(current, i, data, inMaterial, inMass, outMaterial, outLut, lookups, worldMaterial,
+                outMat, components(data, i, outMat, lookups));
+    }
+
+    private static BlockState desiredState(BlockState current, int i, SectionData data, char[] inMaterial,
+                                           float[] inMass, char[] outMaterial, List<Material> outLut,
+                                           Lookups lookups, Material worldMaterial, Material outMat,
+                                           List<RepresentativeState.Component> comps) {
 
         // Resolve the cell's MC-typed facts once, then let the pure decider make every load-bearing
         // call (fluid test, level math, species-aware throttle, §7 whitelist, repr-block pick).
@@ -210,7 +268,6 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         // role, so slot 0 can be the air or water a stair/rail/soil holds. A host the live block still
         // shows is KEPT — only its waterlogged property follows the water it holds; a host-absent
         // composition is drawn as its largest condensed component.
-        List<RepresentativeState.Component> comps = components(data, i, outMat, lookups);
         if (RepresentativeState.hostPresent(worldMaterial, comps)) {
             if (current.hasProperty(BlockStateProperties.WATERLOGGED)) {
                 Boolean wl = RepresentativeState.waterlogged(worldMaterial, comps,
@@ -230,7 +287,9 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         FluidReconcileDecider.Action action = FluidReconcileDecider.decide(
                 worldMaterial, outMat, massKg,
                 bucketOfWorldBlock(current), currentIsLiquid, current.isAir(),
-                worldShowsSpecies(current, worldMaterial, inMat),
+                worldShowsSpecies(current, worldMaterial, inMat)
+                        || FluidReconcileDecider.tracedAsAir(current.isAir(), inMat,
+                                inMass != null ? inMass[i] : Float.POSITIVE_INFINITY),
                 inMat != null && outMaterial != null && outMaterial[i] == 0);
         if (action.kind() == FluidReconcileDecider.Kind.SKIP) {
             return null;
@@ -243,6 +302,73 @@ public final class MinecraftFluidReconciler implements FluidReconciler {
         // for unknown ids); the decider already dropped a material with no repr block at all.
         Block target = BuiltInRegistries.BLOCK.getValue(action.block());
         return stateWithLevel(target, action.renderLevel());
+    }
+
+    /** One effect planned for cell {@code cell}. */
+    private record Fx(int cell, CellEffects.Emit emit) {}
+
+    private static boolean hasEffects(List<RepresentativeState.Component> comps) {
+        for (RepresentativeState.Component c : comps) {
+            if (c.material().effects() != MaterialEffects.NONE) return true;
+        }
+        return false;
+    }
+
+    private static boolean isSolid(BlockState s) {
+        return !s.isAir() && s.getFluidState().isEmpty();
+    }
+
+    /** The cell's temperature from its stored enthalpy and composition (the engine's decode). */
+    private static float cellT(SectionData data, int i, List<RepresentativeState.Component> comps, Lookups lookups) {
+        int n = comps.size();
+        Material[] mats = new Material[n];
+        float[] masses = new float[n];
+        for (int k = 0; k < n; k++) {
+            mats[k] = comps.get(k).material();
+            masses[k] = comps.get(k).massKg();
+        }
+        return EnthalpyCurve.mixtureT(data.enthalpyAt(i), mats, masses, n, lookups::byId, Float.NaN);
+    }
+
+    /** Sends the planned effects (server thread): each particle with its chance, its sound with the sound's. */
+    private void emit(ThermalWorld.BatchEntry entry, List<Fx> fx) {
+        if (fx.isEmpty()) {
+            return;
+        }
+        MinecraftServer srv = this.server;
+        ServerLevel level = srv == null ? null : levelFor(srv, entry.dimension());
+        if (level == null) {
+            return;
+        }
+        RandomSource r = level.getRandom();
+        SubchunkKey key = entry.key();
+        int ox = key.cx() << 4;
+        int oy = key.sectionY() << 4;
+        int oz = key.cz() << 4;
+        for (Fx f : fx) {
+            CellEffects.Emit e = f.emit();
+            if (r.nextFloat() >= e.chance()) continue;
+            ParticleOptions p = particle(level, e.particle());
+            BlockPos pos = posOf(ox, oy, oz, f.cell());
+            double y = pos.getY() + (e.atTop() ? 0.95 : 0.5);   // a drip hangs at the ceiling
+            if (p != null) {
+                level.sendParticles(p, pos.getX() + 0.5, y, pos.getZ() + 0.5, 1,
+                        0.3, e.atTop() ? 0.0 : 0.3, 0.3, 0.0);
+            }
+            Identifier sound = e.effect().sound();
+            if (sound != null && r.nextFloat() < e.effect().soundChance()) {
+                SoundEvent ev = BuiltInRegistries.SOUND_EVENT.getOptional(sound)
+                        .orElseGet(() -> SoundEvent.createVariableRangeEvent(sound));
+                level.playSound(null, pos, ev, SoundSource.BLOCKS, 0.4f, 0.9f + 0.2f * r.nextFloat());
+            }
+        }
+    }
+
+    private ParticleOptions particle(ServerLevel level, JsonElement json) {
+        return particles.computeIfAbsent(json, j -> ParticleTypes.CODEC
+                .parse(level.registryAccess().createSerializationContext(JsonOps.INSTANCE), j)
+                .resultOrPartial(err -> LOG.warn("ORGE: material effect particle {} unreadable: {}", j, err)))
+                .orElse(null);
     }
 
     private static BlockPos posOf(int ox, int oy, int oz, int i) {

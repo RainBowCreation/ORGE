@@ -13,5 +13,8 @@
   "latent_heat_max": 0,
   "t_ref_gas": 373,
   "min_temp": 373,
-  "min_target": "orge:water"
+  "min_target": "orge:water",
+  "effects": {
+    "suspended": { "particle": "minecraft:cloud", "min_kg": 0.06 }
+  }
 }
