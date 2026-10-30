@@ -32,10 +32,14 @@ public final class CellEffects {
             MaterialEffects fx = m.effects();
             if (fx == null || fx == MaterialEffects.NONE) continue;
             MaterialEffects.Effect s = fx.suspended();
-            if (drawnAir && s != null && c.massKg() > 0f && c.massKg() >= s.minKg()) {
+            // A cell drawn as air shows every suspended component. A cell drawn as a block shows a component by
+            // its compressibility weight χ: a gas is never what the block draws (steam boiled into a lava film
+            // rises out of the lava, #87), a condensed component is the block itself.
+            float shown = drawnAir ? 1f : RepresentativeState.chi(m);
+            if (shown > 0f && s != null && c.massKg() > 0f && c.massKg() >= s.minKg()) {
                 JsonElement p = solidAbove && s.underSolid() != null ? s.underSolid() : s.particle();
                 float trace = FluidReconcileLogic.TRACE_FRACTION * m.defaultMass();   // the most a trace holds
-                float chance = trace > 0f ? Math.min(1f, c.massKg() / trace) : 1f;
+                float chance = shown * (trace > 0f ? Math.min(1f, c.massKg() / trace) : 1f);
                 out.add(new Emit(p, s, chance, solidAbove));
             }
             MaterialEffects.Effect b = fx.boiling();

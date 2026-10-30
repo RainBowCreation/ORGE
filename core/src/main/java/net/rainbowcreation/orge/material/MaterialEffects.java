@@ -20,8 +20,9 @@ import net.minecraft.resources.Identifier;
  *
  * <ul>
  *   <li><b>suspended</b> — the material is in a cell drawn as air (a gas, or a liquid trace: less than half
- *       of the thinnest vanilla level, {@code default_mass / 16}). Shown with chance
- *       {@code min(1, mass / (default_mass / 16))} per step; {@code under_solid}
+ *       of the thinnest vanilla level, {@code default_mass / 16}), or it is a gas in a cell drawn as a block
+ *       (steam boiled into a lava film), weighted by its compressibility χ. Shown with chance
+ *       {@code χ'·min(1, mass / (default_mass / 16))} per step, χ' = 1 in a cell drawn as air; {@code under_solid}
  *       replaces the particle when a solid block is right above (a drip hanging from a ceiling).</li>
  *   <li><b>boiling</b> — the cell is at or above the material's {@code max_temp} (on its boiling
  *       plateau) and is drawn as a block. Shown inside the cell.</li>

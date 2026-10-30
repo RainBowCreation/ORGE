@@ -64,6 +64,28 @@ class CellEffectsTest {
         assertEquals("minecraft:cloud", type(fx.get(0)));
     }
 
+    private static final Material LAVA = mat("lava", "{\"thermal_conductivity\": 1.5, \"heat_capacity\": 1150,"
+            + " \"molar_mass\": 0.065, \"min_mass\": 330, \"default_mass\": 2650, \"max_mass\": 2650,"
+            + " \"default_temperature\": 1473, \"viscosity\": 500, \"effects\": {"
+            + "  \"suspended\": {\"particle\": \"minecraft:falling_lava\", \"under_solid\": \"minecraft:dripping_lava\"}}}");
+
+    @Test
+    void steamBoiledIntoALavaFilmRisesOutOfTheLavaBlock() {
+        // #87: water under a lava film boils into the film's free volume; the cell is drawn as lava, and the
+        // steam (a gas, χ ≈ 1) still shows its cloud — the lava itself (χ = 0) shows no drip inside its block
+        List<CellEffects.Emit> fx = CellEffects.pick(List.of(c(LAVA, 338f), c(STEAM, 0.07f)), 1460f, false, false);
+        assertEquals(1, fx.size());
+        assertEquals("minecraft:cloud", type(fx.get(0)));
+        assertEquals(1f, fx.get(0).chance(), 1e-3f);
+        assertTrue(CellEffects.pick(List.of(c(LAVA, 338f), c(STEAM, 0.01f)), 1460f, false, false).isEmpty(),
+                "below its min_kg the steam shows nothing");
+    }
+
+    @Test
+    void aLiquidDrawnAsItsBlockShowsNoSuspendedDrip() {
+        assertTrue(CellEffects.pick(List.of(c(WATER, 900f)), 290f, false, false).isEmpty());
+    }
+
     @Test
     void waterDrawnAsABlockBubblesOnlyAtItsBoilingPoint() {
         assertTrue(CellEffects.pick(List.of(c(WATER, 1000f)), 372.9f, false, false).isEmpty());
