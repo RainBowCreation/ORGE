@@ -74,6 +74,15 @@ final class OrgeFluidPolicyTest {
         assertFalse(OrgeFluidPolicy.allowVanillaLavaSolidification());
     }
 
+    // --- ice melting -----------------------------------------------------------------------------
+
+    @Test
+    void vanillaIceMelt_isDisabledGlobally() {
+        // Vanilla melts ice by block light and turns broken ice into water. Both skip the 334 kJ/kg
+        // latent heat and seed the water at its default 290 K. ORGE melts ice by its own temperature.
+        assertFalse(OrgeFluidPolicy.allowVanillaIceMelt());
+    }
+
     // --- managed-section predicate seam --------------------------------------------------------
 
     @Test

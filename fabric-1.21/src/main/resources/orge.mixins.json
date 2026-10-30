@@ -6,6 +6,7 @@
   "mixins": [
     "FallingBlockMixin",
     "FarmBlockMixin",
+    "IceBlockMixin",
     "FlowingFluidMixin",
     "LiquidBlockMixin",
     "LavaFluidMixin",

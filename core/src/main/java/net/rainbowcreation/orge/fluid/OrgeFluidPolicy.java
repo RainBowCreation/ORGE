@@ -107,4 +107,15 @@ public final class OrgeFluidPolicy {
     public static boolean allowVanillaLavaSolidification() {
         return false;
     }
+
+    /**
+     * Whether vanilla turns ice into water: {@code IceBlock#melt} (block light above 11, also the last
+     * step of frosted ice) and the break-into-water branch of {@code IceBlock#playerDestroy}. Always
+     * {@code false}: either path skips the 334 kJ/kg latent heat and the replacement water is captured
+     * as a fresh placement at its default 290 K, so energy appears from nothing. ORGE melts ice through
+     * its phase system at 273 K. A broken ice block is a removal like any other mined block.
+     */
+    public static boolean allowVanillaIceMelt() {
+        return false;
+    }
 }
