@@ -64,4 +64,23 @@ class PhaseRelabelLedgerTest {
         // water is not a phase target of lava's chain here: a water cell "becoming" lava fabricates lava.
         assertFalse(conserved(new float[]{1000f}, new float[]{1000f}, new char[]{WATER}, new char[]{LAVA}));
     }
+
+    /** Live HOLD, normal world (humid air over water): the engine's per-component phase transfer
+     *  re-orders a cell's slots — the water parcel lands in the slot the vapour held. Pairing slots by
+     *  index read that as a 1000 kg water→steam "relabel"; H2O is conserved across phases and slots. */
+    @Test
+    void slotReorderBetweenWaterAndVapourIsConserved() {
+        float[] slotBefore = {1f, 0f, 0f}, slotAfter = {1000f, 0f, 0f}; // K−1 = 3 slots of one cell
+        char[] inSlot = {STEAM, 0, 0}, outSlot = {WATER, 0, 0};
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(new float[]{1f}, new float[]{1000f}, new char[]{WATER}, new char[]{STEAM}, lut());
+        ledger.addSlots(slotAfter, slotBefore, inSlot, outSlot, lut());
+        assertTrue(ledger.conserved());
+
+        slotAfter[0] = 0f; // the water left every slot: still caught
+        StepValidator.SpeciesMassLedger lost = new StepValidator.SpeciesMassLedger();
+        lost.add(new float[]{1f}, new float[]{1000f}, new char[]{WATER}, new char[]{STEAM}, lut());
+        lost.addSlots(slotAfter, slotBefore, inSlot, outSlot, lut());
+        assertFalse(lost.conserved());
+    }
 }

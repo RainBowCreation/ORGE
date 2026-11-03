@@ -618,4 +618,32 @@ class StepValidatorMassTest {
         assertFalse(StepValidator.cellsWithinBound(neg, out, perSpeciesLut()),
                 "negative air mass rejected (lower bound never relaxed)");
     }
+
+    /** Live HOLD, normal world: the engine re-orders a cell's composition (water slot 0 → slot 1, its
+     *  air slot 1 → slot 0). Each species is conserved over the cell's slots, so the region must pass. */
+    @Test
+    void ledgerConservesASpeciesMovedBetweenSlotZeroAndACompositionSlot() {
+        int n = 4096; // tol = 0.01 · 4096 ≈ 41 kg — a 1000 kg move is far outside it
+        float[] before = new float[n], after = new float[n];
+        char[] inMat = new char[n], outMat = new char[n];
+        float[] slotBefore = new float[n], slotAfter = new float[n];
+        char[] inSlot = new char[n], outSlot = new char[n];
+        inMat[0] = WATER_IX; before[0] = 1000f;   inSlot[0] = AIR_IX; slotBefore[0] = 1.2f;
+        outMat[0] = AIR_IX;  after[0] = 1.2f;     outSlot[0] = WATER_IX; slotAfter[0] = 1000f;
+
+        StepValidator.SpeciesMassLedger slotZeroOnly = new StepValidator.SpeciesMassLedger();
+        slotZeroOnly.add(after, before, inMat, outMat, perSpeciesLut());
+        assertFalse(slotZeroOnly.conserved(), "slot 0 alone reads the re-order as 1000 kg of water lost");
+
+        StepValidator.SpeciesMassLedger ledger = new StepValidator.SpeciesMassLedger();
+        ledger.add(after, before, inMat, outMat, perSpeciesLut());
+        ledger.addSlots(slotAfter, slotBefore, inSlot, outSlot, perSpeciesLut());
+        assertTrue(ledger.conserved());
+
+        slotAfter[0] = 0f; // the water vanished from every slot: genuine destruction is still caught
+        StepValidator.SpeciesMassLedger lost = new StepValidator.SpeciesMassLedger();
+        lost.add(after, before, inMat, outMat, perSpeciesLut());
+        lost.addSlots(slotAfter, slotBefore, inSlot, outSlot, perSpeciesLut());
+        assertFalse(lost.conserved());
+    }
 }

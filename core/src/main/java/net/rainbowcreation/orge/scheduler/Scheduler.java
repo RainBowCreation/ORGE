@@ -420,6 +420,7 @@ public final class Scheduler {
                 ThermalWorld.ColumnEntry e = c.columns.get(i);
                 ColumnResult r = results.get(i);
                 ledger.add(r.mass(), e.task().mass(), e.task().matIx(), r.matIx(), c.materials);
+                ledger.addSlots(r.slotMass(), e.task().slotMass(), e.task().slotIx(), r.slotIx(), c.materials);
             }
             if (c.regionResult != null) {
                 // A4: declare this cycle's placement deltas so a legit injection (after-before = injected

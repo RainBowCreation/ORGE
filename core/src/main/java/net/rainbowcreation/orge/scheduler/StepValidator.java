@@ -224,6 +224,13 @@ public final class StepValidator {
         private double[] sumBefore = new double[0];
         private double[] sumAfter = new double[0];
         private boolean[] tracked = new boolean[0];
+        // Phase family of each species: the smallest index among the TRACKED species joined to it by
+        // min/max targets (water + steam). Sums are keyed by family, so the ledger conserves a substance
+        // across its phases and across a cell's slots — the engine's per-component phase transfer moves
+        // mass between slots, so pairing a slot's in/out species by slot index cannot tell a phase change
+        // from a re-ordered composition (a water parcel landing in the slot vapour held read as 1000 kg of
+        // steam fabricated). An untracked species is its own family.
+        private int[] family = new int[0];
         private long totalCells;
 
         // Declared per-species placement deltas (spec A4): expected after-before = injected - sealedLoss.
@@ -272,6 +279,7 @@ public final class StepValidator {
             for (int s = 0; s < lut.size(); s++) {
                 tracked[s] = lut.get(s).movable();
             }
+            indexFamilies(lut);
             float cellEps = MASS_EPSILON_PER_CELL;
             boolean bound = true;
             for (int i = 0; i < after.length; i++) {
@@ -292,7 +300,7 @@ public final class StepValidator {
                 // that simply makes air vanish (no air-out receiver) now FAILS air's conservation — which
                 // is the whole point of the §11 fix.
                 if (in != 0 && isTracked(lut.get(in))) {
-                    sumBefore[in] += before[i];
+                    sumBefore[family[in]] += before[i];
                 }
                 if (out != 0 && isTracked(lut.get(out))) {
                     float b = lut.get(out).maxMass(); // per-species cap (canonical accessor: 0 -> defaultMass)
@@ -303,17 +311,66 @@ public final class StepValidator {
                         bound = false;
                     }
                 }
-                // A PHASE relabel (out is in's min/max target — the engine relabels in DECODE, after every
-                // flux of the step moved this mass as species `in`) is a conversion, not a transport: it
-                // is ledger-neutral, so the after mass is credited to the INPUT species' sum. Any other
-                // species change still credits the output species (fabrication stays caught).
-                int credit = isPhaseRelabel(in, out, lut) ? in : out;
-                if (credit != 0 && isTracked(lut.get(credit))) {
-                    sumAfter[credit] += after[i];
-                }
+                creditAfter(in, out, after[i], lut);
             }
             totalCells += after.length;
             return bound;
+        }
+
+        /**
+         * Accumulate the DESIGN-LAW v5 #7 composition slots 1..K−1 (index {@code (k−1)·CHUNK_N + cell}) on
+         * the same dual index as slot 0. A species is conserved over ALL of a cell's slots: the engine
+         * moves a parcel between slot 0 and a slot (a liquid into a gas cell's free volume, a re-ordered
+         * composition) and a slot-0-only sum reads that as fabrication / destruction. Call after
+         * {@link #add} for the same section; adds no cells to the tolerance (it is per cell, not per slot).
+         */
+        public void addSlots(float[] after, float[] before, char[] inSlot, char[] outSlot, List<Material> lut) {
+            if (after == null || before == null || inSlot == null || outSlot == null) {
+                return; // a task built without composition slots: every cell is one-material
+            }
+            grow(lut.size());
+            for (int q = 0; q < after.length; q++) {
+                int in = inSlot[q];
+                if (in != 0 && isTracked(lut.get(in))) {
+                    sumBefore[family[in]] += before[q];
+                }
+                creditAfter(in, outSlot[q], after[q], lut);
+            }
+        }
+
+        // A PHASE relabel (out is in's min/max target — the engine relabels in DECODE, after every flux of
+        // the step moved this mass as species `in`) is a conversion, not a transport: it is ledger-neutral,
+        // so the after mass is credited to the INPUT species' sum. Any other species change still credits
+        // the output species (fabrication stays caught).
+        private void creditAfter(int in, int out, float after, List<Material> lut) {
+            int credit = isPhaseRelabel(in, out, lut) ? in : out;
+            if (credit != 0 && isTracked(lut.get(credit))) {
+                sumAfter[family[credit]] += after;
+            }
+        }
+
+        private void indexFamilies(List<Material> lut) {
+            if (family.length == lut.size()) return; // the batch LUT only grows; same size = same LUT
+            java.util.Map<Identifier, Integer> ix = new java.util.HashMap<>();
+            for (int s = 0; s < lut.size(); s++) ix.putIfAbsent(lut.get(s).id(), s);
+            family = new int[lut.size()];
+            for (int s = 0; s < family.length; s++) family[s] = s;
+            for (int s = 1; s < family.length; s++) {
+                if (!tracked[s]) continue;
+                for (Identifier target : new Identifier[] {lut.get(s).minTarget(), lut.get(s).maxTarget()}) {
+                    Integer t = target == null ? null : ix.get(target);
+                    if (t != null && t != 0 && tracked[t]) {
+                        int a = root(s), b = root(t);
+                        family[Math.max(a, b)] = Math.min(a, b);
+                    }
+                }
+            }
+            for (int s = 0; s < family.length; s++) family[s] = root(s);
+        }
+
+        private int root(int s) {
+            while (family[s] != s) s = family[s];
+            return s;
         }
 
         /** True when {@code out} is {@code in}'s phase target (min/max target id) — an engine relabel. */
@@ -332,18 +389,22 @@ public final class StepValidator {
          */
         public boolean conserved() {
             double tol = (double) MASS_EPSILON_PER_CELL * totalCells;
+            double[] expected = new double[sumAfter.length];
+            for (int s = 1; s < sumAfter.length && s < family.length; s++) {
+                if (tracked[s]) {
+                    expected[family[s]] += (s < injected.length ? injected[s] : 0.0)
+                                         - (s < sealedLoss.length ? sealedLoss[s] : 0.0);
+                }
+            }
             for (int s = 1; s < sumAfter.length; s++) {
                 // Only MOVABLE species carry a conservation invariant. An immovable solid's mass is
                 // created/removed freely by a block place/break — the native ledger still records its
                 // injected mass, but checking that delta against this species' structural-zero sums
                 // would be a phantom discrepancy that (cumulatively) HOLDs the whole region.
-                if (s >= tracked.length || !tracked[s]) {
-                    continue;
+                if (s >= tracked.length || !tracked[s] || s >= family.length || family[s] != s) {
+                    continue; // untracked, or a family member whose mass is summed under its family root
                 }
-                double expectedDelta =
-                        (s < injected.length   ? injected[s]   : 0.0)
-                      - (s < sealedLoss.length ? sealedLoss[s] : 0.0);
-                if (Math.abs(sumAfter[s] - sumBefore[s] - expectedDelta) > tol) {
+                if (Math.abs(sumAfter[s] - sumBefore[s] - expected[s]) > tol) {
                     return false;
                 }
             }
@@ -355,6 +416,7 @@ public final class StepValidator {
             sumAfter = java.util.Arrays.copyOf(sumAfter, speciesCount);
             sumBefore = java.util.Arrays.copyOf(sumBefore, speciesCount);
             tracked = java.util.Arrays.copyOf(tracked, speciesCount);
+            family = new int[0]; // re-indexed by the next add()
         }
     }
 
