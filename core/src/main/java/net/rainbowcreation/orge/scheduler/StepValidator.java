@@ -229,8 +229,14 @@ public final class StepValidator {
         // across its phases and across a cell's slots — the engine's per-component phase transfer moves
         // mass between slots, so pairing a slot's in/out species by slot index cannot tell a phase change
         // from a re-ordered composition (a water parcel landing in the slot vapour held read as 1000 kg of
-        // steam fabricated). An untracked species is its own family.
+        // steam fabricated). An IMMOVABLE species linked by min/max target to a tracked one (ice with water,
+        // rock with lava) joins that family: the engine's per-component phase transfer moves the lever-rule
+        // share between a movable slot and the immovable partner's slot, so a partial freeze / melt would
+        // otherwise read as the tracked species destroyed / created. An untracked species with no tracked
+        // phase partner is its own family and stays exempt (a placed / broken solid is no conservation event).
         private int[] family = new int[0];
+        // Species whose mass the ledger sums: tracked, or an untracked member of a tracked species' family.
+        private boolean[] counted = new boolean[0];
         private long totalCells;
 
         // Declared per-species placement deltas (spec A4): expected after-before = injected - sealedLoss.
@@ -299,7 +305,7 @@ public final class StepValidator {
                 // air's after to air's own sum and the sunk water's before to water's own sum. A relabel
                 // that simply makes air vanish (no air-out receiver) now FAILS air's conservation — which
                 // is the whole point of the §11 fix.
-                if (in != 0 && isTracked(lut.get(in))) {
+                if (in != 0 && counted[in]) {
                     sumBefore[family[in]] += before[i];
                 }
                 if (out != 0 && isTracked(lut.get(out))) {
@@ -331,7 +337,7 @@ public final class StepValidator {
             grow(lut.size());
             for (int q = 0; q < after.length; q++) {
                 int in = inSlot[q];
-                if (in != 0 && isTracked(lut.get(in))) {
+                if (in != 0 && counted[in]) {
                     sumBefore[family[in]] += before[q];
                 }
                 creditAfter(in, outSlot[q], after[q], lut);
@@ -344,7 +350,7 @@ public final class StepValidator {
         // the output species (fabrication stays caught).
         private void creditAfter(int in, int out, float after, List<Material> lut) {
             int credit = isPhaseRelabel(in, out, lut) ? in : out;
-            if (credit != 0 && isTracked(lut.get(credit))) {
+            if (credit != 0 && counted[credit]) {
                 sumAfter[family[credit]] += after;
             }
         }
@@ -355,17 +361,26 @@ public final class StepValidator {
             for (int s = 0; s < lut.size(); s++) ix.putIfAbsent(lut.get(s).id(), s);
             family = new int[lut.size()];
             for (int s = 0; s < family.length; s++) family[s] = s;
+            // A min/max link joins two species when at least ONE is tracked: tracked↔tracked (water, steam)
+            // and tracked↔immovable (water, ice; lava, rock). Two untracked species never join each other.
             for (int s = 1; s < family.length; s++) {
-                if (!tracked[s]) continue;
                 for (Identifier target : new Identifier[] {lut.get(s).minTarget(), lut.get(s).maxTarget()}) {
                     Integer t = target == null ? null : ix.get(target);
-                    if (t != null && t != 0 && tracked[t]) {
+                    if (t != null && t != 0 && (tracked[s] || tracked[t])) {
                         int a = root(s), b = root(t);
                         family[Math.max(a, b)] = Math.min(a, b);
                     }
                 }
             }
             for (int s = 0; s < family.length; s++) family[s] = root(s);
+            // Every multi-member family contains a tracked species (joins need one); a lone untracked
+            // species is exempt.
+            counted = new boolean[family.length];
+            int[] size = new int[family.length];
+            for (int s = 1; s < family.length; s++) size[family[s]]++;
+            for (int s = 1; s < family.length; s++) {
+                counted[s] = tracked[s] || size[family[s]] > 1;
+            }
         }
 
         private int root(int s) {
@@ -391,18 +406,19 @@ public final class StepValidator {
             double tol = (double) MASS_EPSILON_PER_CELL * totalCells;
             double[] expected = new double[sumAfter.length];
             for (int s = 1; s < sumAfter.length && s < family.length; s++) {
-                if (tracked[s]) {
+                if (counted[s]) {
                     expected[family[s]] += (s < injected.length ? injected[s] : 0.0)
                                          - (s < sealedLoss.length ? sealedLoss[s] : 0.0);
                 }
             }
             for (int s = 1; s < sumAfter.length; s++) {
-                // Only MOVABLE species carry a conservation invariant. An immovable solid's mass is
+                // Only a MOVABLE species, or an immovable one in a movable species' phase family (ice with
+                // water, rock with lava), carries a conservation invariant. A lone immovable solid's mass is
                 // created/removed freely by a block place/break — the native ledger still records its
                 // injected mass, but checking that delta against this species' structural-zero sums
                 // would be a phantom discrepancy that (cumulatively) HOLDs the whole region.
-                if (s >= tracked.length || !tracked[s] || s >= family.length || family[s] != s) {
-                    continue; // untracked, or a family member whose mass is summed under its family root
+                if (s >= counted.length || !counted[s] || s >= family.length || family[s] != s) {
+                    continue; // exempt, or a family member whose mass is summed under its family root
                 }
                 if (Math.abs(sumAfter[s] - sumBefore[s] - expected[s]) > tol) {
                     return false;
@@ -416,6 +432,7 @@ public final class StepValidator {
             sumAfter = java.util.Arrays.copyOf(sumAfter, speciesCount);
             sumBefore = java.util.Arrays.copyOf(sumBefore, speciesCount);
             tracked = java.util.Arrays.copyOf(tracked, speciesCount);
+            counted = new boolean[0];
             family = new int[0]; // re-indexed by the next add()
         }
     }
